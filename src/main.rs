@@ -1,8 +1,11 @@
+mod core;
+mod panes;
 mod state;
 mod ui;
 
 use std::time::Duration;
 
+use panes::RackPane;
 use ui::{
     widgets::{ListItem, SelectList, TextInput},
     Action, Color, Graphics, InputEvent, InputSource, KeyCode, Keymap, Pane, PaneManager,
@@ -304,7 +307,7 @@ fn main() -> std::io::Result<()> {
 }
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
-    let mut panes = PaneManager::new(Box::new(DemoPane::new()));
+    let mut panes = PaneManager::new(Box::new(RackPane::new()));
     panes.add_pane(Box::new(KeymapPane::new()));
 
     loop {
