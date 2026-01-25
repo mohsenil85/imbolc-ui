@@ -40,8 +40,8 @@ impl Pane for MainPane {
 
     fn render(&self, g: &mut dyn Graphics) {
         let (width, height) = g.size();
-        let box_width = 30;
-        let box_height = 10;
+        let box_width = 97;
+        let box_height = 29;
         let rect = Rect::centered(width, height, box_width, box_height);
 
         g.set_style(Style::new().fg(Color::BLACK));
