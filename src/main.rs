@@ -5,7 +5,8 @@ mod ui;
 
 use std::time::Duration;
 
-use panes::RackPane;
+use panes::{EditPane, RackPane};
+use state::{Param, ParamValue};
 use ui::{
     widgets::{ListItem, SelectList, TextInput},
     Action, Color, Graphics, InputEvent, InputSource, KeyCode, Keymap, Pane, PaneManager,
@@ -309,6 +310,33 @@ fn main() -> std::io::Result<()> {
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut panes = PaneManager::new(Box::new(RackPane::new()));
     panes.add_pane(Box::new(KeymapPane::new()));
+
+    // Add EditPane with test parameters
+    let test_params = vec![
+        Param {
+            name: "freq",
+            value: ParamValue::Float(440.0),
+            min: 20.0,
+            max: 20000.0,
+        },
+        Param {
+            name: "amp",
+            value: ParamValue::Float(0.5),
+            min: 0.0,
+            max: 1.0,
+        },
+        Param {
+            name: "detune",
+            value: ParamValue::Float(0.0),
+            min: -100.0,
+            max: 100.0,
+        },
+    ];
+    panes.add_pane(Box::new(EditPane::new(
+        "saw-1".to_string(),
+        "Saw Oscillator",
+        test_params,
+    )));
 
     loop {
         // Poll for input
