@@ -4,6 +4,7 @@ pub mod keymap;
 pub mod pane;
 pub mod ratatui_impl;
 pub mod style;
+pub mod widgets;
 
 pub use graphics::{Graphics, Rect};
 pub use input::{InputEvent, InputSource, KeyCode, Modifiers};
