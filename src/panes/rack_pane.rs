@@ -121,14 +121,24 @@ impl Pane for RackPane {
         g.set_style(Style::new().fg(Color::BLACK));
         g.put_str(content_x, content_y, "Modules:");
 
-        // Module list
+        // Module list with viewport scrolling
         let list_y = content_y + 2;
+        let max_visible = (rect.height - 7) as usize;
+        let selected_idx = self.rack.selected.unwrap_or(0);
 
-        for (i, &module_id) in self.rack.order.iter().enumerate() {
-            let y = list_y + i as u16;
-            if y >= rect.y + rect.height - 3 {
+        // Calculate scroll offset to keep selection visible
+        let scroll_offset = if selected_idx >= max_visible {
+            selected_idx - max_visible + 1
+        } else {
+            0
+        };
+
+        for (i, &module_id) in self.rack.order.iter().enumerate().skip(scroll_offset) {
+            let row = i - scroll_offset;
+            if row >= max_visible {
                 break;
             }
+            let y = list_y + row as u16;
 
             if let Some(module) = self.rack.modules.get(&module_id) {
                 let is_selected = self.rack.selected == Some(i);
@@ -166,6 +176,16 @@ impl Pane for RackPane {
                     }
                 }
             }
+        }
+
+        // Scroll indicators
+        if scroll_offset > 0 {
+            g.set_style(Style::new().fg(Color::GRAY));
+            g.put_str(rect.x + rect.width - 4, list_y, "...");
+        }
+        if scroll_offset + max_visible < self.rack.order.len() {
+            g.set_style(Style::new().fg(Color::GRAY));
+            g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
 
         // Help text at bottom

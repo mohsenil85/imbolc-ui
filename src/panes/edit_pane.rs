@@ -182,14 +182,23 @@ impl Pane for EditPane {
         g.set_style(Style::new().fg(Color::BLACK));
         g.put_str(content_x, content_y, "Parameters:");
 
-        // Draw parameters
+        // Draw parameters with viewport scrolling
         let list_y = content_y + 2;
+        let max_visible = (rect.height - 7) as usize;
 
-        for (i, param) in self.params.iter().enumerate() {
-            let y = list_y + i as u16;
-            if y >= rect.y + rect.height - 3 {
+        // Calculate scroll offset to keep selection visible
+        let scroll_offset = if self.selected_param >= max_visible {
+            self.selected_param - max_visible + 1
+        } else {
+            0
+        };
+
+        for (i, param) in self.params.iter().enumerate().skip(scroll_offset) {
+            let row = i - scroll_offset;
+            if row >= max_visible {
                 break;
             }
+            let y = list_y + row as u16;
 
             let is_selected = i == self.selected_param;
 
@@ -236,6 +245,16 @@ impl Pane for EditPane {
                     g.put_char(x, y, ' ');
                 }
             }
+        }
+
+        // Scroll indicators
+        if scroll_offset > 0 {
+            g.set_style(Style::new().fg(Color::GRAY));
+            g.put_str(rect.x + rect.width - 4, list_y, "...");
+        }
+        if scroll_offset + max_visible < self.params.len() {
+            g.set_style(Style::new().fg(Color::GRAY));
+            g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
 
         // Help text at bottom

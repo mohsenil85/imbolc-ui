@@ -105,6 +105,7 @@ impl AddPane {
             }
         }
     }
+
 }
 
 impl Default for AddPane {
@@ -153,15 +154,23 @@ impl Pane for AddPane {
         g.set_style(Style::new().fg(Color::BLACK));
         g.put_str(content_x, content_y, "Select module type:");
 
-        // Module list
+        // Module list with viewport scrolling
         let list_y = content_y + 2;
-        let max_visible = (rect.height - 6) as usize;
+        let max_visible = (rect.height - 7) as usize; // Leave room for title and help
 
-        for (i, item) in self.items.iter().enumerate() {
-            let y = list_y + i as u16;
-            if y >= rect.y + rect.height - 3 {
+        // Calculate scroll offset to keep selection visible
+        let scroll_offset = if self.selected >= max_visible {
+            self.selected - max_visible + 1
+        } else {
+            0
+        };
+
+        for (i, item) in self.items.iter().enumerate().skip(scroll_offset) {
+            let row = i - scroll_offset;
+            if row >= max_visible {
                 break;
             }
+            let y = list_y + row as u16;
 
             if item.is_header {
                 // Render header
@@ -202,6 +211,16 @@ impl Pane for AddPane {
                     }
                 }
             }
+        }
+
+        // Scroll indicator if needed
+        if scroll_offset > 0 {
+            g.set_style(Style::new().fg(Color::GRAY));
+            g.put_str(rect.x + rect.width - 4, list_y, "...");
+        }
+        if scroll_offset + max_visible < self.items.len() {
+            g.set_style(Style::new().fg(Color::GRAY));
+            g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
 
         // Help text at bottom

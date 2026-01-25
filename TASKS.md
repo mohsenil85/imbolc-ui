@@ -155,7 +155,7 @@ Create modal pane for selecting module type to add.
 ---
 
 ### Task 5: Edit View Pane
-**Status:** `[~]`
+**Status:** `[x]`
 **Branch:** `task-5`
 **Files:** `src/panes/edit_pane.rs`, `src/panes/mod.rs` (add export)
 **Dependencies:** Task 1, Task 2, Task 3
