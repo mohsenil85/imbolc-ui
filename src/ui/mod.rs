@@ -1,9 +1,13 @@
 pub mod graphics;
 pub mod input;
-pub mod style;
+pub mod keymap;
+pub mod pane;
 pub mod ratatui_impl;
+pub mod style;
 
 pub use graphics::{Graphics, Rect};
 pub use input::{InputEvent, InputSource, KeyCode, Modifiers};
-pub use style::{Color, Style, SemanticColor};
+pub use keymap::{KeyBinding, KeyPattern, Keymap};
+pub use pane::{Action, Pane, PaneManager};
 pub use ratatui_impl::RatatuiBackend;
+pub use style::{Color, SemanticColor, Style};

@@ -2,7 +2,62 @@ mod ui;
 
 use std::time::Duration;
 
-use ui::{Color, Graphics, InputSource, RatatuiBackend, Rect, Style};
+use ui::{
+    Action, Color, Graphics, InputEvent, InputSource, KeyCode, Keymap, Pane, PaneManager,
+    RatatuiBackend, Rect, Style,
+};
+
+/// Main pane showing the tuidaw title box
+struct MainPane {
+    keymap: Keymap,
+}
+
+impl MainPane {
+    fn new() -> Self {
+        Self {
+            keymap: Keymap::new()
+                .bind('q', "quit", "Quit the application")
+                .bind('?', "help", "Show help"),
+        }
+    }
+}
+
+impl Pane for MainPane {
+    fn id(&self) -> &'static str {
+        "main"
+    }
+
+    fn handle_input(&mut self, event: InputEvent) -> Action {
+        match self.keymap.lookup(&event) {
+            Some("quit") => Action::Quit,
+            Some("help") => {
+                // TODO: switch to help pane
+                Action::None
+            }
+            _ => Action::None,
+        }
+    }
+
+    fn render(&self, g: &mut dyn Graphics) {
+        let (width, height) = g.size();
+        let box_width = 30;
+        let box_height = 10;
+        let rect = Rect::centered(width, height, box_width, box_height);
+
+        g.set_style(Style::new().fg(Color::BLACK));
+        g.draw_box(rect, Some(" tuidaw "));
+
+        // Show keybindings at bottom of box
+        let help_y = rect.y + rect.height - 2;
+        let help_text = "Press ? for help, q to quit";
+        let help_x = rect.x + (rect.width.saturating_sub(help_text.len() as u16)) / 2;
+        g.put_str(help_x, help_y, help_text);
+    }
+
+    fn keymap(&self) -> &Keymap {
+        &self.keymap
+    }
+}
 
 fn main() -> std::io::Result<()> {
     let mut backend = RatatuiBackend::new()?;
@@ -15,29 +70,20 @@ fn main() -> std::io::Result<()> {
 }
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
+    let mut panes = PaneManager::new(Box::new(MainPane::new()));
+
     loop {
-        // Poll for input (non-blocking with short timeout for ~60fps)
+        // Poll for input
         if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
-            // Handle 'q' to quit
-            if event.is_char('q') {
+            let action = panes.handle_input(event);
+            if action == Action::Quit {
                 break;
             }
         }
 
-        // Begin frame
+        // Render
         let mut frame = backend.begin_frame()?;
-
-        // Get terminal size and calculate centered box
-        let (width, height) = frame.size();
-        let box_width = 30;
-        let box_height = 10;
-        let rect = Rect::centered(width, height, box_width, box_height);
-
-        // Set style and draw box (use black for light terminals)
-        frame.set_style(Style::new().fg(Color::BLACK));
-        frame.draw_box(rect, Some(" tuidaw "));
-
-        // End frame and render
+        panes.render(&mut frame);
         backend.end_frame(frame)?;
     }
 
