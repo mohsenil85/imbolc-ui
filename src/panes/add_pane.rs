@@ -73,12 +73,10 @@ impl AddPane {
             keymap: Keymap::new()
                 .bind_key(KeyCode::Enter, "confirm", "Add selected module")
                 .bind_key(KeyCode::Escape, "cancel", "Cancel and return to rack")
-                .bind('n', "next", "Next module")
-                .bind('p', "prev", "Previous module")
-                .bind('j', "next", "Next module (vim)")
-                .bind('k', "prev", "Previous module (vim)")
                 .bind_key(KeyCode::Down, "next", "Next module")
-                .bind_key(KeyCode::Up, "prev", "Previous module"),
+                .bind_key(KeyCode::Up, "prev", "Previous module")
+                .bind_key(KeyCode::Home, "first", "First module")
+                .bind_key(KeyCode::End, "last", "Last module"),
             items,
             selected: initial_selected,
         }
@@ -138,6 +136,14 @@ impl Pane for AddPane {
             }
             Some("prev") => {
                 self.select_prev();
+                Action::None
+            }
+            Some("first") => {
+                self.selected = self.items.iter().position(|item| !item.is_header).unwrap_or(0);
+                Action::None
+            }
+            Some("last") => {
+                self.selected = self.items.iter().rposition(|item| !item.is_header).unwrap_or(0);
                 Action::None
             }
             _ => Action::None,
@@ -232,7 +238,7 @@ impl Pane for AddPane {
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
         g.set_style(Style::new().fg(Color::GRAY));
-        g.put_str(content_x, help_y, "Enter: add | Escape: cancel | n/p: navigate");
+        g.put_str(content_x, help_y, "Enter: add | Escape: cancel | Up/Down: navigate | Home/End: jump");
     }
 
     fn keymap(&self) -> &Keymap {

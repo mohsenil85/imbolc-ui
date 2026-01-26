@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use audio::AudioEngine;
-use panes::{AddPane, EditPane, RackPane, ServerPane};
-use state::RackState;
+use panes::{AddPane, EditPane, MixerPane, RackPane, ServerPane};
+use state::{MixerSelection, RackState};
 use ui::{
     widgets::{ListItem, SelectList, TextInput},
     Action, Color, Graphics, InputEvent, InputSource, KeyCode, Keymap, Pane, PaneManager,
@@ -337,6 +337,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(AddPane::new()));
     panes.add_pane(Box::new(EditPane::new()));
     panes.add_pane(Box::new(ServerPane::new()));
+    panes.add_pane(Box::new(MixerPane::new()));
     panes.add_pane(Box::new(KeymapPane::new()));
 
     let mut audio_engine = AudioEngine::new();
@@ -497,6 +498,79 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         let _ = audio_engine.set_param(*module_id, param, *value);
                     }
                 }
+                Action::MixerMove(delta) => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        rack_pane.rack_mut().mixer.move_selection(*delta);
+                    }
+                }
+                Action::MixerJump(direction) => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        rack_pane.rack_mut().mixer.jump_selection(*direction);
+                    }
+                }
+                Action::MixerAdjustLevel(delta) => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let mixer = &mut rack_pane.rack_mut().mixer;
+                        match mixer.selection {
+                            MixerSelection::Channel(id) => {
+                                if let Some(ch) = mixer.channel_mut(id) {
+                                    ch.level = (ch.level + delta).clamp(0.0, 1.0);
+                                }
+                            }
+                            MixerSelection::Bus(id) => {
+                                if let Some(bus) = mixer.bus_mut(id) {
+                                    bus.level = (bus.level + delta).clamp(0.0, 1.0);
+                                }
+                            }
+                            MixerSelection::Master => {
+                                mixer.master_level = (mixer.master_level + delta).clamp(0.0, 1.0);
+                            }
+                        }
+                    }
+                }
+                Action::MixerToggleMute => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let mixer = &mut rack_pane.rack_mut().mixer;
+                        match mixer.selection {
+                            MixerSelection::Channel(id) => {
+                                if let Some(ch) = mixer.channel_mut(id) {
+                                    ch.mute = !ch.mute;
+                                }
+                            }
+                            MixerSelection::Bus(id) => {
+                                if let Some(bus) = mixer.bus_mut(id) {
+                                    bus.mute = !bus.mute;
+                                }
+                            }
+                            MixerSelection::Master => {
+                                mixer.master_mute = !mixer.master_mute;
+                            }
+                        }
+                    }
+                }
+                Action::MixerToggleSolo => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let mixer = &mut rack_pane.rack_mut().mixer;
+                        match mixer.selection {
+                            MixerSelection::Channel(id) => {
+                                if let Some(ch) = mixer.channel_mut(id) {
+                                    ch.solo = !ch.solo;
+                                }
+                            }
+                            MixerSelection::Bus(id) => {
+                                if let Some(bus) = mixer.bus_mut(id) {
+                                    bus.solo = !bus.solo;
+                                }
+                            }
+                            MixerSelection::Master => {} // Master can't be soloed
+                        }
+                    }
+                }
+                Action::MixerCycleSection => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        rack_pane.rack_mut().mixer.cycle_section();
+                    }
+                }
                 _ => {}
             }
         }
@@ -513,7 +587,23 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
         // Render
         let mut frame = backend.begin_frame()?;
-        panes.render(&mut frame);
+
+        // Special handling for mixer pane which needs rack state
+        if panes.active().id() == "mixer" {
+            // Get rack state for mixer rendering
+            let rack_state = panes
+                .get_pane_mut::<RackPane>("rack")
+                .map(|r| r.rack().clone());
+
+            if let Some(rack) = rack_state {
+                if let Some(mixer_pane) = panes.get_pane_mut::<MixerPane>("mixer") {
+                    mixer_pane.render_with_state(&mut frame, &rack);
+                }
+            }
+        } else {
+            panes.render(&mut frame);
+        }
+
         backend.end_frame(frame)?;
     }
 

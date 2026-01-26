@@ -44,6 +44,18 @@ pub enum Action {
     LoadSynthDefs,
     /// Real-time parameter update
     SetModuleParam(crate::state::ModuleId, String, f32),
+    /// Mixer: move selection left/right
+    MixerMove(i8),
+    /// Mixer: jump to first (1) or last (-1) in section
+    MixerJump(i8),
+    /// Mixer: adjust level of selected channel/bus/master
+    MixerAdjustLevel(f32),
+    /// Mixer: toggle mute on selected
+    MixerToggleMute,
+    /// Mixer: toggle solo on selected
+    MixerToggleSolo,
+    /// Mixer: cycle between channels/buses/master sections
+    MixerCycleSection,
 }
 
 /// Trait for UI panes (screens/views)

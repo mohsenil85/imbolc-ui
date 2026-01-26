@@ -17,14 +17,14 @@ impl EditPane {
         Self {
             keymap: Keymap::new()
                 .bind_key(KeyCode::Escape, "done", "Done editing")
-                .bind('n', "next", "Next parameter")
-                .bind('p', "prev", "Previous parameter")
-                .bind('j', "next", "Next parameter (vim)")
-                .bind('k', "prev", "Previous parameter (vim)")
                 .bind_key(KeyCode::Down, "next", "Next parameter")
                 .bind_key(KeyCode::Up, "prev", "Previous parameter")
+                .bind_key(KeyCode::Home, "first", "First parameter")
+                .bind_key(KeyCode::End, "last", "Last parameter")
                 .bind_key(KeyCode::Left, "decrease", "Decrease value")
-                .bind_key(KeyCode::Right, "increase", "Increase value"),
+                .bind_key(KeyCode::Right, "increase", "Increase value")
+                .bind_key(KeyCode::PageUp, "increase_big", "Increase value +10%")
+                .bind_key(KeyCode::PageDown, "decrease_big", "Decrease value -10%"),
             module_id: None,
             module_name: String::new(),
             module_type_name: String::new(),
@@ -53,6 +53,14 @@ impl EditPane {
     }
 
     fn adjust_param(&mut self, increase: bool) {
+        self.adjust_param_by(increase, 0.05);
+    }
+
+    fn adjust_param_big(&mut self, increase: bool) {
+        self.adjust_param_by(increase, 0.10);
+    }
+
+    fn adjust_param_by(&mut self, increase: bool, fraction: f32) {
         if self.params.is_empty() {
             return;
         }
@@ -62,7 +70,7 @@ impl EditPane {
 
         match &mut param.value {
             ParamValue::Float(ref mut value) => {
-                let delta = range * 0.05; // 5% of range
+                let delta = range * fraction;
                 if increase {
                     *value = (*value + delta).min(param.max);
                 } else {
@@ -70,10 +78,11 @@ impl EditPane {
                 }
             }
             ParamValue::Int(ref mut value) => {
+                let delta = ((range * fraction) as i32).max(1);
                 if increase {
-                    *value = (*value + 1).min(param.max as i32);
+                    *value = (*value + delta).min(param.max as i32);
                 } else {
-                    *value = (*value - 1).max(param.min as i32);
+                    *value = (*value - delta).max(param.min as i32);
                 }
             }
             ParamValue::Bool(ref mut value) => {
@@ -196,12 +205,30 @@ impl Pane for EditPane {
                 }
                 Action::None
             }
+            Some("first") => {
+                self.selected_param = 0;
+                Action::None
+            }
+            Some("last") => {
+                if !self.params.is_empty() {
+                    self.selected_param = self.params.len() - 1;
+                }
+                Action::None
+            }
             Some("increase") => {
                 self.adjust_param(true);
                 self.emit_current_param()
             }
             Some("decrease") => {
                 self.adjust_param(false);
+                self.emit_current_param()
+            }
+            Some("increase_big") => {
+                self.adjust_param_big(true);
+                self.emit_current_param()
+            }
+            Some("decrease_big") => {
+                self.adjust_param_big(false);
                 self.emit_current_param()
             }
             _ => Action::None,
@@ -304,7 +331,7 @@ impl Pane for EditPane {
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
         g.set_style(Style::new().fg(Color::GRAY));
-        g.put_str(content_x, help_y, "Left/Right: adjust | n/p: select param | Escape: done");
+        g.put_str(content_x, help_y, "Left/Right: adjust | Up/Down: select | PgUp/PgDn: +/-10% | Esc: done");
     }
 
     fn keymap(&self) -> &Keymap {

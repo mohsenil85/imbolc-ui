@@ -30,26 +30,22 @@ impl RackPane {
         Self {
             keymap: Keymap::new()
                 .bind('q', "quit", "Quit the application")
-                .bind('n', "next", "Next module")
-                .bind('p', "prev", "Previous module")
-                .bind('j', "next", "Next module (vim)")
-                .bind('k', "prev", "Previous module (vim)")
                 .bind_key(KeyCode::Down, "next", "Next module")
                 .bind_key(KeyCode::Up, "prev", "Previous module")
-                .bind('g', "goto_top", "Go to top")
-                .bind('G', "goto_bottom", "Go to bottom")
+                .bind_key(KeyCode::Home, "goto_top", "Go to top")
+                .bind_key(KeyCode::End, "goto_bottom", "Go to bottom")
                 .bind('a', "add", "Add module")
                 .bind('d', "delete", "Delete module")
-                .bind('e', "edit", "Edit module")
+                .bind_key(KeyCode::Enter, "edit", "Edit module")
                 .bind('c', "connect", "Connect modules")
                 .bind('x', "disconnect", "Disconnect modules")
                 .bind('w', "save", "Save rack")
                 .bind('o', "load", "Load rack")
                 .bind('s', "server", "Audio server")
+                .bind('m', "mixer", "Mixer view")
+                .bind_key(KeyCode::Left, "prev_port", "Previous port")
+                .bind_key(KeyCode::Right, "next_port", "Next port")
                 .bind_key(KeyCode::Tab, "next_port", "Next port")
-                .bind('h', "prev_port", "Previous port")
-                .bind('l', "next_port", "Next port")
-                .bind_key(KeyCode::Enter, "confirm", "Confirm selection")
                 .bind_key(KeyCode::Escape, "cancel", "Cancel"),
             rack,
             mode: RackMode::Normal,
@@ -96,6 +92,11 @@ impl RackPane {
     /// Get reference to rack state for saving
     pub fn rack(&self) -> &RackState {
         &self.rack
+    }
+
+    /// Get mutable reference to rack state
+    pub fn rack_mut(&mut self) -> &mut RackState {
+        &mut self.rack
     }
 
     /// Replace rack state (for loading)
@@ -189,6 +190,7 @@ impl RackPane {
             Some("save") => Action::SaveRack,
             Some("load") => Action::LoadRack,
             Some("server") => Action::SwitchPane("server"),
+            Some("mixer") => Action::SwitchPane("mixer"),
             _ => Action::None,
         }
     }
@@ -229,7 +231,8 @@ impl RackPane {
                 }
                 Action::None
             }
-            Some("confirm") => {
+            Some("edit") => {
+                // Enter acts as confirm in connect mode
                 if let Some(port_ref) = self.get_selected_port() {
                     match self.mode {
                         RackMode::ConnectSource => {

@@ -5,15 +5,18 @@ use rusqlite::{Connection as SqlConnection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 
 use super::connection::{Connection, ConnectionError, PortRef};
+use super::mixer::MixerState;
 use super::{Module, ModuleId, ModuleType, Param, PortDirection};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RackState {
     pub modules: HashMap<ModuleId, Module>,
     pub order: Vec<ModuleId>,
     pub connections: HashSet<Connection>,
     #[serde(skip)]
     pub selected: Option<usize>, // Index in order vec (UI state, not persisted)
+    #[serde(skip)]
+    pub mixer: MixerState, // Mixer state (TODO: add persistence)
     next_id: ModuleId,
 }
 
@@ -24,6 +27,7 @@ impl RackState {
             order: Vec::new(),
             connections: HashSet::new(),
             selected: None,
+            mixer: MixerState::new(),
             next_id: 0,
         }
     }
@@ -35,6 +39,13 @@ impl RackState {
         let module = Module::new(id, module_type);
         self.modules.insert(id, module);
         self.order.push(id);
+
+        // Auto-assign OUTPUT modules to mixer channels
+        if module_type == ModuleType::Output {
+            if let Some(channel_id) = self.mixer.find_free_channel() {
+                self.mixer.assign_module(channel_id, id);
+            }
+        }
 
         // Auto-select first module if none selected
         if self.selected.is_none() {
@@ -52,6 +63,9 @@ impl RackState {
             // Cascade delete all connections involving this module
             self.connections
                 .retain(|c| c.src.module_id != id && c.dst.module_id != id);
+
+            // Unassign from mixer if this was an OUTPUT module
+            self.mixer.unassign_module(id);
 
             // Adjust selection
             if let Some(selected_idx) = self.selected {
@@ -434,8 +448,15 @@ impl RackState {
             order,
             connections,
             selected: None,
+            mixer: MixerState::new(), // Fresh mixer state on load (TODO: persist)
             next_id,
         })
+    }
+}
+
+impl Default for RackState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
