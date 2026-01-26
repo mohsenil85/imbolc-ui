@@ -393,6 +393,10 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         }
                     }
                 }
+                Action::AddConnection(_) | Action::RemoveConnection(_) => {
+                    // Dispatch to rack pane
+                    panes.dispatch_to("rack", &action);
+                }
                 _ => {}
             }
         }

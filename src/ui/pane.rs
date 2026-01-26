@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use super::{Graphics, InputEvent, Keymap};
-use crate::state::ModuleType;
+use crate::state::{Connection, ModuleType};
 
 /// Actions that can be returned from pane input handling
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +26,10 @@ pub enum Action {
     SaveRack,
     /// Load rack from file
     LoadRack,
+    /// Add a connection between two module ports
+    AddConnection(Connection),
+    /// Remove a connection between two module ports
+    RemoveConnection(Connection),
 }
 
 /// Trait for UI panes (screens/views)

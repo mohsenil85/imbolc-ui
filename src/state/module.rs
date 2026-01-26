@@ -2,6 +2,26 @@ use serde::{Deserialize, Serialize};
 
 pub type ModuleId = u32;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PortType {
+    Audio,
+    Control,
+    Gate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PortDirection {
+    Input,
+    Output,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PortDef {
+    pub name: &'static str,
+    pub port_type: PortType,
+    pub direction: PortDirection,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModuleType {
     SawOsc,
@@ -190,6 +210,75 @@ impl ModuleType {
             ModuleType::Output => "output",
         }
     }
+
+    pub fn ports(&self) -> Vec<PortDef> {
+        match self {
+            // Oscillators: audio output only
+            ModuleType::SawOsc | ModuleType::SinOsc | ModuleType::SqrOsc | ModuleType::TriOsc => {
+                vec![PortDef {
+                    name: "out",
+                    port_type: PortType::Audio,
+                    direction: PortDirection::Output,
+                }]
+            }
+            // Filters: audio in/out + control mod input
+            ModuleType::Lpf | ModuleType::Hpf | ModuleType::Bpf => vec![
+                PortDef {
+                    name: "in",
+                    port_type: PortType::Audio,
+                    direction: PortDirection::Input,
+                },
+                PortDef {
+                    name: "out",
+                    port_type: PortType::Audio,
+                    direction: PortDirection::Output,
+                },
+                PortDef {
+                    name: "cutoff_mod",
+                    port_type: PortType::Control,
+                    direction: PortDirection::Input,
+                },
+            ],
+            // ADSR Envelope: gate input, control output
+            ModuleType::AdsrEnv => vec![
+                PortDef {
+                    name: "gate",
+                    port_type: PortType::Gate,
+                    direction: PortDirection::Input,
+                },
+                PortDef {
+                    name: "out",
+                    port_type: PortType::Control,
+                    direction: PortDirection::Output,
+                },
+            ],
+            // LFO: control output only
+            ModuleType::Lfo => vec![PortDef {
+                name: "out",
+                port_type: PortType::Control,
+                direction: PortDirection::Output,
+            }],
+            // Effects: audio in/out
+            ModuleType::Delay | ModuleType::Reverb => vec![
+                PortDef {
+                    name: "in",
+                    port_type: PortType::Audio,
+                    direction: PortDirection::Input,
+                },
+                PortDef {
+                    name: "out",
+                    port_type: PortType::Audio,
+                    direction: PortDirection::Output,
+                },
+            ],
+            // Output: terminal node with audio input only
+            ModuleType::Output => vec![PortDef {
+                name: "in",
+                port_type: PortType::Audio,
+                direction: PortDirection::Input,
+            }],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -307,5 +396,91 @@ mod tests {
         let module2 = Module::new(2, ModuleType::Lpf);
         assert_eq!(module1.name, "saw-1");
         assert_eq!(module2.name, "lpf-2");
+    }
+
+    #[test]
+    fn test_oscillator_has_output_port() {
+        let ports = ModuleType::SawOsc.ports();
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].name, "out");
+        assert_eq!(ports[0].port_type, PortType::Audio);
+        assert_eq!(ports[0].direction, PortDirection::Output);
+
+        // All oscillators should have the same ports
+        assert_eq!(ModuleType::SinOsc.ports().len(), 1);
+        assert_eq!(ModuleType::SqrOsc.ports().len(), 1);
+        assert_eq!(ModuleType::TriOsc.ports().len(), 1);
+    }
+
+    #[test]
+    fn test_filter_has_in_out_cutoff_mod() {
+        let ports = ModuleType::Lpf.ports();
+        assert_eq!(ports.len(), 3);
+
+        let names: Vec<&str> = ports.iter().map(|p| p.name).collect();
+        assert!(names.contains(&"in"));
+        assert!(names.contains(&"out"));
+        assert!(names.contains(&"cutoff_mod"));
+
+        // Check port types
+        let in_port = ports.iter().find(|p| p.name == "in").unwrap();
+        assert_eq!(in_port.port_type, PortType::Audio);
+        assert_eq!(in_port.direction, PortDirection::Input);
+
+        let cutoff_mod = ports.iter().find(|p| p.name == "cutoff_mod").unwrap();
+        assert_eq!(cutoff_mod.port_type, PortType::Control);
+        assert_eq!(cutoff_mod.direction, PortDirection::Input);
+
+        // All filters should have the same ports
+        assert_eq!(ModuleType::Hpf.ports().len(), 3);
+        assert_eq!(ModuleType::Bpf.ports().len(), 3);
+    }
+
+    #[test]
+    fn test_adsr_has_gate_and_output() {
+        let ports = ModuleType::AdsrEnv.ports();
+        assert_eq!(ports.len(), 2);
+
+        let gate = ports.iter().find(|p| p.name == "gate").unwrap();
+        assert_eq!(gate.port_type, PortType::Gate);
+        assert_eq!(gate.direction, PortDirection::Input);
+
+        let out = ports.iter().find(|p| p.name == "out").unwrap();
+        assert_eq!(out.port_type, PortType::Control);
+        assert_eq!(out.direction, PortDirection::Output);
+    }
+
+    #[test]
+    fn test_lfo_has_control_output() {
+        let ports = ModuleType::Lfo.ports();
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].name, "out");
+        assert_eq!(ports[0].port_type, PortType::Control);
+        assert_eq!(ports[0].direction, PortDirection::Output);
+    }
+
+    #[test]
+    fn test_effects_have_audio_in_out() {
+        for module_type in [ModuleType::Delay, ModuleType::Reverb] {
+            let ports = module_type.ports();
+            assert_eq!(ports.len(), 2);
+
+            let in_port = ports.iter().find(|p| p.name == "in").unwrap();
+            assert_eq!(in_port.port_type, PortType::Audio);
+            assert_eq!(in_port.direction, PortDirection::Input);
+
+            let out_port = ports.iter().find(|p| p.name == "out").unwrap();
+            assert_eq!(out_port.port_type, PortType::Audio);
+            assert_eq!(out_port.direction, PortDirection::Output);
+        }
+    }
+
+    #[test]
+    fn test_output_has_audio_input_only() {
+        let ports = ModuleType::Output.ports();
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].name, "in");
+        assert_eq!(ports[0].port_type, PortType::Audio);
+        assert_eq!(ports[0].direction, PortDirection::Input);
     }
 }

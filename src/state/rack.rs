@@ -1,15 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use rusqlite::{Connection, Result as SqlResult};
+use rusqlite::{Connection as SqlConnection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 
-use super::{Module, ModuleId, ModuleType, Param};
+use super::connection::{Connection, ConnectionError, PortRef};
+use super::{Module, ModuleId, ModuleType, Param, PortDirection};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RackState {
     pub modules: HashMap<ModuleId, Module>,
     pub order: Vec<ModuleId>,
+    pub connections: HashSet<Connection>,
     #[serde(skip)]
     pub selected: Option<usize>, // Index in order vec (UI state, not persisted)
     next_id: ModuleId,
@@ -20,6 +22,7 @@ impl RackState {
         Self {
             modules: HashMap::new(),
             order: Vec::new(),
+            connections: HashSet::new(),
             selected: None,
             next_id: 0,
         }
@@ -45,6 +48,10 @@ impl RackState {
         if let Some(pos) = self.order.iter().position(|&mid| mid == id) {
             self.order.remove(pos);
             self.modules.remove(&id);
+
+            // Cascade delete all connections involving this module
+            self.connections
+                .retain(|c| c.src.module_id != id && c.dst.module_id != id);
 
             // Adjust selection
             if let Some(selected_idx) = self.selected {
@@ -119,9 +126,91 @@ impl RackState {
         };
     }
 
+    /// Add a connection between two module ports
+    pub fn add_connection(&mut self, connection: Connection) -> Result<(), ConnectionError> {
+        let src_module = self
+            .modules
+            .get(&connection.src.module_id)
+            .ok_or(ConnectionError::SourceModuleNotFound(
+                connection.src.module_id,
+            ))?;
+
+        let dst_module = self
+            .modules
+            .get(&connection.dst.module_id)
+            .ok_or(ConnectionError::DestModuleNotFound(connection.dst.module_id))?;
+
+        // Validate source port exists and is an output
+        let src_ports = src_module.module_type.ports();
+        let src_port = src_ports
+            .iter()
+            .find(|p| p.name == connection.src.port_name)
+            .ok_or_else(|| {
+                ConnectionError::SourcePortNotFound(
+                    connection.src.module_id,
+                    connection.src.port_name.clone(),
+                )
+            })?;
+
+        if src_port.direction != PortDirection::Output {
+            return Err(ConnectionError::SourceNotOutput(
+                connection.src.module_id,
+                connection.src.port_name.clone(),
+            ));
+        }
+
+        // Validate destination port exists and is an input
+        let dst_ports = dst_module.module_type.ports();
+        let dst_port = dst_ports
+            .iter()
+            .find(|p| p.name == connection.dst.port_name)
+            .ok_or_else(|| {
+                ConnectionError::DestPortNotFound(
+                    connection.dst.module_id,
+                    connection.dst.port_name.clone(),
+                )
+            })?;
+
+        if dst_port.direction != PortDirection::Input {
+            return Err(ConnectionError::DestNotInput(
+                connection.dst.module_id,
+                connection.dst.port_name.clone(),
+            ));
+        }
+
+        // Check if connection already exists
+        if self.connections.contains(&connection) {
+            return Err(ConnectionError::AlreadyConnected);
+        }
+
+        self.connections.insert(connection);
+        Ok(())
+    }
+
+    /// Remove a connection
+    pub fn remove_connection(&mut self, connection: &Connection) -> bool {
+        self.connections.remove(connection)
+    }
+
+    /// Get all connections from a specific module
+    pub fn connections_from(&self, module_id: ModuleId) -> Vec<&Connection> {
+        self.connections
+            .iter()
+            .filter(|c| c.src.module_id == module_id)
+            .collect()
+    }
+
+    /// Get all connections to a specific module
+    pub fn connections_to(&self, module_id: ModuleId) -> Vec<&Connection> {
+        self.connections
+            .iter()
+            .filter(|c| c.dst.module_id == module_id)
+            .collect()
+    }
+
     /// Save rack state to SQLite database (.tuidaw file)
     pub fn save(&self, path: &Path) -> SqlResult<()> {
-        let conn = Connection::open(path)?;
+        let conn = SqlConnection::open(path)?;
 
         // Create schema (following docs/sqlite-persistence.md)
         conn.execute_batch(
@@ -156,7 +245,16 @@ impl RackState {
                 PRIMARY KEY (module_id, param_name)
             );
 
+            CREATE TABLE IF NOT EXISTS connections (
+                src_module_id INTEGER NOT NULL,
+                src_port_name TEXT NOT NULL,
+                dst_module_id INTEGER NOT NULL,
+                dst_port_name TEXT NOT NULL,
+                PRIMARY KEY (src_module_id, src_port_name, dst_module_id, dst_port_name)
+            );
+
             -- Clear existing data for full save
+            DELETE FROM connections;
             DELETE FROM module_params;
             DELETE FROM modules;
             DELETE FROM session;
@@ -214,12 +312,28 @@ impl RackState {
             }
         }
 
+        // Insert connections
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO connections (src_module_id, src_port_name, dst_module_id, dst_port_name)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for connection in &self.connections {
+                stmt.execute((
+                    &connection.src.module_id,
+                    &connection.src.port_name,
+                    &connection.dst.module_id,
+                    &connection.dst.port_name,
+                ))?;
+            }
+        }
+
         Ok(())
     }
 
     /// Load rack state from SQLite database (.tuidaw file)
     pub fn load(path: &Path) -> SqlResult<Self> {
-        let conn = Connection::open(path)?;
+        let conn = SqlConnection::open(path)?;
 
         // Load session metadata
         let next_id: ModuleId = conn.query_row(
@@ -293,9 +407,32 @@ impl RackState {
             }
         }
 
+        // Load connections (table may not exist in older files)
+        let mut connections = HashSet::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT src_module_id, src_port_name, dst_module_id, dst_port_name FROM connections",
+        ) {
+            let conn_iter = stmt.query_map([], |row| {
+                let src_module_id: ModuleId = row.get(0)?;
+                let src_port_name: String = row.get(1)?;
+                let dst_module_id: ModuleId = row.get(2)?;
+                let dst_port_name: String = row.get(3)?;
+                Ok((src_module_id, src_port_name, dst_module_id, dst_port_name))
+            })?;
+
+            for result in conn_iter {
+                let (src_module_id, src_port_name, dst_module_id, dst_port_name) = result?;
+                connections.insert(Connection::new(
+                    PortRef::new(src_module_id, src_port_name),
+                    PortRef::new(dst_module_id, dst_port_name),
+                ));
+            }
+        }
+
         Ok(Self {
             modules,
             order,
+            connections,
             selected: None,
             next_id,
         })
@@ -582,6 +719,229 @@ mod tests {
 
         // Verify next_id was preserved
         assert_eq!(loaded.next_id, 3);
+
+        // Clean up
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_add_valid_connection() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+
+        let connection = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+
+        assert!(rack.add_connection(connection.clone()).is_ok());
+        assert_eq!(rack.connections.len(), 1);
+        assert!(rack.connections.contains(&connection));
+    }
+
+    #[test]
+    fn test_add_connection_invalid_source_module() {
+        let mut rack = RackState::new();
+        let filter_id = rack.add_module(ModuleType::Lpf);
+
+        let connection = Connection::new(
+            PortRef::new(999, "out"), // Non-existent module
+            PortRef::new(filter_id, "in"),
+        );
+
+        let result = rack.add_connection(connection);
+        assert!(matches!(result, Err(ConnectionError::SourceModuleNotFound(999))));
+    }
+
+    #[test]
+    fn test_add_connection_invalid_port() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+
+        let connection = Connection::new(
+            PortRef::new(osc_id, "nonexistent"),
+            PortRef::new(filter_id, "in"),
+        );
+
+        let result = rack.add_connection(connection);
+        assert!(matches!(result, Err(ConnectionError::SourcePortNotFound(_, _))));
+    }
+
+    #[test]
+    fn test_add_connection_source_not_output() {
+        let mut rack = RackState::new();
+        let filter1_id = rack.add_module(ModuleType::Lpf);
+        let filter2_id = rack.add_module(ModuleType::Lpf);
+
+        // Try to use input port as source
+        let connection = Connection::new(
+            PortRef::new(filter1_id, "in"), // "in" is an input, not output
+            PortRef::new(filter2_id, "in"),
+        );
+
+        let result = rack.add_connection(connection);
+        assert!(matches!(result, Err(ConnectionError::SourceNotOutput(_, _))));
+    }
+
+    #[test]
+    fn test_add_connection_dest_not_input() {
+        let mut rack = RackState::new();
+        let osc1_id = rack.add_module(ModuleType::SawOsc);
+        let osc2_id = rack.add_module(ModuleType::SawOsc);
+
+        // Try to connect to output port
+        let connection = Connection::new(
+            PortRef::new(osc1_id, "out"),
+            PortRef::new(osc2_id, "out"), // "out" is an output, not input
+        );
+
+        let result = rack.add_connection(connection);
+        assert!(matches!(result, Err(ConnectionError::DestNotInput(_, _))));
+    }
+
+    #[test]
+    fn test_add_connection_already_exists() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+
+        let connection = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+
+        assert!(rack.add_connection(connection.clone()).is_ok());
+        let result = rack.add_connection(connection);
+        assert!(matches!(result, Err(ConnectionError::AlreadyConnected)));
+    }
+
+    #[test]
+    fn test_remove_connection() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+
+        let connection = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+
+        rack.add_connection(connection.clone()).unwrap();
+        assert!(rack.remove_connection(&connection));
+        assert!(rack.connections.is_empty());
+    }
+
+    #[test]
+    fn test_connections_from() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+        let output_id = rack.add_module(ModuleType::Output);
+
+        let conn1 = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+        let conn2 = Connection::new(
+            PortRef::new(filter_id, "out"),
+            PortRef::new(output_id, "in"),
+        );
+
+        rack.add_connection(conn1).unwrap();
+        rack.add_connection(conn2).unwrap();
+
+        let from_osc = rack.connections_from(osc_id);
+        assert_eq!(from_osc.len(), 1);
+        assert_eq!(from_osc[0].dst.module_id, filter_id);
+
+        let from_filter = rack.connections_from(filter_id);
+        assert_eq!(from_filter.len(), 1);
+        assert_eq!(from_filter[0].dst.module_id, output_id);
+    }
+
+    #[test]
+    fn test_connections_to() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let lfo_id = rack.add_module(ModuleType::Lfo);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+
+        let conn1 = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+        let conn2 = Connection::new(
+            PortRef::new(lfo_id, "out"),
+            PortRef::new(filter_id, "cutoff_mod"),
+        );
+
+        rack.add_connection(conn1).unwrap();
+        rack.add_connection(conn2).unwrap();
+
+        let to_filter = rack.connections_to(filter_id);
+        assert_eq!(to_filter.len(), 2);
+    }
+
+    #[test]
+    fn test_remove_module_cascades_connections() {
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+        let output_id = rack.add_module(ModuleType::Output);
+
+        let conn1 = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+        let conn2 = Connection::new(
+            PortRef::new(filter_id, "out"),
+            PortRef::new(output_id, "in"),
+        );
+
+        rack.add_connection(conn1).unwrap();
+        rack.add_connection(conn2).unwrap();
+        assert_eq!(rack.connections.len(), 2);
+
+        // Remove filter - should remove both connections
+        rack.remove_module(filter_id);
+        assert_eq!(rack.connections.len(), 0);
+    }
+
+    #[test]
+    fn test_save_load_with_connections() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        let mut rack = RackState::new();
+        let osc_id = rack.add_module(ModuleType::SawOsc);
+        let filter_id = rack.add_module(ModuleType::Lpf);
+        let output_id = rack.add_module(ModuleType::Output);
+
+        let conn1 = Connection::new(
+            PortRef::new(osc_id, "out"),
+            PortRef::new(filter_id, "in"),
+        );
+        let conn2 = Connection::new(
+            PortRef::new(filter_id, "out"),
+            PortRef::new(output_id, "in"),
+        );
+
+        rack.add_connection(conn1.clone()).unwrap();
+        rack.add_connection(conn2.clone()).unwrap();
+
+        // Save to temp file
+        let dir = tempdir().expect("Failed to create temp dir");
+        let path = dir.path().join("test_connections.tuidaw");
+        rack.save(&path).expect("Failed to save");
+
+        // Load and verify
+        let loaded = RackState::load(&path).expect("Failed to load");
+
+        assert_eq!(loaded.connections.len(), 2);
+        assert!(loaded.connections.contains(&conn1));
+        assert!(loaded.connections.contains(&conn2));
 
         // Clean up
         fs::remove_file(&path).ok();
