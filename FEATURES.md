@@ -11,7 +11,7 @@
 - Probably a modal overlay or inline editing in the top bar
 
 ## 3. Meter Display on Frame
-- Add a level meter to the outer frame (top bar or bottom bar)
+- Add a level meter to the outer frame (off to the right)
 - Should show real-time audio output level
 
 ## 4. Sequencer: Note Duration Grid Selection
