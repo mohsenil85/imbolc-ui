@@ -52,10 +52,15 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 break;
             }
 
-            // Global F-key navigation
-            if let KeyCode::F(n) = event.key {
-                let target = match n {
-                    1 => {
+            // Global number-key navigation
+            if let KeyCode::Char(c) = event.key {
+                let target = match c {
+                    '1' => Some("rack"),
+                    '2' => Some("piano_roll"),
+                    '3' => Some("sequencer"),
+                    '4' => Some("mixer"),
+                    '5' => Some("server"),
+                    '?' => {
                         if panes.active().id() != "help" {
                             let current_id = panes.active().id();
                             let current_keymap = panes.active().keymap().clone();
@@ -77,11 +82,6 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                             None
                         }
                     }
-                    2 => Some("rack"),
-                    3 => Some("piano_roll"),
-                    4 => Some("sequencer"),
-                    5 => Some("mixer"),
-                    6 => Some("server"),
                     _ => None,
                 };
                 if let Some(id) = target {

@@ -43,9 +43,6 @@ impl HomePane {
                 .bind('j', "down", "Next item")
                 .bind_key(KeyCode::Enter, "select", "Open selected pane")
                 .bind(' ', "select", "Open selected pane")
-                .bind('1', "goto_1", "Go to Rack")
-                .bind('2', "goto_2", "Go to Mixer")
-                .bind('3', "goto_3", "Go to Server")
                 .bind('q', "quit", "Quit"),
             selected: 0,
             items,
@@ -79,9 +76,6 @@ impl Pane for HomePane {
                 Action::None
             }
             Some("select") => Action::SwitchPane(self.items[self.selected].pane_id),
-            Some("goto_1") => Action::SwitchPane(self.items[0].pane_id),
-            Some("goto_2") => Action::SwitchPane(self.items[1].pane_id),
-            Some("goto_3") => Action::SwitchPane(self.items[2].pane_id),
             Some("quit") => Action::Quit,
             _ => Action::None,
         }

@@ -894,7 +894,7 @@ mod tests {
     #[test]
     fn test_remove_selected_module() {
         let mut rack = RackState::new();
-        let id1 = rack.add_module(ModuleType::SawOsc);
+        let _id1 = rack.add_module(ModuleType::SawOsc);
         let id2 = rack.add_module(ModuleType::Lpf);
         let _id3 = rack.add_module(ModuleType::Output);
 
@@ -907,7 +907,7 @@ mod tests {
     #[test]
     fn test_remove_last_module() {
         let mut rack = RackState::new();
-        let id1 = rack.add_module(ModuleType::SawOsc);
+        let _id1 = rack.add_module(ModuleType::SawOsc);
         let id2 = rack.add_module(ModuleType::Lpf);
 
         rack.selected = Some(1); // Select last module

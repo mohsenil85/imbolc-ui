@@ -19,7 +19,7 @@ impl HelpPane {
         Self {
             keymap: Keymap::new()
                 .bind_key(KeyCode::Escape, "close", "Close help")
-                .bind_key(KeyCode::F(1), "close", "Close help")
+                .bind('?', "close", "Close help")
                 .bind_key(KeyCode::Up, "up", "Scroll up")
                 .bind_key(KeyCode::Down, "down", "Scroll down")
                 .bind('k', "up", "Scroll up")
