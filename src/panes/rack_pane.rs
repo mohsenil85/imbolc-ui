@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{Connection, Module, ModuleId, ModuleType, Param, ParamValue, PortRef, RackState};
+use crate::state::{Connection, Module, ModuleId, ModuleType, Param, ParamValue, PortRef, PortType, RackState};
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +8,30 @@ enum RackMode {
     Normal,
     ConnectSource,
     ConnectDest,
+}
+
+/// Get the display color for a module type
+fn module_type_color(module_type: ModuleType) -> Color {
+    match module_type {
+        ModuleType::Midi => Color::MIDI_COLOR,
+        ModuleType::SawOsc | ModuleType::SinOsc | ModuleType::SqrOsc | ModuleType::TriOsc => {
+            Color::OSC_COLOR
+        }
+        ModuleType::Lpf | ModuleType::Hpf | ModuleType::Bpf => Color::FILTER_COLOR,
+        ModuleType::AdsrEnv => Color::ENV_COLOR,
+        ModuleType::Lfo => Color::LFO_COLOR,
+        ModuleType::Delay | ModuleType::Reverb => Color::FX_COLOR,
+        ModuleType::Output => Color::OUTPUT_COLOR,
+    }
+}
+
+/// Get the display color for a port type
+fn port_type_color(port_type: PortType) -> Color {
+    match port_type {
+        PortType::Audio => Color::AUDIO_PORT,
+        PortType::Control => Color::CONTROL_PORT,
+        PortType::Gate => Color::GATE_PORT,
+    }
 }
 
 pub struct RackPane {
@@ -20,12 +44,7 @@ pub struct RackPane {
 
 impl RackPane {
     pub fn new() -> Self {
-        let mut rack = RackState::new();
-
-        // Add some default modules to demonstrate functionality
-        rack.add_module(ModuleType::SawOsc);
-        rack.add_module(ModuleType::Lpf);
-        rack.add_module(ModuleType::Output);
+        let rack = RackState::new();
 
         Self {
             keymap: Keymap::new()
@@ -43,6 +62,7 @@ impl RackPane {
                 .bind('o', "load", "Load rack")
                 .bind('s', "server", "Audio server")
                 .bind('m', "mixer", "Mixer view")
+                .bind('h', "home", "Home screen")
                 .bind_key(KeyCode::Left, "prev_port", "Previous port")
                 .bind_key(KeyCode::Right, "next_port", "Next port")
                 .bind_key(KeyCode::Tab, "next_port", "Next port")
@@ -153,9 +173,10 @@ impl RackPane {
             Some("delete") => {
                 if let Some(module) = self.rack.selected_module() {
                     let id = module.id;
-                    self.rack.remove_module(id);
+                    Action::DeleteModule(id)
+                } else {
+                    Action::None
                 }
-                Action::None
             }
             Some("edit") => {
                 if let Some(module) = self.rack.selected_module() {
@@ -191,6 +212,7 @@ impl RackPane {
             Some("load") => Action::LoadRack,
             Some("server") => Action::SwitchPane("server"),
             Some("mixer") => Action::SwitchPane("mixer"),
+            Some("home") => Action::SwitchPane("home"),
             _ => Action::None,
         }
     }
@@ -282,19 +304,19 @@ impl Pane for RackPane {
         let box_height = 29;
         let rect = Rect::centered(width, height, box_width, box_height);
 
-        g.set_style(Style::new().fg(Color::BLACK));
-        let title = match self.mode {
-            RackMode::Normal => " Rack ",
-            RackMode::ConnectSource => " Rack - Select Source ",
-            RackMode::ConnectDest => " Rack - Select Destination ",
+        let (border_color, title) = match self.mode {
+            RackMode::Normal => (Color::CYAN, " Rack "),
+            RackMode::ConnectSource => (Color::AUDIO_PORT, " Rack - Select Source "),
+            RackMode::ConnectDest => (Color::CONTROL_PORT, " Rack - Select Destination "),
         };
+        g.set_style(Style::new().fg(border_color));
         g.draw_box(rect, Some(title));
 
         let content_x = rect.x + 2;
         let content_y = rect.y + 2;
 
         // Title
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::CYAN).bold());
         g.put_str(content_x, content_y, "Modules:");
 
         // Determine layout based on mode
@@ -326,34 +348,47 @@ impl Pane for RackPane {
             if let Some(module) = self.rack.modules.get(&module_id) {
                 let is_selected = self.rack.selected == Some(i);
 
+                let type_color = module_type_color(module.module_type);
+
                 // Selection indicator
                 if is_selected {
-                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     g.put_str(content_x, y, ">");
                 } else {
-                    g.set_style(Style::new().fg(Color::BLACK));
+                    g.set_style(Style::new().fg(Color::DARK_GRAY));
                     g.put_str(content_x, y, " ");
                 }
 
                 // Module name
+                if is_selected {
+                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
+                } else {
+                    g.set_style(Style::new().fg(Color::WHITE));
+                }
                 g.put_str(content_x + 2, y, &format!("{:16}", module.name));
 
-                // Module type
+                // Module type (colored by category)
+                if is_selected {
+                    g.set_style(Style::new().fg(type_color).bg(Color::SELECTION_BG));
+                } else {
+                    g.set_style(Style::new().fg(type_color));
+                }
                 let type_name = format!("{:18}", module.module_type.name());
                 g.put_str(content_x + 19, y, &type_name);
 
                 if in_connect_mode {
-                    // Show ports in connect mode
+                    // Show ports in connect mode (colored by port type)
                     let ports = module.module_type.ports();
                     let mut port_x = content_x + 38;
                     for (port_idx, port) in ports.iter().enumerate() {
                         let is_port_selected = is_selected && port_idx == self.selected_port;
+                        let port_color = port_type_color(port.port_type);
                         if is_port_selected {
-                            g.set_style(Style::new().fg(Color::BLACK).bg(Color::WHITE));
+                            g.set_style(Style::new().fg(Color::BLACK).bg(port_color).bold());
                         } else if is_selected {
-                            g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                            g.set_style(Style::new().fg(port_color).bg(Color::SELECTION_BG));
                         } else {
-                            g.set_style(Style::new().fg(Color::GRAY));
+                            g.set_style(Style::new().fg(port_color));
                         }
                         let port_str = format!("[{}]", port.name);
                         g.put_str(port_x, y, &port_str);
@@ -361,7 +396,7 @@ impl Pane for RackPane {
                     }
                     // Clear rest of line if selected
                     if is_selected {
-                        g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                        g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
                         for x in port_x..(rect.x + rect.width - 2) {
                             g.put_char(x, y, ' ');
                         }
@@ -370,14 +405,15 @@ impl Pane for RackPane {
                     // Show parameters in normal mode
                     let params_str = self.format_params(module);
                     if is_selected {
-                        g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                        g.set_style(Style::new().fg(Color::SKY_BLUE).bg(Color::SELECTION_BG));
                     } else {
-                        g.set_style(Style::new().fg(Color::GRAY));
+                        g.set_style(Style::new().fg(Color::DARK_GRAY));
                     }
                     g.put_str(content_x + 38, y, &params_str);
 
                     // Clear to end of selection if selected
                     if is_selected {
+                        g.set_style(Style::new().bg(Color::SELECTION_BG));
                         let line_end = content_x + 38 + params_str.len() as u16;
                         for x in line_end..(rect.x + rect.width - 2) {
                             g.put_char(x, y, ' ');
@@ -389,23 +425,23 @@ impl Pane for RackPane {
 
         // Scroll indicators
         if scroll_offset > 0 {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y, "...");
         }
         if scroll_offset + max_visible < self.rack.order.len() {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
 
         // Show connections section in normal mode
         let conn_y = list_y + max_visible as u16 + 1;
         if !in_connect_mode && !self.rack.connections.is_empty() {
-            g.set_style(Style::new().fg(Color::BLACK));
+            g.set_style(Style::new().fg(Color::PURPLE).bold());
             g.put_str(content_x, conn_y, "Connections:");
 
             let mut y = conn_y + 1;
             for conn in self.rack.connections.iter().take(3) {
-                g.set_style(Style::new().fg(Color::GRAY));
+                g.set_style(Style::new().fg(Color::TEAL));
                 // Format as module_name:port -> module_name:port
                 let src_name = self.rack.modules.get(&conn.src.module_id)
                     .map(|m| m.name.as_str())
@@ -424,22 +460,24 @@ impl Pane for RackPane {
 
         // Show connect mode status
         if in_connect_mode {
-            g.set_style(Style::new().fg(Color::BLACK));
             let status_y = conn_y;
             if let Some(ref src) = self.pending_src {
                 let src_name = self.rack.modules.get(&src.module_id)
                     .map(|m| m.name.as_str())
                     .unwrap_or("?");
+                g.set_style(Style::new().fg(Color::AUDIO_PORT).bold());
                 g.put_str(content_x, status_y, &format!("Source: {}:{}", src_name, src.port_name));
+                g.set_style(Style::new().fg(Color::CONTROL_PORT));
                 g.put_str(content_x, status_y + 1, "Target: (select destination...)");
             } else {
+                g.set_style(Style::new().fg(Color::ORANGE));
                 g.put_str(content_x, status_y, "Source: (select source port...)");
             }
         }
 
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
-        g.set_style(Style::new().fg(Color::GRAY));
+        g.set_style(Style::new().fg(Color::DARK_GRAY));
         let help_text = if in_connect_mode {
             "j/k: module | Tab/h/l: port | Enter: confirm | Esc: cancel"
         } else {

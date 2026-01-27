@@ -38,6 +38,9 @@ pub struct AddPane {
 impl AddPane {
     pub fn new() -> Self {
         let items = vec![
+            ModuleItem::header("Note Source:"),
+            ModuleItem::module(ModuleType::Midi),
+            ModuleItem::header(""),
             ModuleItem::header("Oscillators:"),
             ModuleItem::module(ModuleType::SawOsc),
             ModuleItem::module(ModuleType::SinOsc),
@@ -156,14 +159,14 @@ impl Pane for AddPane {
         let box_height = 29;
         let rect = Rect::centered(width, height, box_width, box_height);
 
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::LIME));
         g.draw_box(rect, Some(" Add Module "));
 
         let content_x = rect.x + 2;
         let content_y = rect.y + 2;
 
         // Title
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::LIME).bold());
         g.put_str(content_x, content_y, "Select module type:");
 
         // Module list with viewport scrolling
@@ -177,6 +180,9 @@ impl Pane for AddPane {
             0
         };
 
+        // Track current category color
+        let mut current_category_color = Color::WHITE;
+
         for (i, item) in self.items.iter().enumerate().skip(scroll_offset) {
             let row = i - scroll_offset;
             if row >= max_visible {
@@ -185,8 +191,27 @@ impl Pane for AddPane {
             let y = list_y + row as u16;
 
             if item.is_header {
-                // Render header
-                g.set_style(Style::new().fg(Color::BLACK));
+                // Determine category color from header name
+                current_category_color = if item.display_name.contains("Note Source") {
+                    Color::MIDI_COLOR
+                } else if item.display_name.contains("Oscillator") {
+                    Color::OSC_COLOR
+                } else if item.display_name.contains("Filter") {
+                    Color::FILTER_COLOR
+                } else if item.display_name.contains("Envelope") {
+                    Color::ENV_COLOR
+                } else if item.display_name.contains("Modulation") {
+                    Color::LFO_COLOR
+                } else if item.display_name.contains("Effect") {
+                    Color::FX_COLOR
+                } else if item.display_name.contains("Output") {
+                    Color::OUTPUT_COLOR
+                } else {
+                    Color::WHITE
+                };
+
+                // Render header with category color
+                g.set_style(Style::new().fg(current_category_color).bold());
                 g.put_str(content_x, y, &item.display_name);
             } else {
                 // Render selectable module
@@ -194,28 +219,34 @@ impl Pane for AddPane {
 
                 // Selection indicator
                 if is_selected {
-                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     g.put_str(content_x, y, ">");
                 } else {
-                    g.set_style(Style::new().fg(Color::BLACK));
+                    g.set_style(Style::new().fg(Color::DARK_GRAY));
                     g.put_str(content_x, y, " ");
                 }
 
-                // Module type short name (e.g., "SawOsc")
+                // Module type short name (e.g., "SawOsc") with category color
                 if let Some(ref module_type) = item.module_type {
                     let type_str = format!("{:?}", module_type);
+                    if is_selected {
+                        g.set_style(Style::new().fg(current_category_color).bg(Color::SELECTION_BG));
+                    } else {
+                        g.set_style(Style::new().fg(current_category_color));
+                    }
                     g.put_str(content_x + 2, y, &format!("{:12}", type_str));
 
                     // Module description
                     if is_selected {
-                        g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                        g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
                     } else {
-                        g.set_style(Style::new().fg(Color::GRAY));
+                        g.set_style(Style::new().fg(Color::DARK_GRAY));
                     }
                     g.put_str(content_x + 15, y, &item.display_name);
 
                     // Clear to end of selection if selected
                     if is_selected {
+                        g.set_style(Style::new().bg(Color::SELECTION_BG));
                         let line_end = content_x + 15 + item.display_name.len() as u16;
                         for x in line_end..(rect.x + rect.width - 2) {
                             g.put_char(x, y, ' ');
@@ -227,17 +258,17 @@ impl Pane for AddPane {
 
         // Scroll indicator if needed
         if scroll_offset > 0 {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y, "...");
         }
         if scroll_offset + max_visible < self.items.len() {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
 
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
-        g.set_style(Style::new().fg(Color::GRAY));
+        g.set_style(Style::new().fg(Color::DARK_GRAY));
         g.put_str(content_x, help_y, "Enter: add | Escape: cancel | Up/Down: navigate | Home/End: jump");
     }
 

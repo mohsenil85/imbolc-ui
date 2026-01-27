@@ -228,6 +228,19 @@ impl MixerState {
             }
         }
     }
+
+    /// Cycle output target backwards for the selected channel (channels only)
+    pub fn cycle_output_reverse(&mut self) {
+        if let MixerSelection::Channel(id) = self.selection {
+            if let Some(ch) = self.channel_mut(id) {
+                ch.output_target = match ch.output_target {
+                    OutputTarget::Master => OutputTarget::Bus(MAX_BUSES as u8),
+                    OutputTarget::Bus(1) => OutputTarget::Master,
+                    OutputTarget::Bus(n) => OutputTarget::Bus(n - 1),
+                };
+            }
+        }
+    }
 }
 
 impl Default for MixerState {

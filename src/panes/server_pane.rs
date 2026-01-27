@@ -20,7 +20,8 @@ impl ServerPane {
                 .bind('c', "connect", "Connect to server")
                 .bind('d', "disconnect", "Disconnect")
                 .bind('b', "compile", "Build synthdefs")
-                .bind('l', "load", "Load synthdefs"),
+                .bind('l', "load", "Load synthdefs")
+                .bind('h', "home", "Home screen"),
             status: ServerStatus::Stopped,
             message: String::new(),
             server_running: false,
@@ -57,6 +58,7 @@ impl Pane for ServerPane {
             Some("disconnect") => Action::DisconnectServer,
             Some("compile") => Action::CompileSynthDefs,
             Some("load") => Action::LoadSynthDefs,
+            Some("home") => Action::SwitchPane("home"),
             _ => Action::None,
         }
     }
@@ -65,34 +67,41 @@ impl Pane for ServerPane {
         let (width, height) = g.size();
         let rect = Rect::centered(width, height, 60, 15);
 
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::GOLD));
         g.draw_box(rect, Some(" Audio Server (scsynth) "));
 
         let x = rect.x + 2;
         let mut y = rect.y + 2;
 
         // Server process status
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::CYAN));
         g.put_str(x, y, "Server:     ");
-        let server_text = if self.server_running { "Running" } else { "Stopped" };
+        let (server_text, server_color) = if self.server_running {
+            ("Running", Color::METER_LOW)
+        } else {
+            ("Stopped", Color::MUTE_COLOR)
+        };
+        g.set_style(Style::new().fg(server_color).bold());
         g.put_str(x + 12, y, server_text);
         y += 1;
 
         // Connection status
+        g.set_style(Style::new().fg(Color::CYAN));
         g.put_str(x, y, "Connection: ");
-        let status_text = match self.status {
-            ServerStatus::Stopped => "Not connected",
-            ServerStatus::Starting => "Starting...",
-            ServerStatus::Running => "Ready (not connected)",
-            ServerStatus::Connected => "Connected",
-            ServerStatus::Error => "Error",
+        let (status_text, status_color) = match self.status {
+            ServerStatus::Stopped => ("Not connected", Color::DARK_GRAY),
+            ServerStatus::Starting => ("Starting...", Color::ORANGE),
+            ServerStatus::Running => ("Ready (not connected)", Color::SOLO_COLOR),
+            ServerStatus::Connected => ("Connected", Color::METER_LOW),
+            ServerStatus::Error => ("Error", Color::MUTE_COLOR),
         };
+        g.set_style(Style::new().fg(status_color).bold());
         g.put_str(x + 12, y, status_text);
         y += 2;
 
         // Message
         if !self.message.is_empty() {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::SKY_BLUE));
             // Truncate message if too long
             let max_len = (rect.width - 4) as usize;
             let msg = if self.message.len() > max_len {
@@ -105,7 +114,7 @@ impl Pane for ServerPane {
 
         // Help text at bottom
         let help_y = rect.y + rect.height - 5;
-        g.set_style(Style::new().fg(Color::GRAY));
+        g.set_style(Style::new().fg(Color::DARK_GRAY));
         g.put_str(x, help_y, "s: start server  k: kill server");
         g.put_str(x, help_y + 1, "c: connect       d: disconnect");
         g.put_str(x, help_y + 2, "b: build synths  l: load synths");

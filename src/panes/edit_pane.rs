@@ -243,14 +243,14 @@ impl Pane for EditPane {
 
         // Draw box with title
         let title = format!(" Edit: {} ({}) ", self.module_name, self.module_type_name);
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::ORANGE));
         g.draw_box(rect, Some(&title));
 
         let content_x = rect.x + 2;
         let content_y = rect.y + 2;
 
         // Title
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::ORANGE).bold());
         g.put_str(content_x, content_y, "Parameters:");
 
         // Draw parameters with viewport scrolling
@@ -275,42 +275,53 @@ impl Pane for EditPane {
 
             // Selection indicator
             if is_selected {
-                g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                 g.put_str(content_x, y, ">");
             } else {
-                g.set_style(Style::new().fg(Color::BLACK));
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
                 g.put_str(content_x, y, " ");
             }
 
             // Parameter name (left-aligned, 12 chars)
             let param_name = format!("{:12}", param.name);
             if is_selected {
-                g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                g.set_style(Style::new().fg(Color::CYAN).bg(Color::SELECTION_BG));
             } else {
-                g.set_style(Style::new().fg(Color::BLACK));
+                g.set_style(Style::new().fg(Color::CYAN));
             }
             g.put_str(content_x + 2, y, &param_name);
 
             // Slider
             let slider = self.render_slider(param, 30);
+            if is_selected {
+                g.set_style(Style::new().fg(Color::LIME).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::LIME));
+            }
             g.put_str(content_x + 15, y, &slider);
 
             // Value
             let value_str = self.format_value(param);
             let value_display = format!("{:10}", value_str);
+            if is_selected {
+                g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::WHITE));
+            }
             g.put_str(content_x + 48, y, &value_display);
 
             // Range
             if is_selected {
-                g.set_style(Style::new().fg(Color::WHITE).bg(Color::BLACK));
+                g.set_style(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG));
             } else {
-                g.set_style(Style::new().fg(Color::GRAY));
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
             }
             let range_str = self.format_range(param);
             g.put_str(content_x + 59, y, &range_str);
 
             // Clear to end of selection if selected
             if is_selected {
+                g.set_style(Style::new().bg(Color::SELECTION_BG));
                 let line_end = content_x + 59 + range_str.len() as u16;
                 for x in line_end..(rect.x + rect.width - 2) {
                     g.put_char(x, y, ' ');
@@ -320,17 +331,17 @@ impl Pane for EditPane {
 
         // Scroll indicators
         if scroll_offset > 0 {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y, "...");
         }
         if scroll_offset + max_visible < self.params.len() {
-            g.set_style(Style::new().fg(Color::GRAY));
+            g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
 
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
-        g.set_style(Style::new().fg(Color::GRAY));
+        g.set_style(Style::new().fg(Color::DARK_GRAY));
         g.put_str(content_x, help_y, "Left/Right: adjust | Up/Down: select | PgUp/PgDn: +/-10% | Esc: done");
     }
 

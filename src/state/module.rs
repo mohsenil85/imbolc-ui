@@ -24,6 +24,7 @@ pub struct PortDef {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModuleType {
+    Midi,    // Note source
     SawOsc,
     SinOsc,
     SqrOsc,
@@ -41,6 +42,7 @@ pub enum ModuleType {
 impl ModuleType {
     pub fn name(&self) -> &'static str {
         match self {
+            ModuleType::Midi => "MIDI",
             ModuleType::SawOsc => "Saw Oscillator",
             ModuleType::SinOsc => "Sine Oscillator",
             ModuleType::SqrOsc => "Square Oscillator",
@@ -58,6 +60,26 @@ impl ModuleType {
 
     pub fn default_params(&self) -> Vec<Param> {
         match self {
+            ModuleType::Midi => vec![
+                Param {
+                    name: "note".to_string(),
+                    value: ParamValue::Int(60),
+                    min: 0.0,
+                    max: 127.0,
+                },
+                Param {
+                    name: "vel".to_string(),
+                    value: ParamValue::Float(0.8),
+                    min: 0.0,
+                    max: 1.0,
+                },
+                Param {
+                    name: "gate".to_string(),
+                    value: ParamValue::Float(0.0),
+                    min: 0.0,
+                    max: 1.0,
+                },
+            ],
             ModuleType::SawOsc | ModuleType::SinOsc | ModuleType::SqrOsc | ModuleType::TriOsc => {
                 vec![
                     Param {
@@ -179,6 +201,7 @@ impl ModuleType {
 
     pub fn all_types() -> Vec<ModuleType> {
         vec![
+            ModuleType::Midi,
             ModuleType::SawOsc,
             ModuleType::SinOsc,
             ModuleType::SqrOsc,
@@ -196,6 +219,7 @@ impl ModuleType {
 
     fn short_name(&self) -> &'static str {
         match self {
+            ModuleType::Midi => "midi",
             ModuleType::SawOsc => "saw",
             ModuleType::SinOsc => "sin",
             ModuleType::SqrOsc => "sqr",
@@ -213,13 +237,48 @@ impl ModuleType {
 
     pub fn ports(&self) -> Vec<PortDef> {
         match self {
-            // Oscillators: audio output only
-            ModuleType::SawOsc | ModuleType::SinOsc | ModuleType::SqrOsc | ModuleType::TriOsc => {
-                vec![PortDef {
-                    name: "out",
-                    port_type: PortType::Audio,
+            // MIDI: control outputs for freq/gate/vel
+            ModuleType::Midi => vec![
+                PortDef {
+                    name: "freq",
+                    port_type: PortType::Control,
                     direction: PortDirection::Output,
-                }]
+                },
+                PortDef {
+                    name: "gate",
+                    port_type: PortType::Gate,
+                    direction: PortDirection::Output,
+                },
+                PortDef {
+                    name: "vel",
+                    port_type: PortType::Control,
+                    direction: PortDirection::Output,
+                },
+            ],
+            // Oscillators: freq/gate/vel inputs + audio output
+            ModuleType::SawOsc | ModuleType::SinOsc | ModuleType::SqrOsc | ModuleType::TriOsc => {
+                vec![
+                    PortDef {
+                        name: "freq",
+                        port_type: PortType::Control,
+                        direction: PortDirection::Input,
+                    },
+                    PortDef {
+                        name: "gate",
+                        port_type: PortType::Gate,
+                        direction: PortDirection::Input,
+                    },
+                    PortDef {
+                        name: "vel",
+                        port_type: PortType::Control,
+                        direction: PortDirection::Input,
+                    },
+                    PortDef {
+                        name: "out",
+                        port_type: PortType::Audio,
+                        direction: PortDirection::Output,
+                    },
+                ]
             }
             // Filters: audio in/out + control mod input
             ModuleType::Lpf | ModuleType::Hpf | ModuleType::Bpf => vec![
@@ -378,7 +437,8 @@ mod tests {
     #[test]
     fn test_all_module_types() {
         let types = ModuleType::all_types();
-        assert_eq!(types.len(), 12);
+        assert_eq!(types.len(), 13);
+        assert!(types.contains(&ModuleType::Midi));
         assert!(types.contains(&ModuleType::SawOsc));
         assert!(types.contains(&ModuleType::Output));
     }
@@ -399,17 +459,48 @@ mod tests {
     }
 
     #[test]
-    fn test_oscillator_has_output_port() {
+    fn test_oscillator_has_input_and_output_ports() {
         let ports = ModuleType::SawOsc.ports();
-        assert_eq!(ports.len(), 1);
-        assert_eq!(ports[0].name, "out");
-        assert_eq!(ports[0].port_type, PortType::Audio);
-        assert_eq!(ports[0].direction, PortDirection::Output);
+        assert_eq!(ports.len(), 4); // freq, gate, vel inputs + out
+
+        let names: Vec<&str> = ports.iter().map(|p| p.name).collect();
+        assert!(names.contains(&"freq"));
+        assert!(names.contains(&"gate"));
+        assert!(names.contains(&"vel"));
+        assert!(names.contains(&"out"));
+
+        // Check output port
+        let out_port = ports.iter().find(|p| p.name == "out").unwrap();
+        assert_eq!(out_port.port_type, PortType::Audio);
+        assert_eq!(out_port.direction, PortDirection::Output);
+
+        // Check freq input
+        let freq_port = ports.iter().find(|p| p.name == "freq").unwrap();
+        assert_eq!(freq_port.port_type, PortType::Control);
+        assert_eq!(freq_port.direction, PortDirection::Input);
 
         // All oscillators should have the same ports
-        assert_eq!(ModuleType::SinOsc.ports().len(), 1);
-        assert_eq!(ModuleType::SqrOsc.ports().len(), 1);
-        assert_eq!(ModuleType::TriOsc.ports().len(), 1);
+        assert_eq!(ModuleType::SinOsc.ports().len(), 4);
+        assert_eq!(ModuleType::SqrOsc.ports().len(), 4);
+        assert_eq!(ModuleType::TriOsc.ports().len(), 4);
+    }
+
+    #[test]
+    fn test_midi_has_control_outputs() {
+        let ports = ModuleType::Midi.ports();
+        assert_eq!(ports.len(), 3); // freq, gate, vel outputs
+
+        let freq_port = ports.iter().find(|p| p.name == "freq").unwrap();
+        assert_eq!(freq_port.port_type, PortType::Control);
+        assert_eq!(freq_port.direction, PortDirection::Output);
+
+        let gate_port = ports.iter().find(|p| p.name == "gate").unwrap();
+        assert_eq!(gate_port.port_type, PortType::Gate);
+        assert_eq!(gate_port.direction, PortDirection::Output);
+
+        let vel_port = ports.iter().find(|p| p.name == "vel").unwrap();
+        assert_eq!(vel_port.port_type, PortType::Control);
+        assert_eq!(vel_port.direction, PortDirection::Output);
     }
 
     #[test]

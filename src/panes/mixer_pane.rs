@@ -27,7 +27,9 @@ impl MixerPane {
                 .bind('m', "mute", "Toggle mute")
                 .bind('s', "solo", "Toggle solo")
                 .bind('o', "output", "Cycle output target")
-                .bind_key(KeyCode::Tab, "section", "Cycle section"),
+                .bind('O', "output_rev", "Cycle output target backwards")
+                .bind_key(KeyCode::Tab, "section", "Cycle section")
+                .bind('h', "home", "Home screen"),
         }
     }
 
@@ -90,7 +92,9 @@ impl Pane for MixerPane {
             Some("mute") => Action::MixerToggleMute,
             Some("solo") => Action::MixerToggleSolo,
             Some("output") => Action::MixerCycleOutput,
+            Some("output_rev") => Action::MixerCycleOutputReverse,
             Some("section") => Action::MixerCycleSection,
+            Some("home") => Action::SwitchPane("home"),
             _ => Action::None,
         }
     }
@@ -137,7 +141,7 @@ impl MixerPane {
         let box_height = 15;
         let rect = Rect::centered(width, height, box_width, box_height);
 
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::CYAN));
         g.draw_box(rect, Some(" MIXER "));
 
         let base_x = rect.x + 2;
@@ -199,7 +203,7 @@ impl MixerPane {
         }
 
         // Vertical separator before buses
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::PURPLE));
         for row in 0..=output_row {
             g.put_char(x, base_y + row, '│');
         }
@@ -230,7 +234,7 @@ impl MixerPane {
         }
 
         // Vertical separator before master
-        g.set_style(Style::new().fg(Color::BLACK));
+        g.set_style(Style::new().fg(Color::GOLD));
         for row in 0..=output_row {
             g.put_char(x, base_y + row, '│');
         }
@@ -252,7 +256,7 @@ impl MixerPane {
 
         // Scroll indicators row
         let scroll_y = base_y + output_row + 1;
-        g.set_style(Style::new().fg(Color::GRAY));
+        g.set_style(Style::new().fg(Color::DARK_GRAY));
 
         // Channel scroll indicator
         let total_channels = rack.mixer.channels.len();
@@ -279,7 +283,7 @@ impl MixerPane {
 
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
-        g.set_style(Style::new().fg(Color::GRAY));
+        g.set_style(Style::new().fg(Color::DARK_GRAY));
         g.put_str(
             base_x,
             help_y,
@@ -310,23 +314,28 @@ impl MixerPane {
         let meter_width = (STRIP_WIDTH - 1) as usize;
 
         // Style for this strip
-        let style = if selected {
-            Style::new().fg(Color::WHITE).bg(Color::BLACK)
+        let label_style = if selected {
+            Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
+        } else if label.starts_with("BUS") {
+            Style::new().fg(Color::PURPLE).bold()
+        } else if label == "MASTER" {
+            Style::new().fg(Color::GOLD).bold()
         } else {
-            Style::new().fg(Color::BLACK)
+            Style::new().fg(Color::CYAN)
         };
-        let dim_style = if selected {
-            Style::new().fg(Color::WHITE).bg(Color::BLACK)
+
+        let text_style = if selected {
+            Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
         } else {
-            Style::new().fg(Color::GRAY)
+            Style::new().fg(Color::DARK_GRAY)
         };
 
         // Label (CH1, BUS1, MASTER)
-        g.set_style(style);
+        g.set_style(label_style);
         g.put_str(x, base_y + label_row, label);
 
         // Module name (or bus name)
-        g.set_style(dim_style);
+        g.set_style(text_style);
         let name_display: String = if name.is_empty() {
             String::new()
         } else {
@@ -340,30 +349,52 @@ impl MixerPane {
         };
         g.put_str(x, base_y + name_row, &display);
 
-        // Horizontal meter
-        g.set_style(dim_style);
+        // Horizontal meter with color gradient
+        let meter_color = if level > 0.9 {
+            Color::METER_HIGH
+        } else if level > 0.7 {
+            Color::METER_MID
+        } else {
+            Color::METER_LOW
+        };
+        let meter_style = if selected {
+            Style::new().fg(meter_color).bg(Color::SELECTION_BG)
+        } else {
+            Style::new().fg(meter_color)
+        };
+        g.set_style(meter_style);
         let meter = Self::render_meter(level, meter_width);
         g.put_str(x, base_y + meter_row, &meter);
 
         // Level in dB
-        g.set_style(style);
+        let db_style = if selected {
+            Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
+        } else {
+            Style::new().fg(Color::SKY_BLUE)
+        };
+        g.set_style(db_style);
         let db_str = Self::level_to_db(level);
         g.put_str(x, base_y + level_row, &db_str);
 
-        // Status indicator (dot)
-        g.set_style(dim_style);
-        let indicator = if mute {
-            "M" // Show M if muted
+        // Status indicator (mute/solo/normal)
+        let (indicator, indicator_style) = if mute {
+            ("M", Style::new().fg(Color::MUTE_COLOR).bold())
         } else if solo {
-            "S" // Show S if soloed
+            ("S", Style::new().fg(Color::SOLO_COLOR).bold())
         } else {
-            "●" // Normal dot
+            ("●", Style::new().fg(Color::DARK_GRAY))
         };
+        g.set_style(indicator_style);
         g.put_str(x + (meter_width as u16 / 2), base_y + indicator_row, indicator);
 
         // Output routing (channels only)
         if let Some(target) = output {
-            g.set_style(dim_style);
+            let routing_style = if selected {
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
+            } else {
+                Style::new().fg(Color::TEAL)
+            };
+            g.set_style(routing_style);
             g.put_str(x, base_y + output_row, Self::format_output(target));
         }
     }

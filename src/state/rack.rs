@@ -463,6 +463,7 @@ impl Default for RackState {
 /// Parse module type from string (used for SQLite loading)
 fn parse_module_type(s: &str) -> ModuleType {
     match s {
+        "Midi" => ModuleType::Midi,
         "SawOsc" => ModuleType::SawOsc,
         "SinOsc" => ModuleType::SinOsc,
         "SqrOsc" => ModuleType::SqrOsc,

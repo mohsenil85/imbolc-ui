@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use audio::AudioEngine;
-use panes::{AddPane, EditPane, MixerPane, RackPane, ServerPane};
+use panes::{AddPane, EditPane, HelpPane, HomePane, MixerPane, RackPane, ServerPane};
 use state::{MixerSelection, RackState};
 use ui::{
     widgets::{ListItem, SelectList, TextInput},
@@ -334,10 +334,12 @@ fn main() -> std::io::Result<()> {
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut panes = PaneManager::new(Box::new(RackPane::new()));
+    panes.add_pane(Box::new(HomePane::new()));
     panes.add_pane(Box::new(AddPane::new()));
     panes.add_pane(Box::new(EditPane::new()));
     panes.add_pane(Box::new(ServerPane::new()));
     panes.add_pane(Box::new(MixerPane::new()));
+    panes.add_pane(Box::new(HelpPane::new()));
     panes.add_pane(Box::new(KeymapPane::new()));
 
     let mut audio_engine = AudioEngine::new();
@@ -345,6 +347,26 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     loop {
         // Poll for input
         if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
+            // Global F1 handler for help
+            if event.key == KeyCode::F(1) && panes.active().id() != "help" {
+                let current_id = panes.active().id();
+                let current_keymap = panes.active().keymap().clone();
+                let title = match current_id {
+                    "rack" => "Rack",
+                    "mixer" => "Mixer",
+                    "server" => "Server",
+                    "home" => "Home",
+                    "add" => "Add Module",
+                    "edit" => "Edit Module",
+                    _ => current_id,
+                };
+                if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {
+                    help.set_context(current_id, title, &current_keymap);
+                }
+                panes.switch_to("help");
+                continue;
+            }
+
             let action = panes.handle_input(event);
             match &action {
                 Action::Quit => break,
@@ -352,20 +374,32 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     // Dispatch to rack pane and switch back
                     panes.dispatch_to("rack", &action);
 
-                    // Create synth for new module
+                    // Rebuild routing to include new module
                     if audio_engine.is_running() {
-                        if let Some(rack) = panes.get_pane_mut::<RackPane>("rack") {
-                            if let Some(module) = rack.rack().modules.values().last() {
-                                let _ = audio_engine.create_synth(
-                                    module.id,
-                                    module.module_type,
-                                    &module.params,
-                                );
-                            }
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
                         }
                     }
 
                     panes.switch_to("rack");
+                }
+                Action::DeleteModule(module_id) => {
+                    // Free synth first
+                    if audio_engine.is_running() {
+                        let _ = audio_engine.free_synth(*module_id);
+                    }
+
+                    // Remove from rack
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        rack_pane.rack_mut().remove_module(*module_id);
+                    }
+
+                    // Rebuild routing
+                    if audio_engine.is_running() {
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                        }
+                    }
                 }
                 Action::EditModule(id) => {
                     // Get module data from rack pane
@@ -416,6 +450,13 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 Action::AddConnection(_) | Action::RemoveConnection(_) => {
                     // Dispatch to rack pane
                     panes.dispatch_to("rack", &action);
+
+                    // Rebuild audio routing when connections change
+                    if audio_engine.is_running() {
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                        }
+                    }
                 }
                 Action::ConnectServer => {
                     let result = audio_engine.connect("127.0.0.1:57110");
@@ -515,6 +556,16 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                             MixerSelection::Channel(id) => {
                                 if let Some(ch) = mixer.channel_mut(id) {
                                     ch.level = (ch.level + delta).clamp(0.0, 1.0);
+                                    // Sync to audio engine
+                                    if audio_engine.is_running() {
+                                        if let Some(module_id) = ch.module_id {
+                                            let _ = audio_engine.set_output_mixer_params(
+                                                module_id,
+                                                ch.level,
+                                                ch.mute,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                             MixerSelection::Bus(id) => {
@@ -535,6 +586,16 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                             MixerSelection::Channel(id) => {
                                 if let Some(ch) = mixer.channel_mut(id) {
                                     ch.mute = !ch.mute;
+                                    // Sync to audio engine
+                                    if audio_engine.is_running() {
+                                        if let Some(module_id) = ch.module_id {
+                                            let _ = audio_engine.set_output_mixer_params(
+                                                module_id,
+                                                ch.level,
+                                                ch.mute,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                             MixerSelection::Bus(id) => {
@@ -574,6 +635,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 Action::MixerCycleOutput => {
                     if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
                         rack_pane.rack_mut().mixer.cycle_output();
+                    }
+                }
+                Action::MixerCycleOutputReverse => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        rack_pane.rack_mut().mixer.cycle_output_reverse();
                     }
                 }
                 _ => {}

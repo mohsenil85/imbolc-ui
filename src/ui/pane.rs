@@ -18,6 +18,8 @@ pub enum Action {
     PopPane,
     /// Add a module of the given type to the rack
     AddModule(ModuleType),
+    /// Delete a module from the rack
+    DeleteModule(crate::state::ModuleId),
     /// Request to edit a module (sent by rack pane)
     EditModule(crate::state::ModuleId),
     /// Update a module's params (sent by edit pane when done)
@@ -58,6 +60,8 @@ pub enum Action {
     MixerCycleSection,
     /// Mixer: cycle output target for selected channel
     MixerCycleOutput,
+    /// Mixer: cycle output target backwards for selected channel
+    MixerCycleOutputReverse,
 }
 
 /// Trait for UI panes (screens/views)

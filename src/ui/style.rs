@@ -11,7 +11,7 @@ impl Color {
         Self { r, g, b }
     }
 
-    // ANSI color constants
+    // Basic colors
     pub const BLACK: Color = Color::new(0, 0, 0);
     pub const WHITE: Color = Color::new(255, 255, 255);
     pub const RED: Color = Color::new(255, 0, 0);
@@ -22,6 +22,40 @@ impl Color {
     pub const MAGENTA: Color = Color::new(255, 0, 255);
     pub const GRAY: Color = Color::new(128, 128, 128);
     pub const DARK_GRAY: Color = Color::new(64, 64, 64);
+
+    // DAW accent colors
+    pub const ORANGE: Color = Color::new(255, 165, 0);
+    pub const PINK: Color = Color::new(255, 105, 180);
+    pub const PURPLE: Color = Color::new(147, 112, 219);
+    pub const LIME: Color = Color::new(50, 205, 50);
+    pub const TEAL: Color = Color::new(0, 128, 128);
+    pub const CORAL: Color = Color::new(255, 127, 80);
+    pub const SKY_BLUE: Color = Color::new(135, 206, 235);
+    pub const GOLD: Color = Color::new(255, 215, 0);
+
+    // Module type colors
+    pub const MIDI_COLOR: Color = Color::new(255, 100, 160);   // Magenta - MIDI/note source
+    pub const OSC_COLOR: Color = Color::new(100, 180, 255);    // Blue - oscillators
+    pub const FILTER_COLOR: Color = Color::new(255, 140, 90);  // Orange - filters
+    pub const ENV_COLOR: Color = Color::new(180, 130, 255);    // Purple - envelopes
+    pub const LFO_COLOR: Color = Color::new(130, 255, 180);    // Mint - LFOs
+    pub const FX_COLOR: Color = Color::new(255, 180, 220);     // Pink - effects
+    pub const OUTPUT_COLOR: Color = Color::new(255, 220, 100); // Gold - output
+
+    // Port type colors
+    pub const AUDIO_PORT: Color = Color::new(80, 200, 255);    // Cyan - audio
+    pub const CONTROL_PORT: Color = Color::new(100, 255, 150); // Green - control
+    pub const GATE_PORT: Color = Color::new(255, 230, 80);     // Yellow - gate
+
+    // Meter colors
+    pub const METER_LOW: Color = Color::new(80, 220, 100);     // Green
+    pub const METER_MID: Color = Color::new(255, 220, 50);     // Yellow
+    pub const METER_HIGH: Color = Color::new(255, 80, 80);     // Red
+
+    // UI colors
+    pub const SELECTION_BG: Color = Color::new(60, 100, 180);  // Selection highlight
+    pub const MUTE_COLOR: Color = Color::new(255, 100, 100);   // Muted state
+    pub const SOLO_COLOR: Color = Color::new(255, 220, 80);    // Solo state
 }
 
 /// Text style with foreground, background, and attributes
