@@ -10,9 +10,9 @@ pub struct BusAllocator {
     /// Control bus allocations: (module_id, port_name) -> bus_index
     control_buses: HashMap<(ModuleId, String), i32>,
     /// Next available audio bus (starts at 16 to avoid hardware outputs)
-    next_audio_bus: i32,
+    pub next_audio_bus: i32,
     /// Next available control bus
-    next_control_bus: i32,
+    pub next_control_bus: i32,
 }
 
 impl BusAllocator {

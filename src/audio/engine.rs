@@ -39,6 +39,35 @@ pub struct BusAssignment {
     pub control_outs: HashMap<String, i32>,
 }
 
+/// Maximum simultaneous voices per MIDI module
+const MAX_VOICES_PER_MODULE: usize = 16;
+
+/// A single mono voice (Midi-only node, shared control buses)
+#[derive(Debug, Clone)]
+pub struct VoiceEntry {
+    pub module_id: ModuleId,
+    pub pitch: u8,
+    pub node_id: i32,
+}
+
+/// Template describing a MIDI module's downstream signal chain
+#[derive(Debug, Clone)]
+pub struct ChainTemplate {
+    /// Ordered list of (module_id, module_type) downstream from Midi, excluding Output
+    pub modules: Vec<(ModuleId, ModuleType)>,
+    /// The audio bus that the Output module reads from (where voices sum)
+    pub output_audio_bus: i32,
+}
+
+/// A polyphonic voice chain: entire signal chain spawned per note
+#[derive(Debug, Clone)]
+pub struct VoiceChain {
+    pub midi_module_id: ModuleId,
+    pub pitch: u8,
+    pub group_id: i32,
+    pub midi_node_id: i32,
+}
+
 pub struct AudioEngine {
     client: Option<OscClient>,
     node_map: HashMap<ModuleId, i32>,
@@ -56,6 +85,22 @@ pub struct AudioEngine {
     send_node_map: HashMap<(u8, u8), i32>,
     /// Bus output synth nodes: bus_id -> node_id
     bus_node_map: HashMap<u8, i32>,
+    /// Bus assignments for MIDI modules (needed for voice spawning)
+    midi_bus_assignments: HashMap<ModuleId, BusAssignment>,
+    /// Active mono voices (Midi-only nodes)
+    voice_list: Vec<VoiceEntry>,
+    /// Active poly voice chains (full signal chain per note)
+    voice_chains: Vec<VoiceChain>,
+    /// Chain templates for poly mode: midi_module_id -> template
+    chain_templates: HashMap<ModuleId, ChainTemplate>,
+    /// Set of module IDs that are part of a poly chain (skip static synth creation)
+    poly_chain_modules: std::collections::HashSet<ModuleId>,
+    /// Next available voice bus (audio) — starts after static allocation
+    next_voice_audio_bus: i32,
+    /// Next available voice bus (control) — starts after static allocation
+    next_voice_control_bus: i32,
+    /// Next group ID for voice groups
+    next_group_id: i32,
 }
 
 impl AudioEngine {
@@ -74,6 +119,14 @@ impl AudioEngine {
             bus_audio_buses: HashMap::new(),
             send_node_map: HashMap::new(),
             bus_node_map: HashMap::new(),
+            midi_bus_assignments: HashMap::new(),
+            voice_list: Vec::new(),
+            voice_chains: Vec::new(),
+            chain_templates: HashMap::new(),
+            poly_chain_modules: std::collections::HashSet::new(),
+            next_voice_audio_bus: 16,
+            next_voice_control_bus: 0,
+            next_group_id: 1000,
         }
     }
 
@@ -241,6 +294,11 @@ impl AudioEngine {
         self.send_node_map.clear();
         self.bus_node_map.clear();
         self.bus_audio_buses.clear();
+        self.midi_bus_assignments.clear();
+        self.voice_list.clear();
+        self.voice_chains.clear();
+        self.chain_templates.clear();
+        self.poly_chain_modules.clear();
         self.bus_allocator.reset();
         self.groups_created = false;
         self.client = None;
@@ -476,7 +534,7 @@ impl AudioEngine {
         // Ensure groups exist
         self.ensure_groups()?;
 
-        // Free all existing synths (modules, sends, bus outputs)
+        // Free all existing synths (modules, sends, bus outputs) and voices
         if let Some(ref client) = self.client {
             for &node_id in self.node_map.values() {
                 let _ = client.free_node(node_id);
@@ -487,11 +545,20 @@ impl AudioEngine {
             for &node_id in self.bus_node_map.values() {
                 let _ = client.free_node(node_id);
             }
+            for voice in self.voice_list.drain(..) {
+                let _ = client.free_node(voice.node_id);
+            }
+            for chain in self.voice_chains.drain(..) {
+                let _ = client.free_node(chain.group_id);
+            }
         }
         self.node_map.clear();
         self.send_node_map.clear();
         self.bus_node_map.clear();
         self.bus_audio_buses.clear();
+        self.midi_bus_assignments.clear();
+        self.chain_templates.clear();
+        self.poly_chain_modules.clear();
 
         // Resolve routing
         let assignments = self.resolve_routing(rack);
@@ -499,16 +566,88 @@ impl AudioEngine {
         // Get topologically sorted order
         let sorted_modules = Self::topological_sort(rack);
 
-        // Create synths in order
+        // Build chain templates for poly MIDI modules:
+        // Walk downstream from each Midi module, collecting modules until Output.
+        for &module_id in &rack.order {
+            if let Some(module) = rack.modules.get(&module_id) {
+                if module.module_type != ModuleType::Midi {
+                    continue;
+                }
+                // Check if this MIDI module's track is polyphonic
+                let is_poly = rack.piano_roll.tracks
+                    .get(&module_id)
+                    .map_or(true, |t| t.polyphonic);
+                if !is_poly {
+                    continue;
+                }
+
+                // Walk the connection graph downstream from this Midi module
+                let mut chain_modules: Vec<(ModuleId, ModuleType)> = Vec::new();
+                let mut output_audio_bus: Option<i32> = None;
+                let mut current_id = module_id;
+
+                loop {
+                    // Find the downstream module connected to current_id's output
+                    let next = rack.connections.iter().find(|c| {
+                        c.src.module_id == current_id
+                    });
+                    match next {
+                        Some(conn) => {
+                            let dst_id = conn.dst.module_id;
+                            if let Some(dst_mod) = rack.modules.get(&dst_id) {
+                                if dst_mod.module_type == ModuleType::Output {
+                                    // Found the Output — record its audio_in bus
+                                    output_audio_bus = assignments
+                                        .get(&dst_id)
+                                        .and_then(|a| a.audio_in);
+                                    break;
+                                } else {
+                                    chain_modules.push((dst_id, dst_mod.module_type));
+                                    current_id = dst_id;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+
+                if let Some(bus) = output_audio_bus {
+                    // Mark all chain modules as poly (skip static synth creation)
+                    for &(mid, _) in &chain_modules {
+                        self.poly_chain_modules.insert(mid);
+                    }
+                    self.chain_templates.insert(module_id, ChainTemplate {
+                        modules: chain_modules,
+                        output_audio_bus: bus,
+                    });
+                }
+            }
+        }
+
+        // Store bus allocator state for voice bus allocation
+        self.next_voice_audio_bus = self.bus_allocator.next_audio_bus;
+        self.next_voice_control_bus = self.bus_allocator.next_control_bus;
+
+        // Create synths in order (skip Midi — voices are spawned dynamically)
+        // Also skip modules that are part of a poly chain (they get cloned per voice)
         for module_id in sorted_modules {
             if let Some(module) = rack.modules.get(&module_id) {
                 let assignment = assignments.get(&module_id).cloned().unwrap_or_default();
-                self.create_synth_with_routing(
-                    module_id,
-                    module.module_type,
-                    &module.params,
-                    &assignment,
-                )?;
+                if module.module_type == ModuleType::Midi {
+                    // Store bus assignments for mono voice spawning
+                    self.midi_bus_assignments.insert(module_id, assignment);
+                } else if self.poly_chain_modules.contains(&module_id) {
+                    // Skip — will be cloned per voice in spawn_voice_chain
+                } else {
+                    self.create_synth_with_routing(
+                        module_id,
+                        module.module_type,
+                        &module.params,
+                        &assignment,
+                    )?;
+                }
             }
         }
 
@@ -657,50 +796,332 @@ impl AudioEngine {
         Ok(())
     }
 
-    /// Send a note-on as a timestamped bundle (freq + vel + gate set atomically)
-    pub fn send_note_on_bundled(
-        &self,
+    /// Spawn a voice — dispatches to mono or poly based on flag
+    pub fn spawn_voice(
+        &mut self,
+        module_id: ModuleId,
+        pitch: u8,
+        velocity: f32,
+        offset_secs: f64,
+        polyphonic: bool,
+        rack: &RackState,
+    ) -> Result<(), String> {
+        if polyphonic && self.chain_templates.contains_key(&module_id) {
+            self.spawn_voice_chain(module_id, pitch, velocity, offset_secs, rack)
+        } else {
+            self.spawn_mono_voice(module_id, pitch, velocity, offset_secs)
+        }
+    }
+
+    /// Spawn a mono voice (Midi-only node, shared control buses) — original behavior
+    fn spawn_mono_voice(
+        &mut self,
         module_id: ModuleId,
         pitch: u8,
         velocity: f32,
         offset_secs: f64,
     ) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        let node_id = self
-            .node_map
+        let bus_assignment = self
+            .midi_bus_assignments
             .get(&module_id)
-            .ok_or_else(|| format!("No synth for module {}", module_id))?;
+            .cloned()
+            .ok_or_else(|| format!("No bus assignment for MIDI module {}", module_id))?;
+
+        // Voice-steal: if at limit for this module, release oldest voice
+        let count = self.voice_list.iter().filter(|v| v.module_id == module_id).count();
+        if count >= MAX_VOICES_PER_MODULE {
+            if let Some(pos) = self.voice_list.iter().position(|v| v.module_id == module_id) {
+                let old = self.voice_list.remove(pos);
+                let _ = client.set_param(old.node_id, "gate", 0.0);
+            }
+        }
+
+        let node_id = self.next_node_id;
+        self.next_node_id += 1;
+
         let freq = 440.0 * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
+
+        // Build /s_new params: note, freq, vel, gate=1, plus bus routing
+        let mut params: Vec<(String, f32)> = vec![
+            ("note".to_string(), pitch as f32),
+            ("freq".to_string(), freq as f32),
+            ("vel".to_string(), velocity),
+            ("gate".to_string(), 1.0),
+        ];
+
+        // Add bus routing from stored assignment
+        for (port_name, bus) in &bus_assignment.control_outs {
+            params.push((format!("{}_out", port_name), *bus as f32));
+        }
+
+        // Build the /s_new message
+        let group = Self::group_for_module(ModuleType::Midi);
+        let mut args: Vec<rosc::OscType> = vec![
+            rosc::OscType::String(Self::synth_def_name(ModuleType::Midi).to_string()),
+            rosc::OscType::Int(node_id),
+            rosc::OscType::Int(1), // addToTail
+            rosc::OscType::Int(group),
+        ];
+        for (name, value) in &params {
+            args.push(rosc::OscType::String(name.clone()));
+            args.push(rosc::OscType::Float(*value));
+        }
+
+        let msg = rosc::OscMessage {
+            addr: "/s_new".to_string(),
+            args,
+        };
+
         let time = super::osc_client::osc_time_from_now(offset_secs);
         client
-            .set_params_bundled(
-                *node_id,
-                &[
-                    ("note", pitch as f32),
-                    ("freq", freq as f32),
-                    ("vel", velocity),
-                    ("gate", 1.0),
-                ],
-                time,
-            )
-            .map_err(|e| e.to_string())
+            .send_bundle(vec![msg], time)
+            .map_err(|e| e.to_string())?;
+
+        self.voice_list.push(VoiceEntry {
+            module_id,
+            pitch,
+            node_id,
+        });
+
+        Ok(())
     }
 
-    /// Send a note-off as a timestamped bundle
-    pub fn send_note_off_bundled(
-        &self,
+    /// Spawn a full signal chain per voice (poly mode)
+    fn spawn_voice_chain(
+        &mut self,
+        midi_module_id: ModuleId,
+        pitch: u8,
+        velocity: f32,
+        offset_secs: f64,
+        rack: &RackState,
+    ) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let template = self.chain_templates.get(&midi_module_id)
+            .ok_or_else(|| format!("No chain template for MIDI module {}", midi_module_id))?
+            .clone();
+
+        // Voice-steal: if at limit for this module, free oldest chain group
+        let count = self.voice_chains.iter().filter(|v| v.midi_module_id == midi_module_id).count();
+        if count >= MAX_VOICES_PER_MODULE {
+            if let Some(pos) = self.voice_chains.iter().position(|v| v.midi_module_id == midi_module_id) {
+                let old = self.voice_chains.remove(pos);
+                let _ = client.free_node(old.group_id);
+            }
+        }
+
+        // Create a group for this voice chain
+        let group_id = self.next_group_id;
+        self.next_group_id += 1;
+
+        // Allocate per-voice control buses (freq, gate, vel)
+        let voice_freq_bus = self.next_voice_control_bus;
+        self.next_voice_control_bus += 1;
+        let voice_gate_bus = self.next_voice_control_bus;
+        self.next_voice_control_bus += 1;
+        let voice_vel_bus = self.next_voice_control_bus;
+        self.next_voice_control_bus += 1;
+
+        // Allocate per-voice audio buses for inter-module connections
+        let mut voice_audio_buses: Vec<i32> = Vec::new();
+        for _ in 0..template.modules.len() {
+            let bus = self.next_voice_audio_bus;
+            self.next_voice_audio_bus += 2; // stereo
+            voice_audio_buses.push(bus);
+        }
+
+        let freq = 440.0 * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
+
+        let mut messages: Vec<rosc::OscMessage> = Vec::new();
+
+        // 1. Create group: /g_new group_id addToTail GROUP_SOURCES
+        messages.push(rosc::OscMessage {
+            addr: "/g_new".to_string(),
+            args: vec![
+                rosc::OscType::Int(group_id),
+                rosc::OscType::Int(1), // addToTail
+                rosc::OscType::Int(GROUP_SOURCES),
+            ],
+        });
+
+        // 2. MIDI node
+        let midi_node_id = self.next_node_id;
+        self.next_node_id += 1;
+        {
+            let mut args: Vec<rosc::OscType> = vec![
+                rosc::OscType::String(Self::synth_def_name(ModuleType::Midi).to_string()),
+                rosc::OscType::Int(midi_node_id),
+                rosc::OscType::Int(1), // addToTail
+                rosc::OscType::Int(group_id),
+            ];
+            let params: Vec<(String, f32)> = vec![
+                ("note".to_string(), pitch as f32),
+                ("freq".to_string(), freq as f32),
+                ("vel".to_string(), velocity),
+                ("gate".to_string(), 1.0),
+                ("freq_out".to_string(), voice_freq_bus as f32),
+                ("gate_out".to_string(), voice_gate_bus as f32),
+                ("vel_out".to_string(), voice_vel_bus as f32),
+            ];
+            for (name, value) in &params {
+                args.push(rosc::OscType::String(name.clone()));
+                args.push(rosc::OscType::Float(*value));
+            }
+            messages.push(rosc::OscMessage {
+                addr: "/s_new".to_string(),
+                args,
+            });
+        }
+
+        // 3. Chain modules (osc, filter, etc.)
+        for (i, &(mod_id, mod_type)) in template.modules.iter().enumerate() {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+
+            let mut args: Vec<rosc::OscType> = vec![
+                rosc::OscType::String(Self::synth_def_name(mod_type).to_string()),
+                rosc::OscType::Int(node_id),
+                rosc::OscType::Int(1), // addToTail
+                rosc::OscType::Int(group_id),
+            ];
+
+            // Snapshot params from the rack module
+            if let Some(module) = rack.modules.get(&mod_id) {
+                for p in &module.params {
+                    let val = match &p.value {
+                        ParamValue::Float(v) => *v,
+                        ParamValue::Int(v) => *v as f32,
+                        ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                    };
+                    args.push(rosc::OscType::String(p.name.clone()));
+                    args.push(rosc::OscType::Float(val));
+                }
+            }
+
+            // Wire control inputs (freq, gate, vel) from per-voice buses
+            let ports = mod_type.ports();
+            for port in &ports {
+                if port.direction == crate::state::PortDirection::Input {
+                    match port.name {
+                        "freq" => {
+                            args.push(rosc::OscType::String("freq_in".to_string()));
+                            args.push(rosc::OscType::Float(voice_freq_bus as f32));
+                        }
+                        "gate" => {
+                            args.push(rosc::OscType::String("gate_in".to_string()));
+                            args.push(rosc::OscType::Float(voice_gate_bus as f32));
+                        }
+                        "vel" => {
+                            args.push(rosc::OscType::String("vel_in".to_string()));
+                            args.push(rosc::OscType::Float(voice_vel_bus as f32));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Wire audio input from previous module's audio output bus
+            let has_audio_in = ports.iter().any(|p| p.name == "in" && p.port_type == crate::state::PortType::Audio && p.direction == crate::state::PortDirection::Input);
+            if has_audio_in && i > 0 {
+                args.push(rosc::OscType::String("in".to_string()));
+                args.push(rosc::OscType::Float(voice_audio_buses[i - 1] as f32));
+            }
+
+            // Wire audio output
+            let has_audio_out = ports.iter().any(|p| p.name == "out" && p.port_type == crate::state::PortType::Audio && p.direction == crate::state::PortDirection::Output);
+            if has_audio_out {
+                // Last module in chain outputs to the Output module's bus; otherwise to next voice audio bus
+                let out_bus = if i == template.modules.len() - 1 {
+                    template.output_audio_bus
+                } else {
+                    voice_audio_buses[i]
+                };
+                args.push(rosc::OscType::String("out".to_string()));
+                args.push(rosc::OscType::Float(out_bus as f32));
+            }
+
+            messages.push(rosc::OscMessage {
+                addr: "/s_new".to_string(),
+                args,
+            });
+        }
+
+        // Send all as one timed bundle
+        let time = super::osc_client::osc_time_from_now(offset_secs);
+        client
+            .send_bundle(messages, time)
+            .map_err(|e| e.to_string())?;
+
+        self.voice_chains.push(VoiceChain {
+            midi_module_id,
+            pitch,
+            group_id,
+            midi_node_id,
+        });
+
+        Ok(())
+    }
+
+    /// Release a specific voice by module and pitch (note-off)
+    pub fn release_voice(
+        &mut self,
         module_id: ModuleId,
+        pitch: u8,
         offset_secs: f64,
     ) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        let node_id = self
-            .node_map
-            .get(&module_id)
-            .ok_or_else(|| format!("No synth for module {}", module_id))?;
-        let time = super::osc_client::osc_time_from_now(offset_secs);
-        client
-            .set_params_bundled(*node_id, &[("gate", 0.0)], time)
-            .map_err(|e| e.to_string())
+
+        // Check poly voice chains first
+        if let Some(pos) = self
+            .voice_chains
+            .iter()
+            .position(|v| v.midi_module_id == module_id && v.pitch == pitch)
+        {
+            let chain = self.voice_chains.remove(pos);
+            // Send gate=0 to the midi node
+            let time = super::osc_client::osc_time_from_now(offset_secs);
+            client
+                .set_params_bundled(chain.midi_node_id, &[("gate", 0.0)], time)
+                .map_err(|e| e.to_string())?;
+            // Schedule group free after 5 seconds (release envelope time)
+            let cleanup_time = super::osc_client::osc_time_from_now(offset_secs + 5.0);
+            client
+                .send_bundle(
+                    vec![rosc::OscMessage {
+                        addr: "/n_free".to_string(),
+                        args: vec![rosc::OscType::Int(chain.group_id)],
+                    }],
+                    cleanup_time,
+                )
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+
+        // Fall back to mono voice list
+        if let Some(pos) = self
+            .voice_list
+            .iter()
+            .position(|v| v.module_id == module_id && v.pitch == pitch)
+        {
+            let voice = self.voice_list.remove(pos);
+            let time = super::osc_client::osc_time_from_now(offset_secs);
+            client
+                .set_params_bundled(voice.node_id, &[("gate", 0.0)], time)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// Release all active voices (e.g. on playback stop)
+    pub fn release_all_voices(&mut self) {
+        if let Some(ref client) = self.client {
+            for voice in self.voice_list.drain(..) {
+                let _ = client.set_param(voice.node_id, "gate", 0.0);
+            }
+            for chain in self.voice_chains.drain(..) {
+                let _ = client.free_node(chain.group_id);
+            }
+        }
     }
 
     pub fn load_synthdefs(&self, dir: &Path) -> Result<(), String> {

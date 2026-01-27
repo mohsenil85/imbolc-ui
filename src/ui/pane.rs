@@ -94,6 +94,8 @@ pub enum Action {
     PianoRollJump(i8),
     /// Piano roll: cycle time signature
     PianoRollCycleTimeSig,
+    /// Piano roll: toggle polyphonic/monophonic mode for current track
+    PianoRollTogglePolyMode,
 }
 
 /// Trait for UI panes (screens/views).

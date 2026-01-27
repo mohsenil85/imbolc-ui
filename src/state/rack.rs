@@ -279,7 +279,73 @@ impl RackState {
                 PRIMARY KEY (src_module_id, src_port_name, dst_module_id, dst_port_name)
             );
 
+            CREATE TABLE IF NOT EXISTS mixer_channels (
+                id INTEGER PRIMARY KEY,
+                module_id INTEGER,
+                level REAL NOT NULL,
+                pan REAL NOT NULL,
+                mute INTEGER NOT NULL,
+                solo INTEGER NOT NULL,
+                output_target TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS mixer_sends (
+                channel_id INTEGER NOT NULL,
+                bus_id INTEGER NOT NULL,
+                level REAL NOT NULL,
+                enabled INTEGER NOT NULL,
+                PRIMARY KEY (channel_id, bus_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS mixer_buses (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                level REAL NOT NULL,
+                pan REAL NOT NULL,
+                mute INTEGER NOT NULL,
+                solo INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS mixer_master (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                level REAL NOT NULL,
+                mute INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS piano_roll_tracks (
+                module_id INTEGER PRIMARY KEY,
+                position INTEGER NOT NULL,
+                polyphonic INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS piano_roll_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                track_module_id INTEGER NOT NULL,
+                tick INTEGER NOT NULL,
+                duration INTEGER NOT NULL,
+                pitch INTEGER NOT NULL,
+                velocity INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS musical_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                bpm REAL NOT NULL,
+                time_sig_num INTEGER NOT NULL,
+                time_sig_denom INTEGER NOT NULL,
+                ticks_per_beat INTEGER NOT NULL,
+                loop_start INTEGER NOT NULL,
+                loop_end INTEGER NOT NULL,
+                looping INTEGER NOT NULL
+            );
+
             -- Clear existing data for full save
+            DELETE FROM piano_roll_notes;
+            DELETE FROM piano_roll_tracks;
+            DELETE FROM musical_settings;
+            DELETE FROM mixer_sends;
+            DELETE FROM mixer_channels;
+            DELETE FROM mixer_buses;
+            DELETE FROM mixer_master;
             DELETE FROM connections;
             DELETE FROM module_params;
             DELETE FROM modules;
@@ -353,6 +419,118 @@ impl RackState {
                 ))?;
             }
         }
+
+        // Insert mixer channels
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO mixer_channels (id, module_id, level, pan, mute, solo, output_target)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for ch in &self.mixer.channels {
+                let output_str = match ch.output_target {
+                    super::mixer::OutputTarget::Master => "master".to_string(),
+                    super::mixer::OutputTarget::Bus(n) => format!("bus:{}", n),
+                };
+                stmt.execute((
+                    &ch.id,
+                    &ch.module_id.map(|id| id as i64),
+                    &(ch.level as f64),
+                    &(ch.pan as f64),
+                    &ch.mute,
+                    &ch.solo,
+                    &output_str,
+                ))?;
+            }
+        }
+
+        // Insert mixer sends
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO mixer_sends (channel_id, bus_id, level, enabled)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for ch in &self.mixer.channels {
+                for send in &ch.sends {
+                    stmt.execute((
+                        &ch.id,
+                        &send.bus_id,
+                        &(send.level as f64),
+                        &send.enabled,
+                    ))?;
+                }
+            }
+        }
+
+        // Insert mixer buses
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO mixer_buses (id, name, level, pan, mute, solo)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for bus in &self.mixer.buses {
+                stmt.execute((
+                    &bus.id,
+                    &bus.name,
+                    &(bus.level as f64),
+                    &(bus.pan as f64),
+                    &bus.mute,
+                    &bus.solo,
+                ))?;
+            }
+        }
+
+        // Insert mixer master
+        conn.execute(
+            "INSERT INTO mixer_master (id, level, mute) VALUES (1, ?1, ?2)",
+            rusqlite::params![self.mixer.master_level as f64, self.mixer.master_mute],
+        )?;
+
+        // Insert piano roll tracks
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO piano_roll_tracks (module_id, position, polyphonic)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for (pos, &mid) in self.piano_roll.track_order.iter().enumerate() {
+                if let Some(track) = self.piano_roll.tracks.get(&mid) {
+                    stmt.execute((&mid, &(pos as i32), &track.polyphonic))?;
+                }
+            }
+        }
+
+        // Insert piano roll notes
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO piano_roll_notes (track_module_id, tick, duration, pitch, velocity)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for track in self.piano_roll.tracks.values() {
+                for note in &track.notes {
+                    stmt.execute((
+                        &track.module_id,
+                        &note.tick,
+                        &note.duration,
+                        &note.pitch,
+                        &note.velocity,
+                    ))?;
+                }
+            }
+        }
+
+        // Insert musical settings
+        conn.execute(
+            "INSERT INTO musical_settings (id, bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                self.piano_roll.bpm as f64,
+                self.piano_roll.time_signature.0,
+                self.piano_roll.time_signature.1,
+                self.piano_roll.ticks_per_beat,
+                self.piano_roll.loop_start,
+                self.piano_roll.loop_end,
+                self.piano_roll.looping,
+            ],
+        )?;
 
         Ok(())
     }
@@ -455,13 +633,193 @@ impl RackState {
             }
         }
 
+        // Load mixer state (graceful fallback for old files)
+        let mut mixer = MixerState::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, module_id, level, pan, mute, solo, output_target FROM mixer_channels ORDER BY id",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let id: u8 = row.get(0)?;
+                let module_id: Option<ModuleId> = row.get(1)?;
+                let level: f64 = row.get(2)?;
+                let pan: f64 = row.get(3)?;
+                let mute: bool = row.get(4)?;
+                let solo: bool = row.get(5)?;
+                let output_str: String = row.get(6)?;
+                Ok((id, module_id, level, pan, mute, solo, output_str))
+            }) {
+                for result in rows {
+                    if let Ok((id, module_id, level, pan, mute, solo, output_str)) = result {
+                        if let Some(ch) = mixer.channel_mut(id) {
+                            ch.module_id = module_id;
+                            ch.level = level as f32;
+                            ch.pan = pan as f32;
+                            ch.mute = mute;
+                            ch.solo = solo;
+                            ch.output_target = if output_str == "master" {
+                                super::mixer::OutputTarget::Master
+                            } else if let Some(n) = output_str.strip_prefix("bus:") {
+                                n.parse::<u8>().map(super::mixer::OutputTarget::Bus).unwrap_or_default()
+                            } else {
+                                super::mixer::OutputTarget::Master
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load mixer sends
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT channel_id, bus_id, level, enabled FROM mixer_sends",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let channel_id: u8 = row.get(0)?;
+                let bus_id: u8 = row.get(1)?;
+                let level: f64 = row.get(2)?;
+                let enabled: bool = row.get(3)?;
+                Ok((channel_id, bus_id, level, enabled))
+            }) {
+                for result in rows {
+                    if let Ok((channel_id, bus_id, level, enabled)) = result {
+                        if let Some(ch) = mixer.channel_mut(channel_id) {
+                            if let Some(send) = ch.sends.iter_mut().find(|s| s.bus_id == bus_id) {
+                                send.level = level as f32;
+                                send.enabled = enabled;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load mixer buses
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, name, level, pan, mute, solo FROM mixer_buses ORDER BY id",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let id: u8 = row.get(0)?;
+                let name: String = row.get(1)?;
+                let level: f64 = row.get(2)?;
+                let pan: f64 = row.get(3)?;
+                let mute: bool = row.get(4)?;
+                let solo: bool = row.get(5)?;
+                Ok((id, name, level, pan, mute, solo))
+            }) {
+                for result in rows {
+                    if let Ok((id, name, level, pan, mute, solo)) = result {
+                        if let Some(bus) = mixer.bus_mut(id) {
+                            bus.name = name;
+                            bus.level = level as f32;
+                            bus.pan = pan as f32;
+                            bus.mute = mute;
+                            bus.solo = solo;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load mixer master
+        if let Ok(row) = conn.query_row(
+            "SELECT level, mute FROM mixer_master WHERE id = 1",
+            [],
+            |row| {
+                let level: f64 = row.get(0)?;
+                let mute: bool = row.get(1)?;
+                Ok((level, mute))
+            },
+        ) {
+            mixer.master_level = row.0 as f32;
+            mixer.master_mute = row.1;
+        }
+
+        // Load piano roll state (graceful fallback for old files)
+        let mut piano_roll = PianoRollState::new();
+
+        // Load musical settings
+        if let Ok(row) = conn.query_row(
+            "SELECT bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping
+             FROM musical_settings WHERE id = 1",
+            [],
+            |row| {
+                let bpm: f64 = row.get(0)?;
+                let tsn: u8 = row.get(1)?;
+                let tsd: u8 = row.get(2)?;
+                let tpb: u32 = row.get(3)?;
+                let ls: u32 = row.get(4)?;
+                let le: u32 = row.get(5)?;
+                let looping: bool = row.get(6)?;
+                Ok((bpm, tsn, tsd, tpb, ls, le, looping))
+            },
+        ) {
+            piano_roll.bpm = row.0 as f32;
+            piano_roll.time_signature = (row.1, row.2);
+            piano_roll.ticks_per_beat = row.3;
+            piano_roll.loop_start = row.4;
+            piano_roll.loop_end = row.5;
+            piano_roll.looping = row.6;
+        }
+
+        // Load piano roll tracks
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT module_id, polyphonic FROM piano_roll_tracks ORDER BY position",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let module_id: ModuleId = row.get(0)?;
+                let polyphonic: bool = row.get(1)?;
+                Ok((module_id, polyphonic))
+            }) {
+                for result in rows {
+                    if let Ok((module_id, polyphonic)) = result {
+                        piano_roll.track_order.push(module_id);
+                        piano_roll.tracks.insert(
+                            module_id,
+                            super::piano_roll::Track {
+                                module_id,
+                                notes: Vec::new(),
+                                polyphonic,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        // Load piano roll notes
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT track_module_id, tick, duration, pitch, velocity FROM piano_roll_notes",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let track_module_id: ModuleId = row.get(0)?;
+                let tick: u32 = row.get(1)?;
+                let duration: u32 = row.get(2)?;
+                let pitch: u8 = row.get(3)?;
+                let velocity: u8 = row.get(4)?;
+                Ok((track_module_id, tick, duration, pitch, velocity))
+            }) {
+                for result in rows {
+                    if let Ok((track_module_id, tick, duration, pitch, velocity)) = result {
+                        if let Some(track) = piano_roll.tracks.get_mut(&track_module_id) {
+                            track.notes.push(super::piano_roll::Note {
+                                tick,
+                                duration,
+                                pitch,
+                                velocity,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(Self {
             modules,
             order,
             connections,
             selected: None,
-            mixer: MixerState::new(), // Fresh mixer state on load (TODO: persist)
-            piano_roll: PianoRollState::new(),
+            mixer,
+            piano_roll,
             next_id,
         })
     }

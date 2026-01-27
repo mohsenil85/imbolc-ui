@@ -11,9 +11,9 @@ pub fn default_rack_path() -> PathBuf {
         PathBuf::from(home)
             .join(".config")
             .join("tuidaw")
-            .join("rack.tuidaw")
+            .join("default.sqlite")
     } else {
-        PathBuf::from("rack.tuidaw")
+        PathBuf::from("default.sqlite")
     }
 }
 
@@ -22,7 +22,7 @@ pub fn dispatch_action(
     action: &Action,
     panes: &mut PaneManager,
     audio_engine: &mut AudioEngine,
-    _app_frame: &mut Frame,
+    app_frame: &mut Frame,
     active_notes: &mut Vec<(u32, u8, u32)>,
 ) -> bool {
     match action {
@@ -74,6 +74,11 @@ pub fn dispatch_action(
                     eprintln!("Failed to save rack: {}", e);
                 }
             }
+            let name = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("default")
+                .to_string();
+            app_frame.set_project_name(name);
         }
         Action::LoadRack => {
             let path = default_rack_path();
@@ -83,6 +88,11 @@ pub fn dispatch_action(
                         if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
                             rack_pane.set_rack(rack);
                         }
+                        let name = path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("default")
+                            .to_string();
+                        app_frame.set_project_name(name);
                     }
                     Err(e) => {
                         eprintln!("Failed to load rack: {}", e);

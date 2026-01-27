@@ -31,6 +31,7 @@ impl Default for SessionState {
 pub struct Frame {
     messages: VecDeque<String>,
     pub session: SessionState,
+    pub project_name: String,
 }
 
 impl Frame {
@@ -38,7 +39,12 @@ impl Frame {
         Self {
             messages: VecDeque::with_capacity(CONSOLE_CAPACITY),
             session: SessionState::default(),
+            project_name: "default".to_string(),
         }
+    }
+
+    pub fn set_project_name(&mut self, name: String) {
+        self.project_name = name;
     }
 
     /// Push a message to the console ring buffer
@@ -75,8 +81,8 @@ impl Frame {
         let snap_text = if self.session.snap { "ON" } else { "OFF" };
         let tuning_str = format!("A{:.0}", self.session.tuning_a4);
         let header = format!(
-            " TUIDAW     Key: {}  Scale: {}  BPM: {}  Tuning: {}  [Snap: {}] ",
-            self.session.key.name(), self.session.scale.name(), self.session.bpm,
+            " TUIDAW - {}     Key: {}  Scale: {}  BPM: {}  Tuning: {}  [Snap: {}] ",
+            self.project_name, self.session.key.name(), self.session.scale.name(), self.session.bpm,
             tuning_str, snap_text,
         );
         g.set_style(Style::new().fg(Color::CYAN).bold());

@@ -97,7 +97,7 @@ impl EditPane {
         }
     }
 
-    fn render_slider(&self, param: &Param, width: usize) -> String {
+    fn render_slider(&self, param: &Param, _width: usize) -> String {
         const SLIDER_WIDTH: usize = 30;
 
         match &param.value {

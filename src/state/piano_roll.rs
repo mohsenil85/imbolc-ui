@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::module::ModuleId;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub tick: u32,
     pub duration: u32,
@@ -10,13 +12,14 @@ pub struct Note {
     pub velocity: u8,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub module_id: ModuleId,
     pub notes: Vec<Note>,
+    pub polyphonic: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PianoRollState {
     pub tracks: HashMap<ModuleId, Track>,
     pub track_order: Vec<ModuleId>,
@@ -53,6 +56,7 @@ impl PianoRollState {
                 Track {
                     module_id,
                     notes: Vec::new(),
+                    polyphonic: true,
                 },
             );
             self.track_order.push(module_id);

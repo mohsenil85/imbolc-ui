@@ -6,10 +6,11 @@ var dir = thisProcess.nowExecutingPath.dirname;
 // ============================================================================
 // MIDI - Note source that outputs freq/gate/vel on control buses
 // ============================================================================
-SynthDef(\tuidaw_midi, { |freq_out=0, gate_out=0, vel_out=0, note=60, vel=0.8, gate=0|
-    Out.kr(freq_out, note.midicps);
-    Out.kr(gate_out, gate);
-    Out.kr(vel_out, vel);
+SynthDef(\tuidaw_midi, { |freq_out=0, gate_out=0, vel_out=0, note=60, vel=0.8, gate=1|
+    var env = EnvGen.kr(Env.asr(0.001, 1, 0.01), gate, doneAction: 2);
+    ReplaceOut.kr(freq_out, note.midicps);
+    ReplaceOut.kr(gate_out, env);
+    ReplaceOut.kr(vel_out, vel);
 }).writeDefFile(dir);
 
 // ============================================================================

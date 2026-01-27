@@ -55,7 +55,8 @@ impl PianoRollPane {
                 .bind_key(KeyCode::End, "end", "Jump to end")
                 .bind('z', "zoom_in", "Zoom in (time)")
                 .bind('x', "zoom_out", "Zoom out (time)")
-                .bind('t', "time_sig", "Cycle time signature"),
+                .bind('t', "time_sig", "Cycle time signature")
+                .bind('m', "toggle_poly", "Toggle poly/mono mode"),
             cursor_pitch: 60, // C4
             cursor_tick: 0,
             current_track: 0,
@@ -153,11 +154,13 @@ impl PianoRollPane {
         // Border
         g.set_style(Style::new().fg(Color::PINK));
         let track_label = if let Some(track) = piano_roll.track_at(self.current_track) {
+            let mode = if track.polyphonic { "POLY" } else { "MONO" };
             format!(
-                " Piano Roll: midi-{} [{}/{}] ",
+                " Piano Roll: midi-{} [{}/{}] {} ",
                 track.module_id,
                 self.current_track + 1,
-                piano_roll.track_order.len()
+                piano_roll.track_order.len(),
+                mode,
             )
         } else {
             " Piano Roll: (no tracks) ".to_string()
@@ -401,6 +404,7 @@ impl Pane for PianoRollPane {
                 Action::None
             }
             Some("time_sig") => Action::PianoRollCycleTimeSig,
+            Some("toggle_poly") => Action::PianoRollTogglePolyMode,
             _ => Action::None,
         }
     }
