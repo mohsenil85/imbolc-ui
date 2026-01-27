@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::connection::{Connection, ConnectionError, PortRef};
 use super::mixer::MixerState;
+use super::piano_roll::PianoRollState;
 use super::{Module, ModuleId, ModuleType, Param, PortDirection};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +18,8 @@ pub struct RackState {
     pub selected: Option<usize>, // Index in order vec (UI state, not persisted)
     #[serde(skip)]
     pub mixer: MixerState, // Mixer state (TODO: add persistence)
+    #[serde(skip)]
+    pub piano_roll: PianoRollState,
     next_id: ModuleId,
 }
 
@@ -28,6 +31,7 @@ impl RackState {
             connections: HashSet::new(),
             selected: None,
             mixer: MixerState::new(),
+            piano_roll: PianoRollState::new(),
             next_id: 0,
         }
     }
@@ -45,6 +49,11 @@ impl RackState {
             if let Some(channel_id) = self.mixer.find_free_channel() {
                 self.mixer.assign_module(channel_id, id);
             }
+        }
+
+        // Auto-assign MIDI modules to piano roll tracks
+        if module_type == ModuleType::Midi {
+            self.piano_roll.add_track(id);
         }
 
         // Auto-select first module if none selected
@@ -66,6 +75,9 @@ impl RackState {
 
             // Unassign from mixer if this was an OUTPUT module
             self.mixer.unassign_module(id);
+
+            // Remove from piano roll if this was a MIDI module
+            self.piano_roll.remove_track(id);
 
             // Adjust selection
             if let Some(selected_idx) = self.selected {
@@ -449,6 +461,7 @@ impl RackState {
             connections,
             selected: None,
             mixer: MixerState::new(), // Fresh mixer state on load (TODO: persist)
+            piano_roll: PianoRollState::new(),
             next_id,
         })
     }

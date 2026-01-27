@@ -18,6 +18,23 @@ impl Default for OutputTarget {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MixerSend {
+    pub bus_id: u8,    // 1-8, target bus
+    pub level: f32,    // 0.0-1.0
+    pub enabled: bool,
+}
+
+impl MixerSend {
+    pub fn new(bus_id: u8) -> Self {
+        Self {
+            bus_id,
+            level: 0.0,
+            enabled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MixerChannel {
     pub id: u8,                       // 1-64
     pub module_id: Option<ModuleId>,  // which OUTPUT module is assigned here
@@ -26,10 +43,12 @@ pub struct MixerChannel {
     pub mute: bool,
     pub solo: bool,
     pub output_target: OutputTarget,
+    pub sends: Vec<MixerSend>,       // sends to buses
 }
 
 impl MixerChannel {
     pub fn new(id: u8) -> Self {
+        let sends = (1..=MAX_BUSES as u8).map(MixerSend::new).collect();
         Self {
             id,
             module_id: None,
@@ -38,6 +57,7 @@ impl MixerChannel {
             mute: false,
             solo: false,
             output_target: OutputTarget::Master,
+            sends,
         }
     }
 
@@ -169,6 +189,46 @@ impl MixerState {
     /// Check if any channel is soloed
     pub fn any_solo(&self) -> bool {
         self.channels.iter().any(|ch| ch.solo) || self.buses.iter().any(|b| b.solo)
+    }
+
+    /// Check if any channel (not bus) is soloed
+    pub fn any_channel_solo(&self) -> bool {
+        self.channels.iter().any(|ch| ch.solo)
+    }
+
+    /// Check if any bus is soloed
+    pub fn any_bus_solo(&self) -> bool {
+        self.buses.iter().any(|b| b.solo)
+    }
+
+    /// Compute effective mute for a channel, considering solo state
+    pub fn effective_channel_mute(&self, ch: &MixerChannel) -> bool {
+        if self.any_channel_solo() {
+            !ch.solo
+        } else {
+            ch.mute || self.master_mute
+        }
+    }
+
+    /// Compute effective mute for a bus, considering solo state
+    pub fn effective_bus_mute(&self, bus: &MixerBus) -> bool {
+        if self.any_bus_solo() {
+            !bus.solo
+        } else {
+            bus.mute
+        }
+    }
+
+    /// Collect audio updates for all channels (module_id, level, mute)
+    pub fn collect_channel_updates(&self) -> Vec<(ModuleId, f32, bool)> {
+        self.channels
+            .iter()
+            .filter_map(|ch| {
+                ch.module_id.map(|mid| {
+                    (mid, ch.level * self.master_level, self.effective_channel_mute(ch))
+                })
+            })
+            .collect()
     }
 
     /// Move selection left/right

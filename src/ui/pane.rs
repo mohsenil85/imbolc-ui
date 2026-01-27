@@ -62,6 +62,38 @@ pub enum Action {
     MixerCycleOutput,
     /// Mixer: cycle output target backwards for selected channel
     MixerCycleOutputReverse,
+    /// Mixer: adjust send level for a bus
+    MixerAdjustSend(u8, f32),
+    /// Mixer: toggle send enabled for a bus
+    MixerToggleSend(u8),
+    /// Piano roll: place or remove a note at cursor
+    PianoRollToggleNote,
+    /// Piano roll: move cursor (pitch_delta, time_delta)
+    PianoRollMoveCursor(i8, i32),
+    /// Piano roll: adjust duration of note at cursor
+    PianoRollAdjustDuration(i32),
+    /// Piano roll: adjust velocity of note at cursor
+    PianoRollAdjustVelocity(i8),
+    /// Piano roll: toggle play/stop
+    PianoRollPlayStop,
+    /// Piano roll: toggle loop mode
+    PianoRollToggleLoop,
+    /// Piano roll: set loop start to cursor position
+    PianoRollSetLoopStart,
+    /// Piano roll: set loop end to cursor position
+    PianoRollSetLoopEnd,
+    /// Piano roll: switch to next/prev track
+    PianoRollChangeTrack(i8),
+    /// Piano roll: set BPM
+    PianoRollSetBpm(f32),
+    /// Piano roll: zoom time axis
+    PianoRollZoom(i8),
+    /// Piano roll: scroll vertically by octave
+    PianoRollScrollOctave(i8),
+    /// Piano roll: jump to start or end
+    PianoRollJump(i8),
+    /// Piano roll: cycle time signature
+    PianoRollCycleTimeSig,
 }
 
 /// Trait for UI panes (screens/views)

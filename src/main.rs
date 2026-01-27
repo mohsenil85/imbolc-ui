@@ -6,7 +6,7 @@ mod ui;
 
 use std::any::Any;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use audio::AudioEngine;
 use panes::{AddPane, EditPane, HelpPane, HomePane, MixerPane, PianoRollPane, RackPane, SequencerPane, ServerPane};
@@ -346,6 +346,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
     let mut audio_engine = AudioEngine::new();
     let mut app_frame = Frame::new();
+    let mut last_frame_time = Instant::now();
+    // Active notes: (module_id, pitch, remaining_ticks)
+    let mut active_notes: Vec<(u32, u8, u32)> = Vec::new();
 
     // Auto-start SuperCollider server
     {
@@ -395,6 +398,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     loop {
         // Poll for input
         if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
+            // Global Ctrl-Q to quit
+            if event.key == KeyCode::Char('q') && event.modifiers.ctrl {
+                break;
+            }
+
             // Global F-key navigation
             if let KeyCode::F(n) = event.key {
                 let target = match n {
@@ -619,31 +627,28 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 Action::MixerAdjustLevel(delta) => {
                     // Collect audio updates, then apply (avoids borrow conflicts)
                     let mut updates: Vec<(u32, f32, bool)> = Vec::new();
+                    let mut bus_update: Option<(u8, f32, bool, f32)> = None;
                     if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
                         let mixer = &mut rack_pane.rack_mut().mixer;
-                        let master_level = mixer.master_level;
-                        let master_mute = mixer.master_mute;
                         match mixer.selection {
                             MixerSelection::Channel(id) => {
                                 if let Some(ch) = mixer.channel_mut(id) {
                                     ch.level = (ch.level + delta).clamp(0.0, 1.0);
-                                    if let Some(mid) = ch.module_id {
-                                        updates.push((mid, ch.level * master_level, ch.mute || master_mute));
-                                    }
                                 }
+                                updates = mixer.collect_channel_updates();
                             }
                             MixerSelection::Bus(id) => {
                                 if let Some(bus) = mixer.bus_mut(id) {
                                     bus.level = (bus.level + delta).clamp(0.0, 1.0);
                                 }
+                                if let Some(bus) = mixer.bus(id) {
+                                    let mute = mixer.effective_bus_mute(bus);
+                                    bus_update = Some((id, bus.level, mute, bus.pan));
+                                }
                             }
                             MixerSelection::Master => {
                                 mixer.master_level = (mixer.master_level + delta).clamp(0.0, 1.0);
-                                for ch in &mixer.channels {
-                                    if let Some(mid) = ch.module_id {
-                                        updates.push((mid, ch.level * mixer.master_level, ch.mute || mixer.master_mute));
-                                    }
-                                }
+                                updates = mixer.collect_channel_updates();
                             }
                         }
                     }
@@ -651,45 +656,49 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         for (module_id, level, mute) in updates {
                             let _ = audio_engine.set_output_mixer_params(module_id, level, mute);
                         }
+                        if let Some((bus_id, level, mute, pan)) = bus_update {
+                            let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
+                        }
                     }
                 }
                 Action::MixerToggleMute => {
                     let mut updates: Vec<(u32, f32, bool)> = Vec::new();
+                    let mut bus_update: Option<(u8, f32, bool, f32)> = None;
                     if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
                         let mixer = &mut rack_pane.rack_mut().mixer;
-                        let master_level = mixer.master_level;
-                        let master_mute = mixer.master_mute;
                         match mixer.selection {
                             MixerSelection::Channel(id) => {
                                 if let Some(ch) = mixer.channel_mut(id) {
                                     ch.mute = !ch.mute;
-                                    if let Some(mid) = ch.module_id {
-                                        updates.push((mid, ch.level * master_level, ch.mute || master_mute));
-                                    }
                                 }
                             }
                             MixerSelection::Bus(id) => {
                                 if let Some(bus) = mixer.bus_mut(id) {
                                     bus.mute = !bus.mute;
                                 }
+                                if let Some(bus) = mixer.bus(id) {
+                                    let mute = mixer.effective_bus_mute(bus);
+                                    bus_update = Some((id, bus.level, mute, bus.pan));
+                                }
                             }
                             MixerSelection::Master => {
                                 mixer.master_mute = !mixer.master_mute;
-                                for ch in &mixer.channels {
-                                    if let Some(mid) = ch.module_id {
-                                        updates.push((mid, ch.level * mixer.master_level, ch.mute || mixer.master_mute));
-                                    }
-                                }
                             }
                         }
+                        updates = mixer.collect_channel_updates();
                     }
                     if audio_engine.is_running() {
                         for (module_id, level, mute) in updates {
                             let _ = audio_engine.set_output_mixer_params(module_id, level, mute);
                         }
+                        if let Some((bus_id, level, mute, pan)) = bus_update {
+                            let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
+                        }
                     }
                 }
                 Action::MixerToggleSolo => {
+                    let mut updates: Vec<(u32, f32, bool)> = Vec::new();
+                    let mut bus_updates: Vec<(u8, f32, bool, f32)> = Vec::new();
                     if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
                         let mixer = &mut rack_pane.rack_mut().mixer;
                         match mixer.selection {
@@ -704,6 +713,20 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 }
                             }
                             MixerSelection::Master => {} // Master can't be soloed
+                        }
+                        // Solo affects ALL channels and buses
+                        updates = mixer.collect_channel_updates();
+                        for bus in &mixer.buses {
+                            let mute = mixer.effective_bus_mute(bus);
+                            bus_updates.push((bus.id, bus.level, mute, bus.pan));
+                        }
+                    }
+                    if audio_engine.is_running() {
+                        for (module_id, level, mute) in updates {
+                            let _ = audio_engine.set_output_mixer_params(module_id, level, mute);
+                        }
+                        for (bus_id, level, mute, pan) in bus_updates {
+                            let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
                         }
                     }
                 }
@@ -722,6 +745,139 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         rack_pane.rack_mut().mixer.cycle_output_reverse();
                     }
                 }
+                Action::MixerAdjustSend(bus_id, delta) => {
+                    let bus_id = *bus_id;
+                    let delta = *delta;
+                    let mut send_update: Option<(u8, u8, f32)> = None;
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let mixer = &mut rack_pane.rack_mut().mixer;
+                        if let MixerSelection::Channel(ch_id) = mixer.selection {
+                            if let Some(ch) = mixer.channel_mut(ch_id) {
+                                if let Some(send) = ch.sends.iter_mut().find(|s| s.bus_id == bus_id) {
+                                    send.level = (send.level + delta).clamp(0.0, 1.0);
+                                    send_update = Some((ch_id, bus_id, send.level));
+                                }
+                            }
+                        }
+                    }
+                    if let Some((ch_id, bus_id, level)) = send_update {
+                        if audio_engine.is_running() {
+                            let _ = audio_engine.set_send_level(ch_id, bus_id, level);
+                        }
+                    }
+                }
+                Action::MixerToggleSend(bus_id) => {
+                    let bus_id = *bus_id;
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let mixer = &mut rack_pane.rack_mut().mixer;
+                        if let MixerSelection::Channel(ch_id) = mixer.selection {
+                            if let Some(ch) = mixer.channel_mut(ch_id) {
+                                if let Some(send) = ch.sends.iter_mut().find(|s| s.bus_id == bus_id) {
+                                    send.enabled = !send.enabled;
+                                    // When toggling, set a default level if enabling with 0
+                                    if send.enabled && send.level <= 0.0 {
+                                        send.level = 0.5;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Sends being toggled requires a routing rebuild to create/remove send synths
+                    if audio_engine.is_running() {
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                        }
+                    }
+                }
+                Action::PianoRollToggleNote => {
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        let pitch = pr_pane.cursor_pitch();
+                        let tick = pr_pane.cursor_tick();
+                        let dur = pr_pane.default_duration();
+                        let vel = pr_pane.default_velocity();
+                        let track = pr_pane.current_track();
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            rack_pane.rack_mut().piano_roll.toggle_note(track, pitch, tick, dur, vel);
+                        }
+                    }
+                }
+                Action::PianoRollAdjustDuration(delta) => {
+                    let delta = *delta;
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        pr_pane.adjust_default_duration(delta);
+                    }
+                }
+                Action::PianoRollAdjustVelocity(delta) => {
+                    let delta = *delta;
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        pr_pane.adjust_default_velocity(delta);
+                    }
+                }
+                Action::PianoRollPlayStop => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let pr = &mut rack_pane.rack_mut().piano_roll;
+                        pr.playing = !pr.playing;
+                        if !pr.playing {
+                            pr.playhead = 0;
+                            // Send immediate gate-off for all active notes
+                            if audio_engine.is_running() {
+                                for (module_id, _, _) in active_notes.drain(..) {
+                                    let _ = audio_engine.send_note_off_bundled(module_id, 0.0);
+                                }
+                            }
+                            active_notes.clear();
+                        }
+                    }
+                }
+                Action::PianoRollToggleLoop => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let pr = &mut rack_pane.rack_mut().piano_roll;
+                        pr.looping = !pr.looping;
+                    }
+                }
+                Action::PianoRollSetLoopStart => {
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        let tick = pr_pane.cursor_tick();
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            rack_pane.rack_mut().piano_roll.loop_start = tick;
+                        }
+                    }
+                }
+                Action::PianoRollSetLoopEnd => {
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        let tick = pr_pane.cursor_tick();
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            rack_pane.rack_mut().piano_roll.loop_end = tick;
+                        }
+                    }
+                }
+                Action::PianoRollChangeTrack(delta) => {
+                    let delta = *delta;
+                    let track_count = panes
+                        .get_pane_mut::<RackPane>("rack")
+                        .map(|r| r.rack().piano_roll.track_order.len())
+                        .unwrap_or(0);
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        pr_pane.change_track(delta, track_count);
+                    }
+                }
+                Action::PianoRollCycleTimeSig => {
+                    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                        let pr = &mut rack_pane.rack_mut().piano_roll;
+                        pr.time_signature = match pr.time_signature {
+                            (4, 4) => (3, 4),
+                            (3, 4) => (6, 8),
+                            (6, 8) => (5, 4),
+                            (5, 4) => (7, 8),
+                            _ => (4, 4),
+                        };
+                    }
+                }
+                Action::PianoRollJump(_direction) => {
+                    if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        pr_pane.jump_to_end();
+                    }
+                }
                 _ => {}
             }
         }
@@ -736,6 +892,88 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             }
         }
 
+        // Piano roll playback tick
+        {
+            let now = Instant::now();
+            let elapsed = now.duration_since(last_frame_time);
+            last_frame_time = now;
+
+            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                let pr = &mut rack_pane.rack_mut().piano_roll;
+                if pr.playing {
+                    // Calculate elapsed ticks: ticks = seconds * (bpm/60) * ticks_per_beat
+                    let seconds = elapsed.as_secs_f32();
+                    let ticks_f = seconds * (pr.bpm / 60.0) * pr.ticks_per_beat as f32;
+                    let tick_delta = ticks_f as u32;
+
+                    if tick_delta > 0 {
+                        let old_playhead = pr.playhead;
+                        pr.advance(tick_delta);
+                        let new_playhead = pr.playhead;
+
+                        // Determine tick range to scan for new notes
+                        let (scan_start, scan_end) = if new_playhead >= old_playhead {
+                            (old_playhead, new_playhead)
+                        } else {
+                            // Looped: scan from old to loop_end, then loop_start to new
+                            // For simplicity, just scan loop_start..new_playhead after wrap
+                            (pr.loop_start, new_playhead)
+                        };
+
+                        // Ticks-to-seconds factor for sub-frame timing
+                        let secs_per_tick = 60.0 / (pr.bpm as f64 * pr.ticks_per_beat as f64);
+
+                        // Find notes that start in this range across all tracks
+                        let mut note_ons: Vec<(u32, u8, u8, u32, u32)> = Vec::new(); // (module_id, pitch, vel, duration, tick)
+                        for &module_id in &pr.track_order {
+                            if let Some(track) = pr.tracks.get(&module_id) {
+                                for note in &track.notes {
+                                    if note.tick >= scan_start && note.tick < scan_end {
+                                        note_ons.push((module_id, note.pitch, note.velocity, note.duration, note.tick));
+                                    }
+                                }
+                            }
+                        }
+
+                        // Send note-ons as timestamped bundles
+                        if audio_engine.is_running() {
+                            for (module_id, pitch, velocity, duration, note_tick) in &note_ons {
+                                // Compute sub-frame offset: how far into the future this note should play
+                                let ticks_from_now = if *note_tick >= old_playhead {
+                                    (*note_tick - old_playhead) as f64
+                                } else {
+                                    0.0
+                                };
+                                let offset = ticks_from_now * secs_per_tick;
+                                let vel_f = *velocity as f32 / 127.0;
+                                let _ = audio_engine.send_note_on_bundled(*module_id, *pitch, vel_f, offset);
+                                active_notes.push((*module_id, *pitch, *duration));
+                            }
+                        }
+
+                        // Process active notes: decrement remaining ticks, send note-offs
+                        let mut note_offs: Vec<(u32, u32)> = Vec::new(); // (module_id, remaining_ticks before this frame)
+                        for note in active_notes.iter_mut() {
+                            if note.2 <= tick_delta {
+                                note_offs.push((note.0, note.2));
+                                note.2 = 0;
+                            } else {
+                                note.2 -= tick_delta;
+                            }
+                        }
+                        active_notes.retain(|n| n.2 > 0);
+
+                        if audio_engine.is_running() {
+                            for (module_id, remaining) in &note_offs {
+                                let offset = *remaining as f64 * secs_per_tick;
+                                let _ = audio_engine.send_note_off_bundled(*module_id, offset);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Render
         let mut frame = backend.begin_frame()?;
 
@@ -744,15 +982,23 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
         // Render pane content within the inner rect
         // Special handling for mixer pane which needs rack state
-        if panes.active().id() == "mixer" {
-            // Get rack state for mixer rendering
+        let active_id = panes.active().id();
+        if active_id == "mixer" {
             let rack_state = panes
                 .get_pane_mut::<RackPane>("rack")
                 .map(|r| r.rack().clone());
-
             if let Some(rack) = rack_state {
                 if let Some(mixer_pane) = panes.get_pane_mut::<MixerPane>("mixer") {
                     mixer_pane.render_with_state(&mut frame, &rack);
+                }
+            }
+        } else if active_id == "piano_roll" {
+            let pr_state = panes
+                .get_pane_mut::<RackPane>("rack")
+                .map(|r| r.rack().piano_roll.clone());
+            if let Some(pr) = pr_state {
+                if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                    pr_pane.render_with_state(&mut frame, &pr);
                 }
             }
         } else {

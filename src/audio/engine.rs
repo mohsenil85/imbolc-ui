@@ -12,6 +12,11 @@ use crate::state::{ModuleType, Param, ParamValue, PortDirection, PortType, RackS
 
 pub type ModuleId = u32;
 
+// SuperCollider group IDs for execution ordering
+pub const GROUP_SOURCES: i32 = 100;
+pub const GROUP_PROCESSING: i32 = 200;
+pub const GROUP_OUTPUT: i32 = 300;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
     Stopped,
@@ -44,6 +49,13 @@ pub struct AudioEngine {
     compile_receiver: Option<Receiver<Result<String, String>>>,
     is_compiling: bool,
     bus_allocator: BusAllocator,
+    groups_created: bool,
+    /// Dedicated audio bus per mixer bus (bus_id -> SC audio bus index)
+    bus_audio_buses: HashMap<u8, i32>,
+    /// Send synth nodes: (channel_id, bus_id) -> node_id
+    send_node_map: HashMap<(u8, u8), i32>,
+    /// Bus output synth nodes: bus_id -> node_id
+    bus_node_map: HashMap<u8, i32>,
 }
 
 impl AudioEngine {
@@ -58,6 +70,10 @@ impl AudioEngine {
             compile_receiver: None,
             is_compiling: false,
             bus_allocator: BusAllocator::new(),
+            groups_created: false,
+            bus_audio_buses: HashMap::new(),
+            send_node_map: HashMap::new(),
+            bus_node_map: HashMap::new(),
         }
     }
 
@@ -222,7 +238,11 @@ impl AudioEngine {
             }
         }
         self.node_map.clear();
+        self.send_node_map.clear();
+        self.bus_node_map.clear();
+        self.bus_audio_buses.clear();
         self.bus_allocator.reset();
+        self.groups_created = false;
         self.client = None;
         self.is_running = false;
         // Keep server_status as Running if scsynth is still running
@@ -230,6 +250,32 @@ impl AudioEngine {
             self.server_status = ServerStatus::Running;
         } else {
             self.server_status = ServerStatus::Stopped;
+        }
+    }
+
+    /// Create the 3 execution-order groups (sources → processing → output)
+    fn ensure_groups(&mut self) -> Result<(), String> {
+        if self.groups_created {
+            return Ok(());
+        }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        // addToTail(1) of default group(0)
+        client.create_group(GROUP_SOURCES, 1, 0).map_err(|e| e.to_string())?;
+        client.create_group(GROUP_PROCESSING, 1, 0).map_err(|e| e.to_string())?;
+        client.create_group(GROUP_OUTPUT, 1, 0).map_err(|e| e.to_string())?;
+        self.groups_created = true;
+        Ok(())
+    }
+
+    /// Determine which group a module type belongs to
+    fn group_for_module(module_type: ModuleType) -> i32 {
+        match module_type {
+            ModuleType::Midi | ModuleType::SawOsc | ModuleType::SinOsc
+            | ModuleType::SqrOsc | ModuleType::TriOsc | ModuleType::Lfo
+            | ModuleType::AdsrEnv => GROUP_SOURCES,
+            ModuleType::Lpf | ModuleType::Hpf | ModuleType::Bpf
+            | ModuleType::Delay | ModuleType::Reverb => GROUP_PROCESSING,
+            ModuleType::Output => GROUP_OUTPUT,
         }
     }
 
@@ -412,8 +458,9 @@ impl AudioEngine {
             param_pairs.push((param_name, *bus as f32));
         }
 
+        let group = Self::group_for_module(module_type);
         client
-            .create_synth(Self::synth_def_name(module_type), node_id, &param_pairs)
+            .create_synth_in_group(Self::synth_def_name(module_type), node_id, group, &param_pairs)
             .map_err(|e| e.to_string())?;
 
         self.node_map.insert(module_id, node_id);
@@ -426,13 +473,25 @@ impl AudioEngine {
             return Ok(());
         }
 
-        // Free all existing synths
+        // Ensure groups exist
+        self.ensure_groups()?;
+
+        // Free all existing synths (modules, sends, bus outputs)
         if let Some(ref client) = self.client {
             for &node_id in self.node_map.values() {
                 let _ = client.free_node(node_id);
             }
+            for &node_id in self.send_node_map.values() {
+                let _ = client.free_node(node_id);
+            }
+            for &node_id in self.bus_node_map.values() {
+                let _ = client.free_node(node_id);
+            }
         }
         self.node_map.clear();
+        self.send_node_map.clear();
+        self.bus_node_map.clear();
+        self.bus_audio_buses.clear();
 
         // Resolve routing
         let assignments = self.resolve_routing(rack);
@@ -453,6 +512,88 @@ impl AudioEngine {
             }
         }
 
+        // Allocate audio buses for each mixer bus
+        // Start at a high bus index to avoid collisions with module buses
+        let bus_audio_base = 200;
+        for bus in &rack.mixer.buses {
+            self.bus_audio_buses.insert(bus.id, bus_audio_base + (bus.id as i32 - 1) * 2);
+        }
+
+        // Create send synths for channels with enabled sends
+        for ch in &rack.mixer.channels {
+            if ch.module_id.is_none() {
+                continue;
+            }
+            // Get the channel's output audio bus from the assigned module
+            let ch_audio_bus = ch.module_id
+                .and_then(|mid| assignments.get(&mid))
+                .and_then(|a| a.audio_in) // Output module reads from this bus
+                .unwrap_or(16); // fallback
+
+            for send in &ch.sends {
+                if !send.enabled || send.level <= 0.0 {
+                    continue;
+                }
+                if let Some(&bus_audio) = self.bus_audio_buses.get(&send.bus_id) {
+                    let node_id = self.next_node_id;
+                    self.next_node_id += 1;
+                    let params = vec![
+                        ("in".to_string(), ch_audio_bus as f32),
+                        ("out".to_string(), bus_audio as f32),
+                        ("level".to_string(), send.level),
+                    ];
+                    if let Some(ref client) = self.client {
+                        client
+                            .create_synth_in_group("tuidaw_send", node_id, GROUP_OUTPUT, &params)
+                            .map_err(|e| e.to_string())?;
+                    }
+                    self.send_node_map.insert((ch.id, send.bus_id), node_id);
+                }
+            }
+        }
+
+        // Create bus output synths
+        for bus in &rack.mixer.buses {
+            if let Some(&bus_audio) = self.bus_audio_buses.get(&bus.id) {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let mute = rack.mixer.effective_bus_mute(bus);
+                let params = vec![
+                    ("in".to_string(), bus_audio as f32),
+                    ("level".to_string(), bus.level),
+                    ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
+                    ("pan".to_string(), bus.pan),
+                ];
+                if let Some(ref client) = self.client {
+                    client
+                        .create_synth_in_group("tuidaw_bus_out", node_id, GROUP_OUTPUT, &params)
+                        .map_err(|e| e.to_string())?;
+                }
+                self.bus_node_map.insert(bus.id, node_id);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Set send level for a channel->bus send in real-time
+    pub fn set_send_level(&self, channel_id: u8, bus_id: u8, level: f32) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let node_id = self.send_node_map
+            .get(&(channel_id, bus_id))
+            .ok_or_else(|| format!("No send node for ch{} -> bus{}", channel_id, bus_id))?;
+        client.set_param(*node_id, "level", level).map_err(|e| e.to_string())
+    }
+
+    /// Set bus output mixer params (level, mute, pan) in real-time
+    pub fn set_bus_mixer_params(&self, bus_id: u8, level: f32, mute: bool, pan: f32) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let node_id = self.bus_node_map
+            .get(&bus_id)
+            .ok_or_else(|| format!("No bus output node for bus{}", bus_id))?;
+        client.set_param(*node_id, "level", level).map_err(|e| e.to_string())?;
+        client.set_param(*node_id, "mute", if mute { 1.0 } else { 0.0 }).map_err(|e| e.to_string())?;
+        client.set_param(*node_id, "pan", pan).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -514,6 +655,52 @@ impl AudioEngine {
         self.set_param(module_id, "level", level)?;
         self.set_param(module_id, "mute", if mute { 1.0 } else { 0.0 })?;
         Ok(())
+    }
+
+    /// Send a note-on as a timestamped bundle (freq + vel + gate set atomically)
+    pub fn send_note_on_bundled(
+        &self,
+        module_id: ModuleId,
+        pitch: u8,
+        velocity: f32,
+        offset_secs: f64,
+    ) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let node_id = self
+            .node_map
+            .get(&module_id)
+            .ok_or_else(|| format!("No synth for module {}", module_id))?;
+        let freq = 440.0 * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
+        let time = super::osc_client::osc_time_from_now(offset_secs);
+        client
+            .set_params_bundled(
+                *node_id,
+                &[
+                    ("note", pitch as f32),
+                    ("freq", freq as f32),
+                    ("vel", velocity),
+                    ("gate", 1.0),
+                ],
+                time,
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// Send a note-off as a timestamped bundle
+    pub fn send_note_off_bundled(
+        &self,
+        module_id: ModuleId,
+        offset_secs: f64,
+    ) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let node_id = self
+            .node_map
+            .get(&module_id)
+            .ok_or_else(|| format!("No synth for module {}", module_id))?;
+        let time = super::osc_client::osc_time_from_now(offset_secs);
+        client
+            .set_params_bundled(*node_id, &[("gate", 0.0)], time)
+            .map_err(|e| e.to_string())
     }
 
     pub fn load_synthdefs(&self, dir: &Path) -> Result<(), String> {

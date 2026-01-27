@@ -13,6 +13,7 @@ const BLOCK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇',
 
 pub struct MixerPane {
     keymap: Keymap,
+    send_target: Option<u8>, // 1-8: selected send bus for adjustment
 }
 
 impl MixerPane {
@@ -31,7 +32,18 @@ impl MixerPane {
                 .bind('s', "solo", "Toggle solo")
                 .bind('o', "output", "Cycle output target")
                 .bind('O', "output_rev", "Cycle output target backwards")
-                .bind_key(KeyCode::Tab, "section", "Cycle section"),
+                .bind_key(KeyCode::Tab, "section", "Cycle section")
+                .bind('1', "send1", "Select send 1")
+                .bind('2', "send2", "Select send 2")
+                .bind('3', "send3", "Select send 3")
+                .bind('4', "send4", "Select send 4")
+                .bind('5', "send5", "Select send 5")
+                .bind('6', "send6", "Select send 6")
+                .bind('7', "send7", "Select send 7")
+                .bind('8', "send8", "Select send 8")
+                .bind('t', "send_toggle", "Toggle selected send")
+                .bind_key(KeyCode::Escape, "clear_send", "Clear send selection"),
+            send_target: None,
         }
     }
 
@@ -112,6 +124,12 @@ impl Default for MixerPane {
     }
 }
 
+impl MixerPane {
+    pub fn send_target(&self) -> Option<u8> {
+        self.send_target
+    }
+}
+
 impl Pane for MixerPane {
     fn id(&self) -> &'static str {
         "mixer"
@@ -119,19 +137,57 @@ impl Pane for MixerPane {
 
     fn handle_input(&mut self, event: InputEvent) -> Action {
         match self.keymap.lookup(&event) {
-            Some("prev") => Action::MixerMove(-1),
-            Some("next") => Action::MixerMove(1),
+            Some("prev") => { self.send_target = None; Action::MixerMove(-1) }
+            Some("next") => { self.send_target = None; Action::MixerMove(1) }
             Some("first") => Action::MixerJump(1),
             Some("last") => Action::MixerJump(-1),
-            Some("level_up") => Action::MixerAdjustLevel(0.05),
-            Some("level_down") => Action::MixerAdjustLevel(-0.05),
-            Some("level_up_big") => Action::MixerAdjustLevel(0.10),
-            Some("level_down_big") => Action::MixerAdjustLevel(-0.10),
+            Some("level_up") => {
+                if let Some(bus_id) = self.send_target {
+                    Action::MixerAdjustSend(bus_id, 0.05)
+                } else {
+                    Action::MixerAdjustLevel(0.05)
+                }
+            }
+            Some("level_down") => {
+                if let Some(bus_id) = self.send_target {
+                    Action::MixerAdjustSend(bus_id, -0.05)
+                } else {
+                    Action::MixerAdjustLevel(-0.05)
+                }
+            }
+            Some("level_up_big") => {
+                if let Some(bus_id) = self.send_target {
+                    Action::MixerAdjustSend(bus_id, 0.10)
+                } else {
+                    Action::MixerAdjustLevel(0.10)
+                }
+            }
+            Some("level_down_big") => {
+                if let Some(bus_id) = self.send_target {
+                    Action::MixerAdjustSend(bus_id, -0.10)
+                } else {
+                    Action::MixerAdjustLevel(-0.10)
+                }
+            }
             Some("mute") => Action::MixerToggleMute,
             Some("solo") => Action::MixerToggleSolo,
             Some("output") => Action::MixerCycleOutput,
             Some("output_rev") => Action::MixerCycleOutputReverse,
-            Some("section") => Action::MixerCycleSection,
+            Some("section") => { self.send_target = None; Action::MixerCycleSection }
+            Some(s) if s.starts_with("send") && s.len() == 5 => {
+                if let Some(n) = s[4..].parse::<u8>().ok() {
+                    self.send_target = Some(n);
+                }
+                Action::None
+            }
+            Some("send_toggle") => {
+                if let Some(bus_id) = self.send_target {
+                    Action::MixerToggleSend(bus_id)
+                } else {
+                    Action::None
+                }
+            }
+            Some("clear_send") => { self.send_target = None; Action::None }
             _ => Action::None,
         }
     }
@@ -270,13 +326,29 @@ impl MixerPane {
             label_y, name_y, meter_top_y, db_y, indicator_y, output_y,
         );
 
+        // Send info line (below output row)
+        let send_y = output_y + 1;
+        if let Some(bus_id) = self.send_target {
+            // Show send level for selected channel to this bus
+            if let MixerSelection::Channel(ch_id) = rack.mixer.selection {
+                if let Some(ch) = rack.mixer.channel(ch_id) {
+                    if let Some(send) = ch.sends.iter().find(|s| s.bus_id == bus_id) {
+                        let status = if send.enabled { "ON" } else { "OFF" };
+                        let info = format!("Send→B{}: {:.0}% [{}]", bus_id, send.level * 100.0, status);
+                        g.set_style(Style::new().fg(Color::TEAL).bold());
+                        g.put_str(base_x, send_y, &info);
+                    }
+                }
+            }
+        }
+
         // Help text
         let help_y = rect.y + rect.height - 2;
         g.set_style(Style::new().fg(Color::DARK_GRAY));
         g.put_str(
             base_x,
             help_y,
-            "[←/→] Select   [↑/↓] Level   [M] Mute   [S] Solo   [o] Output   [F2] Rack",
+            "[←/→] Select  [↑/↓] Level  [M]ute [S]olo [o]ut  [1-8] Send  [F2] Rack",
         );
     }
 
