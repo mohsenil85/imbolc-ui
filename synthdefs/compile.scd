@@ -139,6 +139,13 @@ SynthDef(\tuidaw_bus_out, { |in=1024, level=0.8, mute=0, pan=0|
     Out.ar(0, panned * level * (1 - mute));
 }).writeDefFile(dir);
 
+// ============================================================================
+// Meter - Reads hardware output, sends peak/RMS via /reply
+// ============================================================================
+SynthDef(\tuidaw_meter, {
+    SendPeakRMS.kr(In.ar(0, 2), 10, 3, "/meter");
+}).writeDefFile(dir);
+
 "Done! All SynthDefs written to: ".post;
 dir.postln;
 0.exit;

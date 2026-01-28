@@ -1,19 +1,78 @@
 use std::net::UdpSocket;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 
 pub struct OscClient {
     socket: UdpSocket,
     server_addr: String,
+    meter_data: Arc<Mutex<(f32, f32)>>,
+    _recv_thread: Option<JoinHandle<()>>,
+}
+
+/// Recursively process an OSC packet (handles bundles wrapping messages)
+fn handle_osc_packet(packet: &OscPacket, meter_ref: &Arc<Mutex<(f32, f32)>>) {
+    match packet {
+        OscPacket::Message(msg) => {
+            if msg.addr == "/meter" && msg.args.len() >= 6 {
+                let peak_l = match msg.args.get(2) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                let peak_r = match msg.args.get(4) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                if let Ok(mut data) = meter_ref.lock() {
+                    *data = (peak_l, peak_r);
+                }
+            }
+        }
+        OscPacket::Bundle(bundle) => {
+            for p in &bundle.content {
+                handle_osc_packet(p, meter_ref);
+            }
+        }
+    }
 }
 
 impl OscClient {
     pub fn new(server_addr: &str) -> std::io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
+        let meter_data = Arc::new(Mutex::new((0.0_f32, 0.0_f32)));
+
+        // Clone socket for receive thread
+        let recv_socket = socket.try_clone()?;
+        recv_socket.set_read_timeout(Some(Duration::from_millis(50)))?;
+        let meter_ref = Arc::clone(&meter_data);
+
+        let handle = thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match recv_socket.recv(&mut buf) {
+                    Ok(n) => {
+                        if let Ok((_, packet)) = rosc::decoder::decode_udp(&buf[..n]) {
+                            handle_osc_packet(&packet, &meter_ref);
+                        }
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                    Err(_) => break,
+                }
+            }
+        });
+
         Ok(Self {
             socket,
             server_addr: server_addr.to_string(),
+            meter_data,
+            _recv_thread: Some(handle),
         })
+    }
+
+    /// Get current peak levels (left, right) from the meter synth
+    pub fn meter_peak(&self) -> (f32, f32) {
+        self.meter_data.lock().map(|d| *d).unwrap_or((0.0, 0.0))
     }
 
     pub fn send_message(&self, addr: &str, args: Vec<OscType>) -> std::io::Result<()> {

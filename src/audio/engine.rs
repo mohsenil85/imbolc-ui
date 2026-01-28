@@ -101,6 +101,8 @@ pub struct AudioEngine {
     next_voice_control_bus: i32,
     /// Next group ID for voice groups
     next_group_id: i32,
+    /// Meter synth node ID (reads hardware out, sends peak data)
+    meter_node_id: Option<i32>,
 }
 
 impl AudioEngine {
@@ -127,6 +129,7 @@ impl AudioEngine {
             next_voice_audio_bus: 16,
             next_voice_control_bus: 0,
             next_group_id: 1000,
+            meter_node_id: None,
         }
     }
 
@@ -278,14 +281,45 @@ impl AudioEngine {
 
     pub fn connect(&mut self, server_addr: &str) -> std::io::Result<()> {
         let client = OscClient::new(server_addr)?;
+        // Register for notifications so we receive SendPeakRMS replies
+        client.send_message("/notify", vec![rosc::OscType::Int(1)])?;
         self.client = Some(client);
         self.is_running = true;
         self.server_status = ServerStatus::Connected;
+
         Ok(())
+    }
+
+    /// (Re)create the meter synth at tail of default group 0.
+    /// Must be called after groups exist so it runs last.
+    fn restart_meter(&mut self) {
+        // Free existing meter node if any
+        if let Some(node_id) = self.meter_node_id.take() {
+            if let Some(ref client) = self.client {
+                let _ = client.free_node(node_id);
+            }
+        }
+        if let Some(ref client) = self.client {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+            // addAfter(3) GROUP_OUTPUT so meter runs last and sees final audio
+            let mut args: Vec<rosc::OscType> = vec![
+                rosc::OscType::String("tuidaw_meter".to_string()),
+                rosc::OscType::Int(node_id),
+                rosc::OscType::Int(3), // addAfter
+                rosc::OscType::Int(GROUP_OUTPUT),
+            ];
+            if client.send_message("/s_new", args.drain(..).collect()).is_ok() {
+                self.meter_node_id = Some(node_id);
+            }
+        }
     }
 
     pub fn disconnect(&mut self) {
         if let Some(ref client) = self.client {
+            if let Some(node_id) = self.meter_node_id.take() {
+                let _ = client.free_node(node_id);
+            }
             for &node_id in self.node_map.values() {
                 let _ = client.free_node(node_id);
             }
@@ -712,6 +746,9 @@ impl AudioEngine {
             }
         }
 
+        // (Re)create meter synth at tail so it runs after all output nodes
+        self.restart_meter();
+
         Ok(())
     }
 
@@ -1122,6 +1159,17 @@ impl AudioEngine {
                 let _ = client.free_node(chain.group_id);
             }
         }
+    }
+
+    /// Get the current master peak level (max of L/R channels)
+    pub fn master_peak(&self) -> f32 {
+        self.client
+            .as_ref()
+            .map(|c| {
+                let (l, r) = c.meter_peak();
+                l.max(r)
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn load_synthdefs(&self, dir: &Path) -> Result<(), String> {

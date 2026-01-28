@@ -128,6 +128,19 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             playback::tick_playback(&mut panes, &mut audio_engine, &mut active_notes, elapsed);
         }
 
+        // Update master meter from real audio peak
+        {
+            let peak = if audio_engine.is_running() {
+                audio_engine.master_peak()
+            } else {
+                0.0
+            };
+            let mute = panes.get_pane_mut::<RackPane>("rack")
+                .map(|r| r.rack().mixer.master_mute)
+                .unwrap_or(false);
+            app_frame.set_master_peak(peak, mute);
+        }
+
         // Render
         let mut frame = backend.begin_frame()?;
         app_frame.render(&mut frame);

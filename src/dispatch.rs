@@ -128,6 +128,10 @@ pub fn dispatch_action(
                         } else {
                             server.set_status(audio::ServerStatus::Connected, "Connected");
                         }
+                        // Rebuild routing to create groups and meter synth
+                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
+                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                        }
                     }
                     Err(e) => {
                         server.set_status(audio::ServerStatus::Error, &e.to_string())

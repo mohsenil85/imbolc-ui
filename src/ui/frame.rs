@@ -6,6 +6,9 @@ use crate::state::music::{Key, Scale};
 const CONSOLE_LINES: u16 = 4;
 const CONSOLE_CAPACITY: usize = 100;
 
+/// Block characters for vertical meter: ▁▂▃▄▅▆▇█ (U+2581–U+2588)
+const BLOCK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
 /// Musical session state displayed in the frame header
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionState {
@@ -35,6 +38,11 @@ pub struct Frame {
     messages: VecDeque<String>,
     pub session: SessionState,
     pub project_name: String,
+    pub master_mute: bool,
+    /// Raw peak from audio engine (0.0–1.0+)
+    master_peak: f32,
+    /// Smoothed display value (fast attack, slow decay)
+    peak_display: f32,
 }
 
 impl Frame {
@@ -43,11 +51,22 @@ impl Frame {
             messages: VecDeque::with_capacity(CONSOLE_CAPACITY),
             session: SessionState::default(),
             project_name: "default".to_string(),
+            master_mute: false,
+            master_peak: 0.0,
+            peak_display: 0.0,
         }
     }
 
     pub fn set_project_name(&mut self, name: String) {
         self.project_name = name;
+    }
+
+    /// Update master meter from real audio peak (call each frame from main loop)
+    pub fn set_master_peak(&mut self, peak: f32, mute: bool) {
+        self.master_peak = peak;
+        self.master_mute = mute;
+        // Fast attack, slow decay
+        self.peak_display = peak.max(self.peak_display * 0.85);
     }
 
     /// Push a message to the console ring buffer
@@ -56,6 +75,75 @@ impl Frame {
             self.messages.pop_front();
         }
         self.messages.push_back(msg);
+    }
+
+    /// Get meter color for a given row position (0=bottom, height-1=top)
+    fn meter_color(row: u16, height: u16) -> Color {
+        let frac = row as f32 / height as f32;
+        if frac > 0.85 {
+            Color::METER_HIGH
+        } else if frac > 0.6 {
+            Color::METER_MID
+        } else {
+            Color::METER_LOW
+        }
+    }
+
+    /// Render vertical master meter on the right side of the frame
+    fn render_master_meter(&self, g: &mut dyn Graphics, width: u16, _height: u16, sep_y: u16) {
+        // Meter column: 2 chars from right border (border + 1 padding)
+        let meter_x = width.saturating_sub(3);
+        let meter_top = 2_u16; // below header
+        let meter_height = sep_y.saturating_sub(meter_top + 1);
+
+        if meter_height < 3 {
+            return;
+        }
+
+        let level = if self.master_mute { 0.0 } else { self.peak_display.min(1.0) };
+        let total_sub = meter_height as f32 * 8.0;
+        let filled_sub = (level * total_sub) as u16;
+
+        for row in 0..meter_height {
+            let inverted_row = meter_height - 1 - row;
+            let y = meter_top + row;
+
+            let row_start = inverted_row * 8;
+            let row_end = row_start + 8;
+
+            let color = Self::meter_color(inverted_row, meter_height);
+
+            if filled_sub >= row_end {
+                g.set_style(Style::new().fg(color));
+                g.put_char(meter_x, y, '█');
+            } else if filled_sub > row_start {
+                let sub_level = (filled_sub - row_start) as usize;
+                g.set_style(Style::new().fg(color));
+                g.put_char(meter_x, y, BLOCK_CHARS[sub_level.saturating_sub(1).min(7)]);
+            } else {
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
+                g.put_char(meter_x, y, '·');
+            }
+        }
+
+        // Label below meter
+        let label_y = meter_top + meter_height;
+        if self.master_mute {
+            g.set_style(Style::new().fg(Color::MUTE_COLOR).bold());
+            g.put_char(meter_x, label_y, 'M');
+        } else {
+            // dB value
+            let db = if level <= 0.0 {
+                "-∞".to_string()
+            } else {
+                let db = 20.0 * level.log10();
+                format!("{:+.0}", db.max(-99.0))
+            };
+            g.set_style(Style::new().fg(Color::DARK_GRAY));
+            // Right-align in the available space
+            let db_x = meter_x.saturating_sub(db.len() as u16 - 1);
+            g.put_str(db_x, label_y, &db);
+        }
     }
 
     /// Calculate the inner rect where pane content should render
@@ -107,6 +195,9 @@ impl Frame {
             g.put_char(x, sep_y, '─');
         }
         g.put_char(width.saturating_sub(1), sep_y, '┤');
+
+        // Master meter (right side, inside border)
+        self.render_master_meter(g, width, height, sep_y);
 
         // Console messages (last CONSOLE_LINES messages)
         let console_y = sep_y + 1;
