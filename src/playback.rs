@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::audio::AudioEngine;
-use crate::panes::RackPane;
+use crate::panes::StripPane;
 use crate::ui::PaneManager;
 
 /// Advance the piano roll playhead and process note-on/off events.
@@ -11,16 +11,16 @@ pub fn tick_playback(
     active_notes: &mut Vec<(u32, u8, u32)>,
     elapsed: Duration,
 ) {
-    // Phase 1: advance playhead and collect note events (mutable borrow)
+    // Phase 1: advance playhead and collect note events
     let mut playback_data: Option<(
-        Vec<(u32, u8, u8, u32, u32, bool)>, // note_ons: (module_id, pitch, vel, duration, tick, poly)
+        Vec<(u32, u8, u8, u32, u32, bool)>, // note_ons: (strip_id, pitch, vel, duration, tick, poly)
         u32,                                  // old_playhead
         u32,                                  // tick_delta
         f64,                                  // secs_per_tick
     )> = None;
 
-    if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-        let pr = &mut rack_pane.rack_mut().piano_roll;
+    if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+        let pr = &mut strip_pane.state_mut().piano_roll;
         if pr.playing {
             let seconds = elapsed.as_secs_f32();
             let ticks_f = seconds * (pr.bpm / 60.0) * pr.ticks_per_beat as f32;
@@ -40,12 +40,12 @@ pub fn tick_playback(
                 let secs_per_tick = 60.0 / (pr.bpm as f64 * pr.ticks_per_beat as f64);
 
                 let mut note_ons: Vec<(u32, u8, u8, u32, u32, bool)> = Vec::new();
-                for &module_id in &pr.track_order {
-                    if let Some(track) = pr.tracks.get(&module_id) {
+                for &strip_id in &pr.track_order {
+                    if let Some(track) = pr.tracks.get(&strip_id) {
                         let poly = track.polyphonic;
                         for note in &track.notes {
                             if note.tick >= scan_start && note.tick < scan_end {
-                                note_ons.push((module_id, note.pitch, note.velocity, note.duration, note.tick, poly));
+                                note_ons.push((strip_id, note.pitch, note.velocity, note.duration, note.tick, poly));
                             }
                         }
                     }
@@ -56,15 +56,15 @@ pub fn tick_playback(
         }
     }
 
-    // Phase 2: send note-ons/offs (immutable rack borrow for poly chains)
+    // Phase 2: send note-ons/offs
     if let Some((note_ons, old_playhead, tick_delta, secs_per_tick)) = playback_data {
         if audio_engine.is_running() {
-            let rack_clone = panes
-                .get_pane_mut::<RackPane>("rack")
-                .map(|r| r.rack().clone());
+            let state_clone = panes
+                .get_pane_mut::<StripPane>("strip")
+                .map(|sp| sp.state().clone());
 
-            if let Some(rack) = rack_clone {
-                for &(module_id, pitch, velocity, duration, note_tick, polyphonic) in &note_ons {
+            if let Some(state) = state_clone {
+                for &(strip_id, pitch, velocity, duration, note_tick, polyphonic) in &note_ons {
                     let ticks_from_now = if note_tick >= old_playhead {
                         (note_tick - old_playhead) as f64
                     } else {
@@ -72,8 +72,8 @@ pub fn tick_playback(
                     };
                     let offset = ticks_from_now * secs_per_tick;
                     let vel_f = velocity as f32 / 127.0;
-                    let _ = audio_engine.spawn_voice(module_id, pitch, vel_f, offset, polyphonic, &rack);
-                    active_notes.push((module_id, pitch, duration));
+                    let _ = audio_engine.spawn_voice(strip_id, pitch, vel_f, offset, polyphonic, &state);
+                    active_notes.push((strip_id, pitch, duration));
                 }
             }
         }
@@ -91,9 +91,9 @@ pub fn tick_playback(
         active_notes.retain(|n| n.2 > 0);
 
         if audio_engine.is_running() {
-            for (module_id, pitch, remaining) in &note_offs {
+            for (strip_id, pitch, remaining) in &note_offs {
                 let offset = *remaining as f64 * secs_per_tick;
-                let _ = audio_engine.release_voice(*module_id, *pitch, offset);
+                let _ = audio_engine.release_voice(*strip_id, *pitch, offset);
             }
         }
     }

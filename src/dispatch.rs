@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use crate::audio::{self, AudioEngine};
-use crate::panes::{EditPane, PianoRollPane, RackPane, ServerPane};
-use crate::state::{MixerSelection, RackState};
+use crate::panes::{MixerPane, PianoRollPane, ServerPane, StripEditPane, StripPane};
+use crate::state::{MixerSelection, StripState};
 use crate::ui::{Action, Frame, PaneManager};
 
-/// Default path for rack save file
+/// Default path for save file
 pub fn default_rack_path() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         PathBuf::from(home)
@@ -27,56 +27,94 @@ pub fn dispatch_action(
 ) -> bool {
     match action {
         Action::Quit => return true,
-        Action::AddModule(_) => {
-            panes.dispatch_to("rack", action);
+        Action::AddStrip(_) => {
+            panes.dispatch_to("strip", action);
             if audio_engine.is_running() {
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                 }
             }
-            panes.switch_to("rack");
+            panes.switch_to("strip");
         }
-        Action::DeleteModule(module_id) => {
-            if audio_engine.is_running() {
-                let _ = audio_engine.free_synth(*module_id);
-            }
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.remove_module(*module_id);
+        Action::DeleteStrip(strip_id) => {
+            let strip_id = *strip_id;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().remove_strip(strip_id);
             }
             if audio_engine.is_running() {
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                 }
             }
         }
-        Action::EditModule(id) => {
-            let module_data = panes
-                .get_pane_mut::<RackPane>("rack")
-                .and_then(|rack| rack.get_module_for_edit(*id));
-            if let Some((id, name, type_name, params)) = module_data {
-                if let Some(edit) = panes.get_pane_mut::<EditPane>("edit") {
-                    edit.set_module(id, name, type_name, params);
+        Action::EditStrip(id) => {
+            let strip_data = panes
+                .get_pane_mut::<StripPane>("strip")
+                .and_then(|sp| sp.state().strip(*id).cloned());
+            if let Some(strip) = strip_data {
+                if let Some(edit) = panes.get_pane_mut::<StripEditPane>("strip_edit") {
+                    edit.set_strip(&strip);
                 }
-                panes.switch_to("edit");
+                panes.switch_to("strip_edit");
             }
         }
-        Action::UpdateModuleParams(_, _) => {
-            panes.dispatch_to("rack", action);
-            panes.switch_to("rack");
+        Action::UpdateStrip(id) => {
+            let id = *id;
+            // Apply edits from strip_edit pane back to the strip
+            let edits = panes.get_pane_mut::<StripEditPane>("strip_edit")
+                .map(|edit| {
+                    let mut dummy = crate::state::strip::Strip::new(id, crate::state::OscType::Saw);
+                    edit.apply_to(&mut dummy);
+                    dummy
+                });
+            if let Some(edited) = edits {
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    if let Some(strip) = strip_pane.state_mut().strip_mut(id) {
+                        strip.source = edited.source;
+                        strip.source_params = edited.source_params;
+                        strip.filter = edited.filter;
+                        strip.effects = edited.effects;
+                        strip.amp_envelope = edited.amp_envelope;
+                        strip.polyphonic = edited.polyphonic;
+
+                        // Handle track toggle
+                        if edited.has_track != strip.has_track {
+                            strip.has_track = edited.has_track;
+                        }
+                    }
+                    // Sync piano roll tracks
+                    let strips: Vec<(u32, bool)> = strip_pane.state().strips.iter()
+                        .map(|s| (s.id, s.has_track))
+                        .collect();
+                    let pr = &mut strip_pane.state_mut().piano_roll;
+                    for (sid, has_track) in strips {
+                        if has_track && !pr.tracks.contains_key(&sid) {
+                            pr.add_track(sid);
+                        } else if !has_track && pr.tracks.contains_key(&sid) {
+                            pr.remove_track(sid);
+                        }
+                    }
+                }
+            }
+            if audio_engine.is_running() {
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
+                }
+            }
+            // Don't switch pane - stay in edit
         }
         Action::SaveRack => {
             let path = default_rack_path();
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            // Sync session state to piano_roll before saving
-            app_frame.session.time_signature = panes
-                .get_pane_mut::<RackPane>("rack")
-                .map(|r| r.rack().piano_roll.time_signature)
-                .unwrap_or(app_frame.session.time_signature);
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                if let Err(e) = rack_pane.rack().save(&path, &app_frame.session) {
-                    eprintln!("Failed to save rack: {}", e);
+            // Sync session state
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                app_frame.session.time_signature = strip_pane.state().piano_roll.time_signature;
+            }
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                if let Err(e) = strip_pane.state().save(&path, &app_frame.session) {
+                    eprintln!("Failed to save: {}", e);
                 }
             }
             let name = path.file_stem()
@@ -88,10 +126,10 @@ pub fn dispatch_action(
         Action::LoadRack => {
             let path = default_rack_path();
             if path.exists() {
-                match RackState::load(&path) {
-                    Ok((rack, loaded_session)) => {
-                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                            rack_pane.set_rack(rack);
+                match StripState::load(&path) {
+                    Ok((state, loaded_session)) => {
+                        if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                            strip_pane.set_state(state);
                         }
                         app_frame.session = loaded_session;
                         let name = path.file_stem()
@@ -101,16 +139,8 @@ pub fn dispatch_action(
                         app_frame.set_project_name(name);
                     }
                     Err(e) => {
-                        eprintln!("Failed to load rack: {}", e);
+                        eprintln!("Failed to load: {}", e);
                     }
-                }
-            }
-        }
-        Action::AddConnection(_) | Action::RemoveConnection(_) => {
-            panes.dispatch_to("rack", action);
-            if audio_engine.is_running() {
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    let _ = audio_engine.rebuild_routing(rack_pane.rack());
                 }
             }
         }
@@ -128,9 +158,8 @@ pub fn dispatch_action(
                         } else {
                             server.set_status(audio::ServerStatus::Connected, "Connected");
                         }
-                        // Rebuild routing to create groups and meter synth
-                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                        if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                            let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                         }
                     }
                     Err(e) => {
@@ -193,168 +222,157 @@ pub fn dispatch_action(
                 }
             }
         }
-        Action::SetModuleParam(module_id, ref param, value) => {
-            if audio_engine.is_running() {
-                let _ = audio_engine.set_param(*module_id, param, *value);
-            }
+        Action::SetStripParam(strip_id, ref param, value) => {
+            // Real-time param update - update state and audio
+            let _ = strip_id;
+            let _ = param;
+            let _ = value;
+            // TODO: implement real-time param setting on audio engine
         }
         Action::MixerMove(delta) => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.rack_mut().mixer.move_selection(*delta);
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().mixer_move(*delta);
             }
         }
         Action::MixerJump(direction) => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.rack_mut().mixer.jump_selection(*direction);
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().mixer_jump(*direction);
             }
         }
         Action::MixerAdjustLevel(delta) => {
-            let mut updates: Vec<(u32, f32, bool)> = Vec::new();
             let mut bus_update: Option<(u8, f32, bool, f32)> = None;
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let mixer = &mut rack_pane.rack_mut().mixer;
-                match mixer.selection {
-                    MixerSelection::Channel(id) => {
-                        if let Some(ch) = mixer.channel_mut(id) {
-                            ch.level = (ch.level + delta).clamp(0.0, 1.0);
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let state = strip_pane.state_mut();
+                match state.mixer_selection {
+                    MixerSelection::Strip(idx) => {
+                        if let Some(strip) = state.strips.get_mut(idx) {
+                            strip.level = (strip.level + delta).clamp(0.0, 1.0);
                         }
-                        updates = mixer.collect_channel_updates();
                     }
                     MixerSelection::Bus(id) => {
-                        if let Some(bus) = mixer.bus_mut(id) {
+                        if let Some(bus) = state.bus_mut(id) {
                             bus.level = (bus.level + delta).clamp(0.0, 1.0);
                         }
-                        if let Some(bus) = mixer.bus(id) {
-                            let mute = mixer.effective_bus_mute(bus);
+                        if let Some(bus) = state.bus(id) {
+                            let mute = state.effective_bus_mute(bus);
                             bus_update = Some((id, bus.level, mute, bus.pan));
                         }
                     }
                     MixerSelection::Master => {
-                        mixer.master_level = (mixer.master_level + delta).clamp(0.0, 1.0);
-                        updates = mixer.collect_channel_updates();
+                        state.master_level = (state.master_level + delta).clamp(0.0, 1.0);
                     }
                 }
             }
             if audio_engine.is_running() {
-                for (module_id, level, mute) in updates {
-                    let _ = audio_engine.set_output_mixer_params(module_id, level, mute);
-                }
                 if let Some((bus_id, level, mute, pan)) = bus_update {
                     let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
+                }
+                // Rebuild to update strip output levels
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                 }
             }
         }
         Action::MixerToggleMute => {
-            let mut updates: Vec<(u32, f32, bool)> = Vec::new();
             let mut bus_update: Option<(u8, f32, bool, f32)> = None;
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let mixer = &mut rack_pane.rack_mut().mixer;
-                match mixer.selection {
-                    MixerSelection::Channel(id) => {
-                        if let Some(ch) = mixer.channel_mut(id) {
-                            ch.mute = !ch.mute;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let state = strip_pane.state_mut();
+                match state.mixer_selection {
+                    MixerSelection::Strip(idx) => {
+                        if let Some(strip) = state.strips.get_mut(idx) {
+                            strip.mute = !strip.mute;
                         }
                     }
                     MixerSelection::Bus(id) => {
-                        if let Some(bus) = mixer.bus_mut(id) {
+                        if let Some(bus) = state.bus_mut(id) {
                             bus.mute = !bus.mute;
                         }
-                        if let Some(bus) = mixer.bus(id) {
-                            let mute = mixer.effective_bus_mute(bus);
+                        if let Some(bus) = state.bus(id) {
+                            let mute = state.effective_bus_mute(bus);
                             bus_update = Some((id, bus.level, mute, bus.pan));
                         }
                     }
                     MixerSelection::Master => {
-                        mixer.master_mute = !mixer.master_mute;
+                        state.master_mute = !state.master_mute;
                     }
                 }
-                updates = mixer.collect_channel_updates();
             }
             if audio_engine.is_running() {
-                for (module_id, level, mute) in updates {
-                    let _ = audio_engine.set_output_mixer_params(module_id, level, mute);
-                }
                 if let Some((bus_id, level, mute, pan)) = bus_update {
                     let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
+                }
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                 }
             }
         }
         Action::MixerToggleSolo => {
-            let mut updates: Vec<(u32, f32, bool)> = Vec::new();
             let mut bus_updates: Vec<(u8, f32, bool, f32)> = Vec::new();
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let mixer = &mut rack_pane.rack_mut().mixer;
-                match mixer.selection {
-                    MixerSelection::Channel(id) => {
-                        if let Some(ch) = mixer.channel_mut(id) {
-                            ch.solo = !ch.solo;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let state = strip_pane.state_mut();
+                match state.mixer_selection {
+                    MixerSelection::Strip(idx) => {
+                        if let Some(strip) = state.strips.get_mut(idx) {
+                            strip.solo = !strip.solo;
                         }
                     }
                     MixerSelection::Bus(id) => {
-                        if let Some(bus) = mixer.bus_mut(id) {
+                        if let Some(bus) = state.bus_mut(id) {
                             bus.solo = !bus.solo;
                         }
                     }
                     MixerSelection::Master => {}
                 }
-                updates = mixer.collect_channel_updates();
-                for bus in &mixer.buses {
-                    let mute = mixer.effective_bus_mute(bus);
+                for bus in &state.buses {
+                    let mute = state.effective_bus_mute(bus);
                     bus_updates.push((bus.id, bus.level, mute, bus.pan));
                 }
             }
             if audio_engine.is_running() {
-                for (module_id, level, mute) in updates {
-                    let _ = audio_engine.set_output_mixer_params(module_id, level, mute);
-                }
                 for (bus_id, level, mute, pan) in bus_updates {
                     let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
+                }
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                 }
             }
         }
         Action::MixerCycleSection => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.rack_mut().mixer.cycle_section();
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().mixer_cycle_section();
             }
         }
         Action::MixerCycleOutput => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.rack_mut().mixer.cycle_output();
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().mixer_cycle_output();
             }
         }
         Action::MixerCycleOutputReverse => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.rack_mut().mixer.cycle_output_reverse();
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().mixer_cycle_output_reverse();
             }
         }
         Action::MixerAdjustSend(bus_id, delta) => {
             let bus_id = *bus_id;
             let delta = *delta;
-            let mut send_update: Option<(u8, u8, f32)> = None;
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let mixer = &mut rack_pane.rack_mut().mixer;
-                if let MixerSelection::Channel(ch_id) = mixer.selection {
-                    if let Some(ch) = mixer.channel_mut(ch_id) {
-                        if let Some(send) = ch.sends.iter_mut().find(|s| s.bus_id == bus_id) {
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let state = strip_pane.state_mut();
+                if let MixerSelection::Strip(idx) = state.mixer_selection {
+                    if let Some(strip) = state.strips.get_mut(idx) {
+                        if let Some(send) = strip.sends.iter_mut().find(|s| s.bus_id == bus_id) {
                             send.level = (send.level + delta).clamp(0.0, 1.0);
-                            send_update = Some((ch_id, bus_id, send.level));
                         }
                     }
-                }
-            }
-            if let Some((ch_id, bus_id, level)) = send_update {
-                if audio_engine.is_running() {
-                    let _ = audio_engine.set_send_level(ch_id, bus_id, level);
                 }
             }
         }
         Action::MixerToggleSend(bus_id) => {
             let bus_id = *bus_id;
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let mixer = &mut rack_pane.rack_mut().mixer;
-                if let MixerSelection::Channel(ch_id) = mixer.selection {
-                    if let Some(ch) = mixer.channel_mut(ch_id) {
-                        if let Some(send) = ch.sends.iter_mut().find(|s| s.bus_id == bus_id) {
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let state = strip_pane.state_mut();
+                if let MixerSelection::Strip(idx) = state.mixer_selection {
+                    if let Some(strip) = state.strips.get_mut(idx) {
+                        if let Some(send) = strip.sends.iter_mut().find(|s| s.bus_id == bus_id) {
                             send.enabled = !send.enabled;
                             if send.enabled && send.level <= 0.0 {
                                 send.level = 0.5;
@@ -364,8 +382,8 @@ pub fn dispatch_action(
                 }
             }
             if audio_engine.is_running() {
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                 }
             }
         }
@@ -376,8 +394,8 @@ pub fn dispatch_action(
                 let dur = pr_pane.default_duration();
                 let vel = pr_pane.default_velocity();
                 let track = pr_pane.current_track();
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    rack_pane.rack_mut().piano_roll.toggle_note(track, pitch, tick, dur, vel);
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    strip_pane.state_mut().piano_roll.toggle_note(track, pitch, tick, dur, vel);
                 }
             }
         }
@@ -394,8 +412,8 @@ pub fn dispatch_action(
             }
         }
         Action::PianoRollPlayStop => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let pr = &mut rack_pane.rack_mut().piano_roll;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let pr = &mut strip_pane.state_mut().piano_roll;
                 pr.playing = !pr.playing;
                 if !pr.playing {
                     pr.playhead = 0;
@@ -407,40 +425,40 @@ pub fn dispatch_action(
             }
         }
         Action::PianoRollToggleLoop => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let pr = &mut rack_pane.rack_mut().piano_roll;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let pr = &mut strip_pane.state_mut().piano_roll;
                 pr.looping = !pr.looping;
             }
         }
         Action::PianoRollSetLoopStart => {
             if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
                 let tick = pr_pane.cursor_tick();
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    rack_pane.rack_mut().piano_roll.loop_start = tick;
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    strip_pane.state_mut().piano_roll.loop_start = tick;
                 }
             }
         }
         Action::PianoRollSetLoopEnd => {
             if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
                 let tick = pr_pane.cursor_tick();
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    rack_pane.rack_mut().piano_roll.loop_end = tick;
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    strip_pane.state_mut().piano_roll.loop_end = tick;
                 }
             }
         }
         Action::PianoRollChangeTrack(delta) => {
             let delta = *delta;
             let track_count = panes
-                .get_pane_mut::<RackPane>("rack")
-                .map(|r| r.rack().piano_roll.track_order.len())
+                .get_pane_mut::<StripPane>("strip")
+                .map(|sp| sp.state().piano_roll.track_order.len())
                 .unwrap_or(0);
             if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
                 pr_pane.change_track(delta, track_count);
             }
         }
         Action::PianoRollCycleTimeSig => {
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                let pr = &mut rack_pane.rack_mut().piano_roll;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                let pr = &mut strip_pane.state_mut().piano_roll;
                 pr.time_signature = match pr.time_signature {
                     (4, 4) => (3, 4),
                     (3, 4) => (6, 8),
@@ -455,8 +473,8 @@ pub fn dispatch_action(
                 .get_pane_mut::<PianoRollPane>("piano_roll")
                 .map(|pr| pr.current_track());
             if let Some(idx) = track_idx {
-                if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                    if let Some(track) = rack_pane.rack_mut().piano_roll.track_at_mut(idx) {
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    if let Some(track) = strip_pane.state_mut().piano_roll.track_at_mut(idx) {
                         track.polyphonic = !track.polyphonic;
                     }
                 }
@@ -469,11 +487,11 @@ pub fn dispatch_action(
         }
         Action::UpdateSession(ref session) => {
             app_frame.session = session.clone();
-            if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                rack_pane.rack_mut().piano_roll.time_signature = session.time_signature;
-                rack_pane.rack_mut().piano_roll.bpm = session.bpm as f32;
+            if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                strip_pane.state_mut().piano_roll.time_signature = session.time_signature;
+                strip_pane.state_mut().piano_roll.bpm = session.bpm as f32;
             }
-            panes.switch_to("rack");
+            panes.switch_to("strip");
         }
         _ => {}
     }

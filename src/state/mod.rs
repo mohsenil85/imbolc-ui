@@ -1,12 +1,10 @@
-mod connection;
-mod mixer;
-mod module;
 pub mod music;
+pub mod param;
 pub mod piano_roll;
-mod rack;
+pub mod strip;
+pub mod strip_state;
 
-pub use connection::{Connection, ConnectionError, PortRef};
-pub use mixer::{MixerBus, MixerChannel, MixerSend, MixerSelection, MixerState, OutputTarget, MAX_BUSES, MAX_CHANNELS};
-pub use module::{Module, ModuleId, ModuleType, Param, ParamValue, PortDef, PortDirection, PortType};
+pub use param::{Param, ParamValue};
 pub use piano_roll::PianoRollState;
-pub use rack::RackState;
+pub use strip::*;
+pub use strip_state::{MixerSelection, StripState};

@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{MixerSelection, OutputTarget, RackState};
+use crate::state::{MixerSelection, OutputTarget, StripState};
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 const STRIP_WIDTH: u16 = 8;
@@ -8,12 +8,12 @@ const METER_HEIGHT: u16 = 12;
 const NUM_VISIBLE_CHANNELS: usize = 8;
 const NUM_VISIBLE_BUSES: usize = 2;
 
-/// Block characters for vertical meter: ▁▂▃▄▅▆▇█ (U+2581–U+2588)
-const BLOCK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+/// Block characters for vertical meter
+const BLOCK_CHARS: [char; 8] = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
 
 pub struct MixerPane {
     keymap: Keymap,
-    send_target: Option<u8>, // 1-8: selected send bus for adjustment
+    send_target: Option<u8>,
 }
 
 impl MixerPane {
@@ -41,17 +41,15 @@ impl MixerPane {
         }
     }
 
-    /// Convert linear level (0.0-1.0) to dB string
     fn level_to_db(level: f32) -> String {
         if level <= 0.0 {
-            "-∞".to_string()
+            "-\u{221e}".to_string()
         } else {
             let db = 20.0 * level.log10();
             format!("{:+.0}", db.max(-99.0))
         }
     }
 
-    /// Get meter color for a given row position (0=bottom, height-1=top)
     fn meter_color(row: u16, height: u16) -> Color {
         let frac = row as f32 / height as f32;
         if frac > 0.85 {
@@ -63,39 +61,31 @@ impl MixerPane {
         }
     }
 
-    /// Render a vertical meter at position (x, top_y) going downward
     fn render_vertical_meter(g: &mut dyn Graphics, x: u16, top_y: u16, height: u16, level: f32) {
         let total_sub = height as f32 * 8.0;
         let filled_sub = (level * total_sub) as u16;
 
         for row in 0..height {
-            // row 0 = top of meter, row height-1 = bottom
             let inverted_row = height - 1 - row;
             let y = top_y + row;
-
             let row_start = inverted_row * 8;
             let row_end = row_start + 8;
-
             let color = Self::meter_color(inverted_row, height);
 
             if filled_sub >= row_end {
-                // Full block
                 g.set_style(Style::new().fg(color));
-                g.put_char(x, y, '█');
+                g.put_char(x, y, '\u{2588}');
             } else if filled_sub > row_start {
-                // Partial block
                 let sub_level = (filled_sub - row_start) as usize;
                 g.set_style(Style::new().fg(color));
                 g.put_char(x, y, BLOCK_CHARS[sub_level.saturating_sub(1).min(7)]);
             } else {
-                // Empty
                 g.set_style(Style::new().fg(Color::DARK_GRAY));
-                g.put_char(x, y, '·');
+                g.put_char(x, y, '\u{00b7}');
             }
         }
     }
 
-    /// Format output target as short string
     fn format_output(target: OutputTarget) -> &'static str {
         match target {
             OutputTarget::Master => ">MST",
@@ -110,17 +100,15 @@ impl MixerPane {
             OutputTarget::Bus(_) => ">??",
         }
     }
+
+    pub fn send_target(&self) -> Option<u8> {
+        self.send_target
+    }
 }
 
 impl Default for MixerPane {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl MixerPane {
-    pub fn send_target(&self) -> Option<u8> {
-        self.send_target
     }
 }
 
@@ -216,7 +204,6 @@ impl Pane for MixerPane {
 }
 
 impl MixerPane {
-    /// Calculate scroll offset to keep selection visible
     fn calc_scroll_offset(selected: usize, total: usize, visible: usize) -> usize {
         if selected >= visible {
             (selected - visible + 1).min(total.saturating_sub(visible))
@@ -225,15 +212,13 @@ impl MixerPane {
         }
     }
 
-    /// Render the mixer with access to rack state
-    pub fn render_with_state(&self, g: &mut dyn Graphics, rack: &RackState) {
+    pub fn render_with_state(&self, g: &mut dyn Graphics, state: &StripState) {
         let (width, height) = g.size();
 
-        // Box dimensions: channels + sep + buses + sep + master + padding
         let box_width = (NUM_VISIBLE_CHANNELS as u16 * STRIP_WIDTH) + 2 +
                         (NUM_VISIBLE_BUSES as u16 * STRIP_WIDTH) + 2 +
                         STRIP_WIDTH + 4;
-        let box_height = METER_HEIGHT + 8; // meter + label + name + db + mute + output + help + padding
+        let box_height = METER_HEIGHT + 8;
         let rect = Rect::centered(width, height, box_width, box_height);
 
         g.set_style(Style::new().fg(Color::CYAN));
@@ -242,7 +227,6 @@ impl MixerPane {
         let base_x = rect.x + 2;
         let base_y = rect.y + 1;
 
-        // Layout: label, name, [meter], dB, mute/solo, output
         let label_y = base_y;
         let name_y = base_y + 1;
         let meter_top_y = base_y + 2;
@@ -251,39 +235,34 @@ impl MixerPane {
         let output_y = indicator_y + 1;
 
         // Calculate scroll offsets
-        let channel_scroll = match rack.mixer.selection {
-            MixerSelection::Channel(id) => {
-                Self::calc_scroll_offset((id - 1) as usize, rack.mixer.channels.len(), NUM_VISIBLE_CHANNELS)
+        let strip_scroll = match state.mixer_selection {
+            MixerSelection::Strip(idx) => {
+                Self::calc_scroll_offset(idx, state.strips.len(), NUM_VISIBLE_CHANNELS)
             }
             _ => 0,
         };
 
-        let bus_scroll = match rack.mixer.selection {
+        let bus_scroll = match state.mixer_selection {
             MixerSelection::Bus(id) => {
-                Self::calc_scroll_offset((id - 1) as usize, rack.mixer.buses.len(), NUM_VISIBLE_BUSES)
+                Self::calc_scroll_offset((id - 1) as usize, state.buses.len(), NUM_VISIBLE_BUSES)
             }
             _ => 0,
         };
 
         let mut x = base_x;
 
-        // Render channels
+        // Render strip channels
         for i in 0..NUM_VISIBLE_CHANNELS {
-            let ch_idx = channel_scroll + i;
-            if ch_idx >= rack.mixer.channels.len() {
+            let idx = strip_scroll + i;
+            if idx >= state.strips.len() {
                 break;
             }
-            let ch = &rack.mixer.channels[ch_idx];
-            let is_selected = matches!(rack.mixer.selection, MixerSelection::Channel(id) if id == ch.id);
-
-            let module_name = ch.module_id
-                .and_then(|id| rack.modules.get(&id))
-                .map(|m| m.name.as_str())
-                .unwrap_or("---");
+            let strip = &state.strips[idx];
+            let is_selected = matches!(state.mixer_selection, MixerSelection::Strip(s) if s == idx);
 
             self.render_vertical_strip(
-                g, x, &format!("CH{}", ch.id), module_name,
-                ch.level, ch.mute, ch.solo, Some(ch.output_target), is_selected,
+                g, x, &format!("S{}", strip.id), &strip.name,
+                strip.level, strip.mute, strip.solo, Some(strip.output_target), is_selected,
                 label_y, name_y, meter_top_y, db_y, indicator_y, output_y,
             );
 
@@ -293,18 +272,18 @@ impl MixerPane {
         // Separator before buses
         g.set_style(Style::new().fg(Color::PURPLE));
         for y in label_y..=output_y {
-            g.put_char(x, y, '│');
+            g.put_char(x, y, '\u{2502}');
         }
         x += 2;
 
         // Render buses
         for i in 0..NUM_VISIBLE_BUSES {
             let bus_idx = bus_scroll + i;
-            if bus_idx >= rack.mixer.buses.len() {
+            if bus_idx >= state.buses.len() {
                 break;
             }
-            let bus = &rack.mixer.buses[bus_idx];
-            let is_selected = matches!(rack.mixer.selection, MixerSelection::Bus(id) if id == bus.id);
+            let bus = &state.buses[bus_idx];
+            let is_selected = matches!(state.mixer_selection, MixerSelection::Bus(id) if id == bus.id);
 
             self.render_vertical_strip(
                 g, x, &format!("BUS{}", bus.id), &bus.name,
@@ -318,27 +297,26 @@ impl MixerPane {
         // Separator before master
         g.set_style(Style::new().fg(Color::GOLD));
         for y in label_y..=output_y {
-            g.put_char(x, y, '│');
+            g.put_char(x, y, '\u{2502}');
         }
         x += 2;
 
         // Master
-        let is_master_selected = matches!(rack.mixer.selection, MixerSelection::Master);
+        let is_master_selected = matches!(state.mixer_selection, MixerSelection::Master);
         self.render_vertical_strip(
             g, x, "MASTER", "",
-            rack.mixer.master_level, rack.mixer.master_mute, false, None, is_master_selected,
+            state.master_level, state.master_mute, false, None, is_master_selected,
             label_y, name_y, meter_top_y, db_y, indicator_y, output_y,
         );
 
-        // Send info line (below output row)
+        // Send info line
         let send_y = output_y + 1;
         if let Some(bus_id) = self.send_target {
-            // Show send level for selected channel to this bus
-            if let MixerSelection::Channel(ch_id) = rack.mixer.selection {
-                if let Some(ch) = rack.mixer.channel(ch_id) {
-                    if let Some(send) = ch.sends.iter().find(|s| s.bus_id == bus_id) {
+            if let MixerSelection::Strip(idx) = state.mixer_selection {
+                if let Some(strip) = state.strips.get(idx) {
+                    if let Some(send) = strip.sends.iter().find(|s| s.bus_id == bus_id) {
                         let status = if send.enabled { "ON" } else { "OFF" };
-                        let info = format!("Send→B{}: {:.0}% [{}]", bus_id, send.level * 100.0, status);
+                        let info = format!("Send\u{2192}B{}: {:.0}% [{}]", bus_id, send.level * 100.0, status);
                         g.set_style(Style::new().fg(Color::TEAL).bold());
                         g.put_str(base_x, send_y, &info);
                     }
@@ -352,7 +330,7 @@ impl MixerPane {
         g.put_str(
             base_x,
             help_y,
-            "[←/→] Select  [↑/↓] Level  [M]ute [S]olo [o]ut  [t/T] Send  [g] Toggle",
+            "[\u{2190}/\u{2192}] Select  [\u{2191}/\u{2193}] Level  [M]ute [S]olo [o]ut  [t/T] Send  [g] Toggle",
         );
     }
 
@@ -377,7 +355,6 @@ impl MixerPane {
     ) {
         let strip_w = (STRIP_WIDTH - 1) as usize;
 
-        // Label
         let label_style = if selected {
             Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
         } else if label.starts_with("BUS") {
@@ -391,14 +368,13 @@ impl MixerPane {
         let label_str: String = label.chars().take(strip_w).collect();
         g.put_str(x, label_y, &label_str);
 
-        // Name
         let text_style = if selected {
             Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
         } else {
             Style::new().fg(Color::DARK_GRAY)
         };
         g.set_style(text_style);
-        let name_display = if name.is_empty() && label.starts_with("CH") {
+        let name_display = if name.is_empty() && label.starts_with("S") {
             "---"
         } else {
             name
@@ -406,18 +382,15 @@ impl MixerPane {
         let name_str: String = name_display.chars().take(strip_w).collect();
         g.put_str(x, name_y, &name_str);
 
-        // Vertical meter (centered in strip)
         let meter_x = x + (STRIP_WIDTH / 2).saturating_sub(1);
         Self::render_vertical_meter(g, meter_x, meter_top_y, METER_HEIGHT, level);
 
-        // Highlight the meter column if selected
         if selected {
             let sel_x = meter_x + 1;
             g.set_style(Style::new().fg(Color::WHITE).bold());
-            g.put_char(sel_x, meter_top_y, '▼');
+            g.put_char(sel_x, meter_top_y, '\u{25bc}');
         }
 
-        // dB value
         let db_style = if selected {
             Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
         } else {
@@ -427,18 +400,16 @@ impl MixerPane {
         let db_str = Self::level_to_db(level);
         g.put_str(x, db_y, &db_str);
 
-        // Mute/solo indicator
         let (indicator, indicator_style) = if mute {
             ("M", Style::new().fg(Color::MUTE_COLOR).bold())
         } else if solo {
             ("S", Style::new().fg(Color::SOLO_COLOR).bold())
         } else {
-            ("●", Style::new().fg(Color::DARK_GRAY))
+            ("\u{25cf}", Style::new().fg(Color::DARK_GRAY))
         };
         g.set_style(indicator_style);
         g.put_str(x, indicator_y, indicator);
 
-        // Output routing
         if let Some(target) = output {
             let routing_style = if selected {
                 Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)

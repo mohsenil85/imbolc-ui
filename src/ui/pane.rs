@@ -2,7 +2,7 @@ use std::any::Any;
 
 use super::{Graphics, InputEvent, Keymap};
 use super::frame::SessionState;
-use crate::state::{Connection, ModuleType};
+use crate::state::{EffectType, FilterType, OscType, StripId};
 
 /// Actions that can be returned from pane input handling
 #[derive(Debug, Clone, PartialEq)]
@@ -17,22 +17,30 @@ pub enum Action {
     PushPane(&'static str),
     /// Pop the current pane from the stack
     PopPane,
-    /// Add a module of the given type to the rack
-    AddModule(ModuleType),
-    /// Delete a module from the rack
-    DeleteModule(crate::state::ModuleId),
-    /// Request to edit a module (sent by rack pane)
-    EditModule(crate::state::ModuleId),
-    /// Update a module's params (sent by edit pane when done)
-    UpdateModuleParams(crate::state::ModuleId, Vec<crate::state::Param>),
-    /// Save rack to file
+    /// Add a strip with the given oscillator type
+    AddStrip(OscType),
+    /// Delete a strip
+    DeleteStrip(StripId),
+    /// Request to edit a strip
+    EditStrip(StripId),
+    /// Update a strip (save edited strip back)
+    UpdateStrip(StripId),
+    /// Real-time parameter update on a strip
+    SetStripParam(StripId, String, f32),
+    /// Add an effect to a strip
+    StripAddEffect(StripId, EffectType),
+    /// Remove an effect from a strip
+    StripRemoveEffect(StripId, usize),
+    /// Move an effect up/down in the chain
+    StripMoveEffect(StripId, usize, i8),
+    /// Set or remove the filter on a strip
+    StripSetFilter(StripId, Option<FilterType>),
+    /// Toggle piano roll track for a strip
+    StripToggleTrack(StripId),
+    /// Save state to file
     SaveRack,
-    /// Load rack from file
+    /// Load state from file
     LoadRack,
-    /// Add a connection between two module ports
-    AddConnection(Connection),
-    /// Remove a connection between two module ports
-    RemoveConnection(Connection),
     /// Connect to audio server
     ConnectServer,
     /// Disconnect from audio server
@@ -45,8 +53,6 @@ pub enum Action {
     CompileSynthDefs,
     /// Load pre-compiled synthdefs (fast)
     LoadSynthDefs,
-    /// Real-time parameter update
-    SetModuleParam(crate::state::ModuleId, String, f32),
     /// Mixer: move selection left/right
     MixerMove(i8),
     /// Mixer: jump to first (1) or last (-1) in section
@@ -102,20 +108,6 @@ pub enum Action {
 }
 
 /// Trait for UI panes (screens/views).
-///
-/// ## External State
-///
-/// Some panes need data from `RackState` (which is owned by `RackPane`).
-/// Because `PaneManager` only allows one `&mut` borrow at a time, these
-/// panes implement a separate `render_with_state()` method and get
-/// special-cased in the render block in main.rs.
-///
-/// If your pane needs rack/mixer/piano_roll state:
-/// 1. Add a `pub fn render_with_state(&self, g, state)` method
-/// 2. Make `render()` a no-op fallback
-/// 3. Add a branch in main.rs's render section (search for "active_id")
-///
-/// Current panes using this pattern: MixerPane, PianoRollPane
 pub trait Pane {
     /// Unique identifier for this pane
     fn id(&self) -> &'static str;
@@ -198,12 +190,9 @@ impl PaneManager {
                 self.switch_to(id);
             }
             Action::PushPane(id) => {
-                // For push, we'd need a stack - simplified for now
                 self.switch_to(id);
             }
-            Action::PopPane => {
-                // For pop, we'd go back - simplified for now
-            }
+            Action::PopPane => {}
             _ => {}
         }
 
@@ -226,7 +215,6 @@ impl PaneManager {
     }
 
     /// Dispatch an action to a specific pane by ID
-    /// Returns true if the pane was found and handled the action
     pub fn dispatch_to(&mut self, id: &str, action: &Action) -> bool {
         if let Some(pane) = self.panes.iter_mut().find(|p| p.id() == id) {
             pane.receive_action(action)

@@ -1,5 +1,5 @@
 use crate::audio::{self, AudioEngine};
-use crate::panes::{RackPane, ServerPane};
+use crate::panes::{ServerPane, StripPane};
 use crate::ui::{Frame, PaneManager};
 
 /// Auto-start SuperCollider server, connect, and load synthdefs.
@@ -35,9 +35,9 @@ pub fn auto_start_sc(
                         }
                         // Wait for scsynth to finish processing /d_recv messages
                         std::thread::sleep(std::time::Duration::from_millis(500));
-                        // Rebuild routing to create groups and meter synth
-                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                            let _ = audio_engine.rebuild_routing(rack_pane.rack());
+                        // Rebuild routing
+                        if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                            let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
                         }
                     }
                 }

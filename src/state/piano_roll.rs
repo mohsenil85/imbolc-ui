@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::module::ModuleId;
+use super::strip::StripId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
@@ -14,15 +14,15 @@ pub struct Note {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
-    pub module_id: ModuleId,
+    pub module_id: StripId,
     pub notes: Vec<Note>,
     pub polyphonic: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PianoRollState {
-    pub tracks: HashMap<ModuleId, Track>,
-    pub track_order: Vec<ModuleId>,
+    pub tracks: HashMap<StripId, Track>,
+    pub track_order: Vec<StripId>,
     pub bpm: f32,
     pub time_signature: (u8, u8),
     pub playing: bool,
@@ -49,23 +49,23 @@ impl PianoRollState {
         }
     }
 
-    pub fn add_track(&mut self, module_id: ModuleId) {
-        if !self.tracks.contains_key(&module_id) {
+    pub fn add_track(&mut self, strip_id: StripId) {
+        if !self.tracks.contains_key(&strip_id) {
             self.tracks.insert(
-                module_id,
+                strip_id,
                 Track {
-                    module_id,
+                    module_id: strip_id,
                     notes: Vec::new(),
                     polyphonic: true,
                 },
             );
-            self.track_order.push(module_id);
+            self.track_order.push(strip_id);
         }
     }
 
-    pub fn remove_track(&mut self, module_id: ModuleId) {
-        self.tracks.remove(&module_id);
-        self.track_order.retain(|&id| id != module_id);
+    pub fn remove_track(&mut self, strip_id: StripId) {
+        self.tracks.remove(&strip_id);
+        self.track_order.retain(|&id| id != strip_id);
     }
 
     /// Get the track at the given index in track_order

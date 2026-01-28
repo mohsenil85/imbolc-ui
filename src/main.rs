@@ -12,7 +12,7 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioEngine;
-use panes::{AddPane, EditPane, FrameEditPane, HelpPane, HomePane, MixerPane, PianoRollPane, RackPane, SequencerPane, ServerPane};
+use panes::{AddPane, FrameEditPane, HelpPane, HomePane, MixerPane, PianoRollPane, SequencerPane, ServerPane, StripEditPane, StripPane};
 use ui::{
     Action, Frame, InputSource, KeyCode, PaneManager, RatatuiBackend,
 };
@@ -28,10 +28,10 @@ fn main() -> std::io::Result<()> {
 }
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
-    let mut panes = PaneManager::new(Box::new(RackPane::new()));
+    let mut panes = PaneManager::new(Box::new(StripPane::new()));
     panes.add_pane(Box::new(HomePane::new()));
     panes.add_pane(Box::new(AddPane::new()));
-    panes.add_pane(Box::new(EditPane::new()));
+    panes.add_pane(Box::new(StripEditPane::new()));
     panes.add_pane(Box::new(ServerPane::new()));
     panes.add_pane(Box::new(MixerPane::new()));
     panes.add_pane(Box::new(HelpPane::new()));
@@ -56,15 +56,15 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             // Global number-key navigation
             if let KeyCode::Char(c) = event.key {
                 let target = match c {
-                    '1' => Some("rack"),
+                    '1' => Some("strip"),
                     '2' => Some("piano_roll"),
                     '3' => Some("sequencer"),
                     '4' => Some("mixer"),
                     '5' => Some("server"),
                     '`' => {
                         // Sync piano roll state into session before editing
-                        if let Some(rack_pane) = panes.get_pane_mut::<RackPane>("rack") {
-                            let pr = &rack_pane.rack().piano_roll;
+                        if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                            let pr = &strip_pane.state().piano_roll;
                             app_frame.session.time_signature = pr.time_signature;
                             app_frame.session.bpm = pr.bpm as u16;
                         }
@@ -79,13 +79,13 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                             let current_id = panes.active().id();
                             let current_keymap = panes.active().keymap().clone();
                             let title = match current_id {
-                                "rack" => "Rack",
+                                "strip" => "Strips",
                                 "mixer" => "Mixer",
                                 "server" => "Server",
                                 "piano_roll" => "Piano Roll",
                                 "sequencer" => "Sequencer",
-                                "add" => "Add Module",
-                                "edit" => "Edit Module",
+                                "add" => "Add Strip",
+                                "strip_edit" => "Edit Strip",
                                 _ => current_id,
                             };
                             if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {
@@ -135,8 +135,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             } else {
                 0.0
             };
-            let mute = panes.get_pane_mut::<RackPane>("rack")
-                .map(|r| r.rack().mixer.master_mute)
+            let mute = panes.get_pane_mut::<StripPane>("strip")
+                .map(|sp| sp.state().master_mute)
                 .unwrap_or(false);
             app_frame.set_master_peak(peak, mute);
         }
@@ -147,18 +147,18 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
         let active_id = panes.active().id();
         if active_id == "mixer" {
-            let rack_state = panes
-                .get_pane_mut::<RackPane>("rack")
-                .map(|r| r.rack().clone());
-            if let Some(rack) = rack_state {
+            let strip_state = panes
+                .get_pane_mut::<StripPane>("strip")
+                .map(|sp| sp.state().clone());
+            if let Some(state) = strip_state {
                 if let Some(mixer_pane) = panes.get_pane_mut::<MixerPane>("mixer") {
-                    mixer_pane.render_with_state(&mut frame, &rack);
+                    mixer_pane.render_with_state(&mut frame, &state);
                 }
             }
         } else if active_id == "piano_roll" {
             let pr_state = panes
-                .get_pane_mut::<RackPane>("rack")
-                .map(|r| r.rack().piano_roll.clone());
+                .get_pane_mut::<StripPane>("strip")
+                .map(|sp| sp.state().piano_roll.clone());
             if let Some(pr) = pr_state {
                 if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
                     pr_pane.render_with_state(&mut frame, &pr);
