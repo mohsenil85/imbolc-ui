@@ -1,18 +1,28 @@
+use std::collections::{HashMap, VecDeque};
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 
+/// Maximum number of waveform samples to keep per audio input strip
+const WAVEFORM_BUFFER_SIZE: usize = 100;
+
 pub struct OscClient {
     socket: UdpSocket,
     server_addr: String,
     meter_data: Arc<Mutex<(f32, f32)>>,
+    /// Waveform data per audio input strip: strip_id -> ring buffer of peak values
+    audio_in_waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
     _recv_thread: Option<JoinHandle<()>>,
 }
 
 /// Recursively process an OSC packet (handles bundles wrapping messages)
-fn handle_osc_packet(packet: &OscPacket, meter_ref: &Arc<Mutex<(f32, f32)>>) {
+fn handle_osc_packet(
+    packet: &OscPacket,
+    meter_ref: &Arc<Mutex<(f32, f32)>>,
+    waveform_ref: &Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
+) {
     match packet {
         OscPacket::Message(msg) => {
             if msg.addr == "/meter" && msg.args.len() >= 6 {
@@ -27,11 +37,30 @@ fn handle_osc_packet(packet: &OscPacket, meter_ref: &Arc<Mutex<(f32, f32)>>) {
                 if let Ok(mut data) = meter_ref.lock() {
                     *data = (peak_l, peak_r);
                 }
+            } else if msg.addr == "/audio_in_level" && msg.args.len() >= 4 {
+                // SendPeakRMS format: /audio_in_level nodeID replyID peakL rmsL peakR rmsR
+                // args[0] = nodeID, args[1] = replyID (our strip_id), args[2] = peakL
+                let strip_id = match msg.args.get(1) {
+                    Some(OscType::Int(v)) => *v as u32,
+                    Some(OscType::Float(v)) => *v as u32,
+                    _ => return,
+                };
+                let peak = match msg.args.get(2) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                if let Ok(mut waveforms) = waveform_ref.lock() {
+                    let buffer = waveforms.entry(strip_id).or_insert_with(VecDeque::new);
+                    buffer.push_back(peak);
+                    while buffer.len() > WAVEFORM_BUFFER_SIZE {
+                        buffer.pop_front();
+                    }
+                }
             }
         }
         OscPacket::Bundle(bundle) => {
             for p in &bundle.content {
-                handle_osc_packet(p, meter_ref);
+                handle_osc_packet(p, meter_ref, waveform_ref);
             }
         }
     }
@@ -41,11 +70,13 @@ impl OscClient {
     pub fn new(server_addr: &str) -> std::io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         let meter_data = Arc::new(Mutex::new((0.0_f32, 0.0_f32)));
+        let audio_in_waveforms = Arc::new(Mutex::new(HashMap::new()));
 
         // Clone socket for receive thread
         let recv_socket = socket.try_clone()?;
         recv_socket.set_read_timeout(Some(Duration::from_millis(50)))?;
         let meter_ref = Arc::clone(&meter_data);
+        let waveform_ref = Arc::clone(&audio_in_waveforms);
 
         let handle = thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -53,7 +84,7 @@ impl OscClient {
                 match recv_socket.recv(&mut buf) {
                     Ok(n) => {
                         if let Ok((_, packet)) = rosc::decoder::decode_udp(&buf[..n]) {
-                            handle_osc_packet(&packet, &meter_ref);
+                            handle_osc_packet(&packet, &meter_ref, &waveform_ref);
                         }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
@@ -66,6 +97,7 @@ impl OscClient {
             socket,
             server_addr: server_addr.to_string(),
             meter_data,
+            audio_in_waveforms,
             _recv_thread: Some(handle),
         })
     }
@@ -73,6 +105,14 @@ impl OscClient {
     /// Get current peak levels (left, right) from the meter synth
     pub fn meter_peak(&self) -> (f32, f32) {
         self.meter_data.lock().map(|d| *d).unwrap_or((0.0, 0.0))
+    }
+
+    /// Get waveform data for an audio input strip (returns a copy of the buffer)
+    pub fn audio_in_waveform(&self, strip_id: u32) -> Vec<f32> {
+        self.audio_in_waveforms
+            .lock()
+            .map(|w| w.get(&strip_id).map(|d| d.iter().copied().collect()).unwrap_or_default())
+            .unwrap_or_default()
     }
 
     pub fn send_message(&self, addr: &str, args: Vec<OscType>) -> std::io::Result<()> {
@@ -169,6 +209,39 @@ impl OscClient {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         self.socket.send_to(&buf, &self.server_addr)?;
         Ok(())
+    }
+
+    /// /b_allocRead bufnum path startFrame numFrames
+    /// Load a sound file into a buffer (SuperCollider reads the file)
+    pub fn load_buffer(&self, bufnum: i32, path: &str) -> std::io::Result<()> {
+        self.send_message("/b_allocRead", vec![
+            OscType::Int(bufnum),
+            OscType::String(path.to_string()),
+            OscType::Int(0),  // start frame
+            OscType::Int(0),  // 0 = read entire file
+        ])
+    }
+
+    /// /b_alloc bufnum numFrames numChannels
+    /// Allocate an empty buffer
+    pub fn alloc_buffer(&self, bufnum: i32, num_frames: i32, num_channels: i32) -> std::io::Result<()> {
+        self.send_message("/b_alloc", vec![
+            OscType::Int(bufnum),
+            OscType::Int(num_frames),
+            OscType::Int(num_channels),
+        ])
+    }
+
+    /// /b_free bufnum
+    /// Free a buffer
+    pub fn free_buffer(&self, bufnum: i32) -> std::io::Result<()> {
+        self.send_message("/b_free", vec![OscType::Int(bufnum)])
+    }
+
+    /// /b_query bufnum
+    /// Query buffer info (results come back asynchronously via /b_info)
+    pub fn query_buffer(&self, bufnum: i32) -> std::io::Result<()> {
+        self.send_message("/b_query", vec![OscType::Int(bufnum)])
     }
 }
 

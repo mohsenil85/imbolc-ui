@@ -20,6 +20,14 @@ pub struct SessionState {
     pub time_signature: (u8, u8),
 }
 
+/// Captured view state for back/forward navigation
+#[derive(Debug, Clone)]
+pub struct ViewState {
+    pub pane_id: String,
+    pub strip_selection: Option<usize>,
+    pub edit_tab: u8,
+}
+
 impl Default for SessionState {
     fn default() -> Self {
         Self {
@@ -43,6 +51,10 @@ pub struct Frame {
     master_peak: f32,
     /// Smoothed display value (fast attack, slow decay)
     peak_display: f32,
+    /// Previous view for back navigation (backtick)
+    pub back_view: Option<ViewState>,
+    /// Forward view for forward navigation (backslash)
+    pub forward_view: Option<ViewState>,
 }
 
 impl Frame {
@@ -54,6 +66,8 @@ impl Frame {
             master_mute: false,
             master_peak: 0.0,
             peak_display: 0.0,
+            back_view: None,
+            forward_view: None,
         }
     }
 

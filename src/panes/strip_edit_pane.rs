@@ -1,42 +1,27 @@
 use std::any::Any;
 
 use crate::state::{
-    EffectSlot, EffectType, EnvConfig, FilterConfig, FilterType, OscType, Param, ParamValue,
-    StripId, Strip,
+    EffectSlot, EffectType, EnvConfig, FilterConfig, FilterType, LfoConfig, LfoShape, LfoTarget,
+    OscType, Param, ParamValue, StripId, Strip,
 };
 use crate::ui::widgets::TextInput;
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
+/// Which section a row belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tab {
+enum Section {
     Source,
     Filter,
     Effects,
+    Lfo,
     Envelope,
 }
 
-impl Tab {
-    fn all() -> &'static [Tab] {
-        &[Tab::Source, Tab::Filter, Tab::Effects, Tab::Envelope]
-    }
-
-    fn name(&self) -> &'static str {
-        match self {
-            Tab::Source => "Source",
-            Tab::Filter => "Filter",
-            Tab::Effects => "Effects",
-            Tab::Envelope => "Envelope",
-        }
-    }
-
-    fn next(&self) -> Tab {
-        match self {
-            Tab::Source => Tab::Filter,
-            Tab::Filter => Tab::Effects,
-            Tab::Effects => Tab::Envelope,
-            Tab::Envelope => Tab::Source,
-        }
-    }
+/// Piano keyboard layout
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PianoLayout {
+    C,
+    A,
 }
 
 pub struct StripEditPane {
@@ -47,13 +32,17 @@ pub struct StripEditPane {
     source_params: Vec<Param>,
     filter: Option<FilterConfig>,
     effects: Vec<EffectSlot>,
+    lfo: LfoConfig,
     amp_envelope: EnvConfig,
     polyphonic: bool,
     has_track: bool,
-    tab: Tab,
     selected_row: usize,
     editing: bool,
     edit_input: TextInput,
+    // Piano mode
+    piano_mode: bool,
+    piano_octave: i8,
+    piano_layout: PianoLayout,
 }
 
 impl StripEditPane {
@@ -61,9 +50,10 @@ impl StripEditPane {
         Self {
             keymap: Keymap::new()
                 .bind_key(KeyCode::Escape, "done", "Done editing")
-                .bind_key(KeyCode::Tab, "next_tab", "Next tab")
+                .bind('/', "piano_mode", "Toggle piano keyboard")
                 .bind_key(KeyCode::Down, "next", "Next item")
                 .bind_key(KeyCode::Up, "prev", "Previous item")
+                .bind_key(KeyCode::Tab, "next_section", "Next section")
                 .bind_key(KeyCode::Left, "decrease", "Decrease value")
                 .bind_key(KeyCode::Right, "increase", "Increase value")
                 .bind_key(KeyCode::PageUp, "increase_big", "Increase +10%")
@@ -74,20 +64,28 @@ impl StripEditPane {
                 .bind('a', "add_effect", "Add effect")
                 .bind('d', "remove_effect", "Remove effect")
                 .bind('p', "toggle_poly", "Toggle polyphonic")
-                .bind('r', "toggle_track", "Toggle piano roll track"),
+                .bind('r', "toggle_track", "Toggle piano roll track")
+                .bind('\\', "zero_param", "Set param to zero")
+                .bind('|', "zero_section", "Zero all params in section")
+                .bind('l', "toggle_lfo", "Toggle LFO on/off")
+                .bind('s', "cycle_lfo_shape", "Cycle LFO shape")
+                .bind('m', "cycle_lfo_target", "Cycle LFO target"),
             strip_id: None,
             strip_name: String::new(),
             source: OscType::Saw,
             source_params: Vec::new(),
             filter: None,
             effects: Vec::new(),
+            lfo: LfoConfig::default(),
             amp_envelope: EnvConfig::default(),
             polyphonic: true,
             has_track: true,
-            tab: Tab::Source,
             selected_row: 0,
             editing: false,
             edit_input: TextInput::new(""),
+            piano_mode: false,
+            piano_octave: 4,
+            piano_layout: PianoLayout::C,
         }
     }
 
@@ -98,15 +96,46 @@ impl StripEditPane {
         self.source_params = strip.source_params.clone();
         self.filter = strip.filter.clone();
         self.effects = strip.effects.clone();
+        self.lfo = strip.lfo.clone();
         self.amp_envelope = strip.amp_envelope.clone();
         self.polyphonic = strip.polyphonic;
         self.has_track = strip.has_track;
-        self.tab = Tab::Source;
         self.selected_row = 0;
     }
 
     pub fn strip_id(&self) -> Option<StripId> {
         self.strip_id
+    }
+
+    /// Get current tab as index (for view state - now section based)
+    pub fn tab_index(&self) -> u8 {
+        match self.current_section() {
+            Section::Source => 0,
+            Section::Filter => 1,
+            Section::Effects => 2,
+            Section::Lfo => 3,
+            Section::Envelope => 4,
+        }
+    }
+
+    /// Set tab from index (for view state restoration)
+    pub fn set_tab_index(&mut self, idx: u8) {
+        // Jump to first row of the section
+        let target_section = match idx {
+            0 => Section::Source,
+            1 => Section::Filter,
+            2 => Section::Effects,
+            3 => Section::Lfo,
+            4 => Section::Envelope,
+            _ => Section::Source,
+        };
+        // Find first row of that section
+        for i in 0..self.total_rows() {
+            if self.section_for_row(i) == target_section {
+                self.selected_row = i;
+                break;
+            }
+        }
     }
 
     /// Apply edits back to a strip
@@ -115,47 +144,79 @@ impl StripEditPane {
         strip.source_params = self.source_params.clone();
         strip.filter = self.filter.clone();
         strip.effects = self.effects.clone();
+        strip.lfo = self.lfo.clone();
         strip.amp_envelope = self.amp_envelope.clone();
         strip.polyphonic = self.polyphonic;
         strip.has_track = self.has_track;
     }
 
-    fn current_params(&self) -> Vec<&Param> {
-        match self.tab {
-            Tab::Source => self.source_params.iter().collect(),
-            Tab::Filter => {
-                if let Some(ref _f) = self.filter {
-                    // Present cutoff and resonance as pseudo-params
-                    vec![]
-                } else {
-                    vec![]
-                }
-            }
-            Tab::Effects => vec![],
-            Tab::Envelope => vec![],
+    /// Total number of selectable rows across all sections
+    fn total_rows(&self) -> usize {
+        let source_rows = self.source_params.len().max(1); // At least 1 for empty message
+        let filter_rows = if self.filter.is_some() { 3 } else { 1 }; // type/cutoff/res or "off"
+        let effect_rows = self.effects.len().max(1); // At least 1 for empty message
+        let lfo_rows = 4; // enabled, rate, depth, shape/target
+        let env_rows = 4; // A, D, S, R
+        source_rows + filter_rows + effect_rows + lfo_rows + env_rows
+    }
+
+    /// Which section does a given row belong to?
+    fn section_for_row(&self, row: usize) -> Section {
+        let source_rows = self.source_params.len().max(1);
+        let filter_rows = if self.filter.is_some() { 3 } else { 1 };
+        let effect_rows = self.effects.len().max(1);
+        let lfo_rows = 4;
+
+        if row < source_rows {
+            Section::Source
+        } else if row < source_rows + filter_rows {
+            Section::Filter
+        } else if row < source_rows + filter_rows + effect_rows {
+            Section::Effects
+        } else if row < source_rows + filter_rows + effect_rows + lfo_rows {
+            Section::Lfo
+        } else {
+            Section::Envelope
         }
     }
 
-    fn row_count(&self) -> usize {
-        match self.tab {
-            Tab::Source => self.source_params.len(),
-            Tab::Filter => if self.filter.is_some() { 3 } else { 1 }, // type, cutoff, resonance (or just "off")
-            Tab::Effects => self.effects.len().max(1), // at least one row for "add"
-            Tab::Envelope => 4, // A, D, S, R
+    /// Get section and local index for a row
+    fn row_info(&self, row: usize) -> (Section, usize) {
+        let source_rows = self.source_params.len().max(1);
+        let filter_rows = if self.filter.is_some() { 3 } else { 1 };
+        let effect_rows = self.effects.len().max(1);
+        let lfo_rows = 4;
+
+        if row < source_rows {
+            (Section::Source, row)
+        } else if row < source_rows + filter_rows {
+            (Section::Filter, row - source_rows)
+        } else if row < source_rows + filter_rows + effect_rows {
+            (Section::Effects, row - source_rows - filter_rows)
+        } else if row < source_rows + filter_rows + effect_rows + lfo_rows {
+            (Section::Lfo, row - source_rows - filter_rows - effect_rows)
+        } else {
+            (Section::Envelope, row - source_rows - filter_rows - effect_rows - lfo_rows)
         }
+    }
+
+    fn current_section(&self) -> Section {
+        self.section_for_row(self.selected_row)
     }
 
     fn adjust_value(&mut self, increase: bool, big: bool) {
+        let (section, local_idx) = self.row_info(self.selected_row);
         let fraction = if big { 0.10 } else { 0.05 };
-        match self.tab {
-            Tab::Source => {
-                if let Some(param) = self.source_params.get_mut(self.selected_row) {
+
+        match section {
+            Section::Source => {
+                if let Some(param) = self.source_params.get_mut(local_idx) {
                     adjust_param(param, increase, fraction);
                 }
             }
-            Tab::Filter => {
+            Section::Filter => {
                 if let Some(ref mut f) = self.filter {
-                    match self.selected_row {
+                    match local_idx {
                         0 => {} // type - use 't' to cycle
                         1 => {
                             let range = f.cutoff.max - f.cutoff.min;
@@ -173,25 +234,42 @@ impl StripEditPane {
                     }
                 }
             }
-            Tab::Effects => {
-                if let Some(effect) = self.effects.get_mut(self.selected_row) {
-                    // For effects, we'd need a sub-selection for params
-                    // For now, adjust the first param
+            Section::Effects => {
+                if let Some(effect) = self.effects.get_mut(local_idx) {
                     if let Some(param) = effect.params.first_mut() {
                         adjust_param(param, increase, fraction);
                     }
                 }
             }
-            Tab::Envelope => {
+            Section::Lfo => {
+                match local_idx {
+                    0 => {} // enabled - use 'l' to toggle
+                    1 => {
+                        // rate: 0.1 to 32 Hz
+                        let delta = if big { 2.0 } else { 0.5 };
+                        if increase { self.lfo.rate = (self.lfo.rate + delta).min(32.0); }
+                        else { self.lfo.rate = (self.lfo.rate - delta).max(0.1); }
+                    }
+                    2 => {
+                        // depth: 0 to 1
+                        let delta = fraction;
+                        if increase { self.lfo.depth = (self.lfo.depth + delta).min(1.0); }
+                        else { self.lfo.depth = (self.lfo.depth - delta).max(0.0); }
+                    }
+                    3 => {} // shape/target - use 's'/'m' to cycle
+                    _ => {}
+                }
+            }
+            Section::Envelope => {
                 let delta = if big { 0.1 } else { 0.05 };
-                let val = match self.selected_row {
+                let val = match local_idx {
                     0 => &mut self.amp_envelope.attack,
                     1 => &mut self.amp_envelope.decay,
                     2 => &mut self.amp_envelope.sustain,
                     3 => &mut self.amp_envelope.release,
                     _ => return,
                 };
-                if increase { *val = (*val + delta).min(if self.selected_row == 2 { 1.0 } else { 5.0 }); }
+                if increase { *val = (*val + delta).min(if local_idx == 2 { 1.0 } else { 5.0 }); }
                 else { *val = (*val - delta).max(0.0); }
             }
         }
@@ -203,6 +281,128 @@ impl StripEditPane {
         } else {
             Action::None
         }
+    }
+
+    /// Set current parameter to its minimum (zero) value
+    fn zero_current_param(&mut self) {
+        let (section, local_idx) = self.row_info(self.selected_row);
+
+        match section {
+            Section::Source => {
+                if let Some(param) = self.source_params.get_mut(local_idx) {
+                    zero_param(param);
+                }
+            }
+            Section::Filter => {
+                if let Some(ref mut f) = self.filter {
+                    match local_idx {
+                        0 => {} // type - can't zero
+                        1 => f.cutoff.value = f.cutoff.min,
+                        2 => f.resonance.value = f.resonance.min,
+                        _ => {}
+                    }
+                }
+            }
+            Section::Effects => {
+                if let Some(effect) = self.effects.get_mut(local_idx) {
+                    if let Some(param) = effect.params.first_mut() {
+                        zero_param(param);
+                    }
+                }
+            }
+            Section::Lfo => {
+                match local_idx {
+                    0 => self.lfo.enabled = false,
+                    1 => self.lfo.rate = 0.1,
+                    2 => self.lfo.depth = 0.0,
+                    3 => {} // shape/target - can't zero
+                    _ => {}
+                }
+            }
+            Section::Envelope => {
+                match local_idx {
+                    0 => self.amp_envelope.attack = 0.0,
+                    1 => self.amp_envelope.decay = 0.0,
+                    2 => self.amp_envelope.sustain = 0.0,
+                    3 => self.amp_envelope.release = 0.0,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Set all parameters in the current section to their minimum values
+    fn zero_current_section(&mut self) {
+        let section = self.current_section();
+
+        match section {
+            Section::Source => {
+                for param in &mut self.source_params {
+                    zero_param(param);
+                }
+            }
+            Section::Filter => {
+                if let Some(ref mut f) = self.filter {
+                    f.cutoff.value = f.cutoff.min;
+                    f.resonance.value = f.resonance.min;
+                }
+            }
+            Section::Effects => {
+                for effect in &mut self.effects {
+                    for param in &mut effect.params {
+                        zero_param(param);
+                    }
+                }
+            }
+            Section::Lfo => {
+                self.lfo.enabled = false;
+                self.lfo.rate = 0.1;
+                self.lfo.depth = 0.0;
+            }
+            Section::Envelope => {
+                self.amp_envelope.attack = 0.0;
+                self.amp_envelope.decay = 0.0;
+                self.amp_envelope.sustain = 0.0;
+                self.amp_envelope.release = 0.0;
+            }
+        }
+    }
+
+    // Piano key mapping
+    fn key_to_offset_c(key: char) -> Option<u8> {
+        match key {
+            'a' => Some(0), 's' => Some(2), 'd' => Some(4), 'f' => Some(5),
+            'g' => Some(7), 'h' => Some(9), 'j' => Some(11),
+            'w' => Some(1), 'e' => Some(3), 't' => Some(6), 'y' => Some(8), 'u' => Some(10),
+            'k' => Some(12), 'l' => Some(14), ';' => Some(16),
+            'o' => Some(13), 'p' => Some(15),
+            _ => None,
+        }
+    }
+
+    fn key_to_offset_a(key: char) -> Option<u8> {
+        match key {
+            'a' => Some(0), 's' => Some(2), 'd' => Some(3), 'f' => Some(5),
+            'g' => Some(7), 'h' => Some(8), 'j' => Some(10),
+            'w' => Some(1), 'e' => Some(4), 't' => Some(6), 'y' => Some(9), 'u' => Some(11),
+            'k' => Some(12), 'l' => Some(14), ';' => Some(15),
+            'o' => Some(13), 'p' => Some(16),
+            _ => None,
+        }
+    }
+
+    fn key_to_pitch(&self, key: char) -> Option<u8> {
+        let offset = match self.piano_layout {
+            PianoLayout::C => Self::key_to_offset_c(key),
+            PianoLayout::A => Self::key_to_offset_a(key),
+        };
+        offset.map(|off| {
+            let base = match self.piano_layout {
+                PianoLayout::C => (self.piano_octave as i16 + 1) * 12,
+                PianoLayout::A => (self.piano_octave as i16 + 1) * 12 - 3,
+            };
+            (base + off as i16).clamp(0, 127) as u8
+        })
     }
 }
 
@@ -223,14 +423,21 @@ fn adjust_param(param: &mut Param, increase: bool, fraction: f32) {
     }
 }
 
-fn render_slider(value: f32, min: f32, max: f32) -> String {
-    const W: usize = 20;
+fn zero_param(param: &mut Param) {
+    match &mut param.value {
+        ParamValue::Float(ref mut v) => *v = param.min,
+        ParamValue::Int(ref mut v) => *v = param.min as i32,
+        ParamValue::Bool(ref mut v) => *v = false,
+    }
+}
+
+fn render_slider(value: f32, min: f32, max: f32, width: usize) -> String {
     let normalized = (value - min) / (max - min);
-    let pos = (normalized * W as f32) as usize;
-    let pos = pos.min(W);
-    let mut s = String::with_capacity(W + 2);
+    let pos = (normalized * width as f32) as usize;
+    let pos = pos.min(width);
+    let mut s = String::with_capacity(width + 2);
     s.push('[');
-    for i in 0..W {
+    for i in 0..width {
         if i == pos { s.push('|'); }
         else if i < pos { s.push('='); }
         else { s.push('-'); }
@@ -245,33 +452,110 @@ impl Pane for StripEditPane {
     }
 
     fn handle_input(&mut self, event: InputEvent) -> Action {
+        // Handle Shift+Tab for prev_section (before other handlers)
+        if event.key == KeyCode::Tab && event.modifiers.shift {
+            let current = self.current_section();
+            let prev = match current {
+                Section::Source => Section::Envelope,
+                Section::Filter => Section::Source,
+                Section::Effects => Section::Filter,
+                Section::Lfo => Section::Effects,
+                Section::Envelope => Section::Lfo,
+            };
+            for i in 0..self.total_rows() {
+                if self.section_for_row(i) == prev {
+                    self.selected_row = i;
+                    break;
+                }
+            }
+            return Action::None;
+        }
+
+        // Piano mode
+        if self.piano_mode {
+            match event.key {
+                KeyCode::Char('/') => {
+                    match self.piano_layout {
+                        PianoLayout::C => self.piano_layout = PianoLayout::A,
+                        PianoLayout::A => self.piano_mode = false,
+                    }
+                    return Action::None;
+                }
+                KeyCode::Char('[') => {
+                    if self.piano_octave > -1 { self.piano_octave -= 1; }
+                    return Action::None;
+                }
+                KeyCode::Char(']') => {
+                    if self.piano_octave < 9 { self.piano_octave += 1; }
+                    return Action::None;
+                }
+                KeyCode::Up => {
+                    if self.selected_row > 0 { self.selected_row -= 1; }
+                    return Action::None;
+                }
+                KeyCode::Down => {
+                    let total = self.total_rows();
+                    if self.selected_row + 1 < total { self.selected_row += 1; }
+                    return Action::None;
+                }
+                KeyCode::Left => {
+                    self.adjust_value(false, false);
+                    return self.emit_update();
+                }
+                KeyCode::Right => {
+                    self.adjust_value(true, false);
+                    return self.emit_update();
+                }
+                KeyCode::Escape => {
+                    return self.emit_update();
+                }
+                KeyCode::Char('\\') => {
+                    self.zero_current_param();
+                    return self.emit_update();
+                }
+                KeyCode::Char('|') => {
+                    self.zero_current_section();
+                    return self.emit_update();
+                }
+                KeyCode::Char(c) => {
+                    if let Some(pitch) = self.key_to_pitch(c) {
+                        let velocity = if event.modifiers.shift { 127 } else { 100 };
+                        return Action::StripPlayNote(pitch, velocity);
+                    }
+                    return Action::None;
+                }
+                _ => return Action::None,
+            }
+        }
+
+        // Text editing mode
         if self.editing {
             match event.key {
                 KeyCode::Enter => {
                     let text = self.edit_input.value().to_string();
-                    // Apply text edit based on tab/row
-                    match self.tab {
-                        Tab::Source => {
-                            if let Some(param) = self.source_params.get_mut(self.selected_row) {
+                    let (section, local_idx) = self.row_info(self.selected_row);
+                    match section {
+                        Section::Source => {
+                            if let Some(param) = self.source_params.get_mut(local_idx) {
                                 if let Ok(v) = text.parse::<f32>() {
                                     param.value = ParamValue::Float(v.clamp(param.min, param.max));
                                 }
                             }
                         }
-                        Tab::Filter => {
+                        Section::Filter => {
                             if let Some(ref mut f) = self.filter {
-                                match self.selected_row {
+                                match local_idx {
                                     1 => if let Ok(v) = text.parse::<f32>() { f.cutoff.value = v.clamp(f.cutoff.min, f.cutoff.max); },
                                     2 => if let Ok(v) = text.parse::<f32>() { f.resonance.value = v.clamp(f.resonance.min, f.resonance.max); },
                                     _ => {}
                                 }
                             }
                         }
-                        Tab::Envelope => {
+                        Section::Envelope => {
                             if let Ok(v) = text.parse::<f32>() {
-                                let max = if self.selected_row == 2 { 1.0 } else { 5.0 };
+                                let max = if local_idx == 2 { 1.0 } else { 5.0 };
                                 let val = v.clamp(0.0, max);
-                                match self.selected_row {
+                                match local_idx {
                                     0 => self.amp_envelope.attack = val,
                                     1 => self.amp_envelope.decay = val,
                                     2 => self.amp_envelope.sustain = val,
@@ -302,20 +586,20 @@ impl Pane for StripEditPane {
             Some("done") => {
                 return self.emit_update();
             }
-            Some("next_tab") => {
-                self.tab = self.tab.next();
-                self.selected_row = 0;
+            Some("piano_mode") => {
+                self.piano_mode = true;
+                self.piano_layout = PianoLayout::C;
             }
             Some("next") => {
-                let count = self.row_count();
-                if count > 0 {
-                    self.selected_row = (self.selected_row + 1) % count;
+                let total = self.total_rows();
+                if total > 0 {
+                    self.selected_row = (self.selected_row + 1) % total;
                 }
             }
             Some("prev") => {
-                let count = self.row_count();
-                if count > 0 {
-                    self.selected_row = if self.selected_row == 0 { count - 1 } else { self.selected_row - 1 };
+                let total = self.total_rows();
+                if total > 0 {
+                    self.selected_row = if self.selected_row == 0 { total - 1 } else { self.selected_row - 1 };
                 }
             }
             Some("increase") => {
@@ -345,7 +629,6 @@ impl Pane for StripEditPane {
                 } else {
                     self.filter = Some(FilterConfig::new(FilterType::Lpf));
                 }
-                self.selected_row = 0;
                 return self.emit_update();
             }
             Some("cycle_filter_type") => {
@@ -359,27 +642,23 @@ impl Pane for StripEditPane {
                 }
             }
             Some("add_effect") => {
-                if self.tab == Tab::Effects {
-                    // Cycle through available effect types
-                    let next_type = if self.effects.is_empty() {
-                        EffectType::Delay
-                    } else {
-                        match self.effects.last().unwrap().effect_type {
-                            EffectType::Delay => EffectType::Reverb,
-                            EffectType::Reverb => EffectType::Delay,
-                        }
-                    };
-                    self.effects.push(EffectSlot::new(next_type));
-                    return self.emit_update();
-                }
+                let next_type = if self.effects.is_empty() {
+                    EffectType::Delay
+                } else {
+                    match self.effects.last().unwrap().effect_type {
+                        EffectType::Delay => EffectType::Reverb,
+                        EffectType::Reverb => EffectType::Gate,
+                        EffectType::Gate => EffectType::Delay,
+                    }
+                };
+                self.effects.push(EffectSlot::new(next_type));
+                return self.emit_update();
             }
             Some("remove_effect") => {
-                if self.tab == Tab::Effects && !self.effects.is_empty() {
-                    let idx = self.selected_row.min(self.effects.len() - 1);
+                let (section, local_idx) = self.row_info(self.selected_row);
+                if section == Section::Effects && !self.effects.is_empty() {
+                    let idx = local_idx.min(self.effects.len() - 1);
                     self.effects.remove(idx);
-                    if self.selected_row > 0 && self.selected_row >= self.effects.len() {
-                        self.selected_row = self.effects.len().saturating_sub(1);
-                    }
                     return self.emit_update();
                 }
             }
@@ -390,6 +669,60 @@ impl Pane for StripEditPane {
             Some("toggle_track") => {
                 self.has_track = !self.has_track;
                 return self.emit_update();
+            }
+            Some("zero_param") => {
+                self.zero_current_param();
+                return self.emit_update();
+            }
+            Some("zero_section") => {
+                self.zero_current_section();
+                return self.emit_update();
+            }
+            Some("toggle_lfo") => {
+                self.lfo.enabled = !self.lfo.enabled;
+                return self.emit_update();
+            }
+            Some("cycle_lfo_shape") => {
+                self.lfo.shape = self.lfo.shape.next();
+                return self.emit_update();
+            }
+            Some("cycle_lfo_target") => {
+                self.lfo.target = self.lfo.target.next();
+                return self.emit_update();
+            }
+            Some("next_section") => {
+                // Jump to first row of next section
+                let current = self.current_section();
+                let next = match current {
+                    Section::Source => Section::Filter,
+                    Section::Filter => Section::Effects,
+                    Section::Effects => Section::Lfo,
+                    Section::Lfo => Section::Envelope,
+                    Section::Envelope => Section::Source,
+                };
+                for i in 0..self.total_rows() {
+                    if self.section_for_row(i) == next {
+                        self.selected_row = i;
+                        break;
+                    }
+                }
+            }
+            Some("prev_section") => {
+                // Jump to first row of previous section
+                let current = self.current_section();
+                let prev = match current {
+                    Section::Source => Section::Envelope,
+                    Section::Filter => Section::Source,
+                    Section::Effects => Section::Filter,
+                    Section::Lfo => Section::Effects,
+                    Section::Envelope => Section::Lfo,
+                };
+                for i in 0..self.total_rows() {
+                    if self.section_for_row(i) == prev {
+                        self.selected_row = i;
+                        break;
+                    }
+                }
             }
             _ => {}
         }
@@ -407,196 +740,254 @@ impl Pane for StripEditPane {
         g.draw_box(rect, Some(&title));
 
         let content_x = rect.x + 2;
-        let content_y = rect.y + 2;
+        let mut y = rect.y + 2;
 
-        // Tab bar
-        let mut tab_x = content_x;
-        for tab in Tab::all() {
-            let is_active = *tab == self.tab;
-            if is_active {
-                g.set_style(Style::new().fg(Color::ORANGE).bold());
+        // Mode indicators in header
+        let mode_x = rect.x + rect.width - 18;
+        g.set_style(Style::new().fg(if self.polyphonic { Color::LIME } else { Color::DARK_GRAY }));
+        g.put_str(mode_x, rect.y, if self.polyphonic { " POLY " } else { " MONO " });
+        g.set_style(Style::new().fg(if self.has_track { Color::PINK } else { Color::DARK_GRAY }));
+        g.put_str(mode_x + 7, rect.y, if self.has_track { " TRK " } else { " --- " });
+
+        // Piano mode indicator
+        if self.piano_mode {
+            g.set_style(Style::new().fg(Color::BLACK).bg(Color::PINK));
+            let layout_char = match self.piano_layout { PianoLayout::C => 'C', PianoLayout::A => 'A' };
+            let piano_str = format!(" PIANO {}{} ", layout_char, self.piano_octave);
+            g.put_str(rect.x + 1, rect.y, &piano_str);
+        }
+
+        let mut global_row = 0;
+
+        // === SOURCE SECTION ===
+        g.set_style(Style::new().fg(Color::CYAN).bold());
+        g.put_str(content_x, y, &format!("SOURCE: {}", self.source.name()));
+        y += 1;
+
+        if self.source_params.is_empty() {
+            let is_sel = self.selected_row == global_row;
+            if is_sel {
+                g.set_style(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG));
             } else {
                 g.set_style(Style::new().fg(Color::DARK_GRAY));
             }
-            let label = format!(" {} ", tab.name());
-            g.put_str(tab_x, content_y, &label);
-            tab_x += label.len() as u16 + 1;
+            g.put_str(content_x + 2, y, "(no parameters)");
+            global_row += 1;
+        } else {
+            for param in &self.source_params {
+                let is_sel = self.selected_row == global_row;
+                render_param_row(g, content_x, y, param, is_sel, self.editing && is_sel, &self.edit_input);
+                y += 1;
+                global_row += 1;
+            }
+        }
+        y += 1;
+
+        // === FILTER SECTION ===
+        let filter_label = if let Some(ref f) = self.filter {
+            format!("FILTER: {}  (f: off, t: cycle)", f.filter_type.name())
+        } else {
+            "FILTER: OFF  (f: enable)".to_string()
+        };
+        g.set_style(Style::new().fg(Color::FILTER_COLOR).bold());
+        g.put_str(content_x, y, &filter_label);
+        y += 1;
+
+        if let Some(ref f) = self.filter {
+            // Type row
+            {
+                let is_sel = self.selected_row == global_row;
+                if is_sel {
+                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
+                    g.put_str(content_x, y, ">");
+                    g.set_style(Style::new().fg(Color::FILTER_COLOR).bg(Color::SELECTION_BG));
+                } else {
+                    g.set_style(Style::new().fg(Color::DARK_GRAY));
+                    g.put_str(content_x, y, " ");
+                    g.set_style(Style::new().fg(Color::FILTER_COLOR));
+                }
+                g.put_str(content_x + 2, y, &format!("{:12}  {}", "Type", f.filter_type.name()));
+                y += 1;
+                global_row += 1;
+            }
+            // Cutoff row
+            {
+                let is_sel = self.selected_row == global_row;
+                render_value_row(g, content_x, y, "Cutoff", f.cutoff.value, f.cutoff.min, f.cutoff.max, is_sel, self.editing && is_sel, &self.edit_input);
+                y += 1;
+                global_row += 1;
+            }
+            // Resonance row
+            {
+                let is_sel = self.selected_row == global_row;
+                render_value_row(g, content_x, y, "Resonance", f.resonance.value, f.resonance.min, f.resonance.max, is_sel, self.editing && is_sel, &self.edit_input);
+                y += 1;
+                global_row += 1;
+            }
+        } else {
+            let is_sel = self.selected_row == global_row;
+            if is_sel {
+                g.set_style(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
+            }
+            g.put_str(content_x + 2, y, "(disabled)");
+            y += 1;
+            global_row += 1;
+        }
+        y += 1;
+
+        // === EFFECTS SECTION ===
+        g.set_style(Style::new().fg(Color::FX_COLOR).bold());
+        g.put_str(content_x, y, "EFFECTS  (a: add, d: remove)");
+        y += 1;
+
+        if self.effects.is_empty() {
+            let is_sel = self.selected_row == global_row;
+            if is_sel {
+                g.set_style(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
+            }
+            g.put_str(content_x + 2, y, "(no effects)");
+            global_row += 1;
+        } else {
+            for effect in &self.effects {
+                let is_sel = self.selected_row == global_row;
+                if is_sel {
+                    g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
+                    g.put_str(content_x, y, ">");
+                    g.set_style(Style::new().fg(Color::FX_COLOR).bg(Color::SELECTION_BG));
+                } else {
+                    g.set_style(Style::new().fg(Color::DARK_GRAY));
+                    g.put_str(content_x, y, " ");
+                    g.set_style(Style::new().fg(Color::FX_COLOR));
+                }
+                let enabled_str = if effect.enabled { "ON " } else { "OFF" };
+                g.put_str(content_x + 2, y, &format!("{:10} [{}]", effect.effect_type.name(), enabled_str));
+
+                // Show first few params inline
+                let params_str: String = effect.params.iter().take(3).map(|p| {
+                    match &p.value {
+                        ParamValue::Float(v) => format!("{}:{:.2}", p.name, v),
+                        ParamValue::Int(v) => format!("{}:{}", p.name, v),
+                        ParamValue::Bool(v) => format!("{}:{}", p.name, v),
+                    }
+                }).collect::<Vec<_>>().join("  ");
+                if is_sel {
+                    g.set_style(Style::new().fg(Color::SKY_BLUE).bg(Color::SELECTION_BG));
+                } else {
+                    g.set_style(Style::new().fg(Color::DARK_GRAY));
+                }
+                g.put_str(content_x + 20, y, &params_str);
+
+                y += 1;
+                global_row += 1;
+            }
+        }
+        y += 1;
+
+        // === LFO SECTION ===
+        let lfo_status = if self.lfo.enabled { "ON" } else { "OFF" };
+        g.set_style(Style::new().fg(Color::PINK).bold());
+        g.put_str(content_x, y, &format!("LFO [{}]  (l: toggle, s: shape, m: target)", lfo_status));
+        y += 1;
+
+        // Row 0: Enabled
+        {
+            let is_sel = self.selected_row == global_row;
+            if is_sel {
+                g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
+                g.put_str(content_x, y, ">");
+                g.set_style(Style::new().fg(Color::PINK).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
+                g.put_str(content_x, y, " ");
+                g.set_style(Style::new().fg(Color::PINK));
+            }
+            g.put_str(content_x + 2, y, &format!("{:12}  {}", "Enabled", if self.lfo.enabled { "ON" } else { "OFF" }));
+            y += 1;
+            global_row += 1;
         }
 
-        // Mode indicators
-        let mode_x = rect.x + rect.width - 20;
-        g.set_style(Style::new().fg(if self.polyphonic { Color::LIME } else { Color::DARK_GRAY }));
-        g.put_str(mode_x, content_y, if self.polyphonic { "POLY" } else { "MONO" });
-        g.set_style(Style::new().fg(if self.has_track { Color::PINK } else { Color::DARK_GRAY }));
-        g.put_str(mode_x + 6, content_y, if self.has_track { "TRK" } else { "---" });
-
-        let list_y = content_y + 2;
-
-        match self.tab {
-            Tab::Source => {
-                g.set_style(Style::new().fg(Color::CYAN).bold());
-                g.put_str(content_x, list_y - 1, &format!("Oscillator: {}", self.source.name()));
-
-                for (i, param) in self.source_params.iter().enumerate() {
-                    let y = list_y + i as u16 + 1;
-                    let is_selected = i == self.selected_row;
-                    render_param_row(g, content_x, y, rect.x + rect.width, param, is_selected, self.editing && is_selected, &self.edit_input);
-                }
+        // Row 1: Rate
+        {
+            let is_sel = self.selected_row == global_row;
+            render_value_row(g, content_x, y, "Rate", self.lfo.rate, 0.1, 32.0, is_sel, self.editing && is_sel, &self.edit_input);
+            // Add Hz label
+            if is_sel {
+                g.set_style(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
             }
-            Tab::Filter => {
-                if let Some(ref f) = self.filter {
-                    g.set_style(Style::new().fg(Color::FILTER_COLOR).bold());
-                    g.put_str(content_x, list_y - 1, &format!("Filter: {}", f.filter_type.name()));
+            g.put_str(content_x + 44, y, "Hz");
+            y += 1;
+            global_row += 1;
+        }
 
-                    // Row 0: type
-                    {
-                        let y = list_y + 1;
-                        let is_selected = self.selected_row == 0;
-                        if is_selected {
-                            g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
-                            g.put_str(content_x, y, ">");
-                        } else {
-                            g.put_str(content_x, y, " ");
-                        }
-                        if is_selected {
-                            g.set_style(Style::new().fg(Color::FILTER_COLOR).bg(Color::SELECTION_BG));
-                        } else {
-                            g.set_style(Style::new().fg(Color::FILTER_COLOR));
-                        }
-                        g.put_str(content_x + 2, y, &format!("{:12}  {}", "Type", f.filter_type.name()));
-                    }
+        // Row 2: Depth
+        {
+            let is_sel = self.selected_row == global_row;
+            render_value_row(g, content_x, y, "Depth", self.lfo.depth, 0.0, 1.0, is_sel, self.editing && is_sel, &self.edit_input);
+            y += 1;
+            global_row += 1;
+        }
 
-                    // Row 1: cutoff
-                    {
-                        let y = list_y + 2;
-                        let is_selected = self.selected_row == 1;
-                        render_modulated_row(g, content_x, y, rect.x + rect.width, "Cutoff", f.cutoff.value, f.cutoff.min, f.cutoff.max, is_selected, self.editing && is_selected, &self.edit_input);
-                    }
-
-                    // Row 2: resonance
-                    {
-                        let y = list_y + 3;
-                        let is_selected = self.selected_row == 2;
-                        render_modulated_row(g, content_x, y, rect.x + rect.width, "Resonance", f.resonance.value, f.resonance.min, f.resonance.max, is_selected, self.editing && is_selected, &self.edit_input);
-                    }
-                } else {
-                    g.set_style(Style::new().fg(Color::DARK_GRAY));
-                    g.put_str(content_x, list_y, "Filter: OFF  (press 'f' to enable)");
-                }
+        // Row 3: Shape and Target
+        {
+            let is_sel = self.selected_row == global_row;
+            if is_sel {
+                g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
+                g.put_str(content_x, y, ">");
+                g.set_style(Style::new().fg(Color::PINK).bg(Color::SELECTION_BG));
+            } else {
+                g.set_style(Style::new().fg(Color::DARK_GRAY));
+                g.put_str(content_x, y, " ");
+                g.set_style(Style::new().fg(Color::PINK));
             }
-            Tab::Effects => {
-                g.set_style(Style::new().fg(Color::FX_COLOR).bold());
-                g.put_str(content_x, list_y - 1, "Effects Chain:");
+            g.put_str(content_x + 2, y, &format!("{:12}  {} → {}", "Shape/Dest", self.lfo.shape.name(), self.lfo.target.name()));
+            y += 1;
+            global_row += 1;
+        }
+        y += 1;
 
-                if self.effects.is_empty() {
-                    g.set_style(Style::new().fg(Color::DARK_GRAY));
-                    g.put_str(content_x + 2, list_y + 1, "(no effects — press 'a' to add)");
-                } else {
-                    for (i, effect) in self.effects.iter().enumerate() {
-                        let y = list_y + 1 + i as u16;
-                        let is_selected = i == self.selected_row;
+        // === ENVELOPE SECTION ===
+        g.set_style(Style::new().fg(Color::ENV_COLOR).bold());
+        g.put_str(content_x, y, "ENVELOPE (ADSR)  (p: poly, r: track)");
+        y += 1;
 
-                        if is_selected {
-                            g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
-                            g.put_str(content_x, y, ">");
-                        } else {
-                            g.set_style(Style::new().fg(Color::DARK_GRAY));
-                            g.put_str(content_x, y, " ");
-                        }
+        let env_labels = ["Attack", "Decay", "Sustain", "Release"];
+        let env_values = [
+            self.amp_envelope.attack,
+            self.amp_envelope.decay,
+            self.amp_envelope.sustain,
+            self.amp_envelope.release,
+        ];
+        let env_maxes = [5.0, 5.0, 1.0, 5.0];
 
-                        let enabled_str = if effect.enabled { "ON " } else { "OFF" };
-                        if is_selected {
-                            g.set_style(Style::new().fg(Color::FX_COLOR).bg(Color::SELECTION_BG));
-                        } else {
-                            g.set_style(Style::new().fg(Color::FX_COLOR));
-                        }
-                        g.put_str(content_x + 2, y, &format!("{:10} [{}]", effect.effect_type.name(), enabled_str));
-
-                        // Show params inline
-                        let params_str: String = effect.params.iter().take(3).map(|p| {
-                            match &p.value {
-                                ParamValue::Float(v) => format!("{}:{:.1}", p.name, v),
-                                ParamValue::Int(v) => format!("{}:{}", p.name, v),
-                                ParamValue::Bool(v) => format!("{}:{}", p.name, v),
-                            }
-                        }).collect::<Vec<_>>().join("  ");
-                        if is_selected {
-                            g.set_style(Style::new().fg(Color::SKY_BLUE).bg(Color::SELECTION_BG));
-                        } else {
-                            g.set_style(Style::new().fg(Color::DARK_GRAY));
-                        }
-                        g.put_str(content_x + 20, y, &params_str);
-                    }
-                }
-            }
-            Tab::Envelope => {
-                g.set_style(Style::new().fg(Color::ENV_COLOR).bold());
-                g.put_str(content_x, list_y - 1, "Amplitude Envelope (ADSR):");
-
-                let labels = ["Attack", "Decay", "Sustain", "Release"];
-                let values = [
-                    self.amp_envelope.attack,
-                    self.amp_envelope.decay,
-                    self.amp_envelope.sustain,
-                    self.amp_envelope.release,
-                ];
-                let maxes = [5.0, 5.0, 1.0, 5.0];
-
-                for (i, (label, (val, max))) in labels.iter().zip(values.iter().zip(maxes.iter())).enumerate() {
-                    let y = list_y + 1 + i as u16;
-                    let is_selected = i == self.selected_row;
-
-                    if is_selected {
-                        g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
-                        g.put_str(content_x, y, ">");
-                    } else {
-                        g.set_style(Style::new().fg(Color::DARK_GRAY));
-                        g.put_str(content_x, y, " ");
-                    }
-
-                    if is_selected {
-                        g.set_style(Style::new().fg(Color::CYAN).bg(Color::SELECTION_BG));
-                    } else {
-                        g.set_style(Style::new().fg(Color::CYAN));
-                    }
-                    g.put_str(content_x + 2, y, &format!("{:12}", label));
-
-                    let slider = render_slider(*val, 0.0, *max);
-                    if is_selected {
-                        g.set_style(Style::new().fg(Color::LIME).bg(Color::SELECTION_BG));
-                    } else {
-                        g.set_style(Style::new().fg(Color::LIME));
-                    }
-                    g.put_str(content_x + 15, y, &slider);
-
-                    if is_selected && self.editing {
-                        self.edit_input.render(g, content_x + 38, y, 12);
-                    } else {
-                        if is_selected {
-                            g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
-                        } else {
-                            g.set_style(Style::new().fg(Color::WHITE));
-                        }
-                        g.put_str(content_x + 38, y, &format!("{:.3}", val));
-                    }
-                }
-            }
+        for (label, (val, max)) in env_labels.iter().zip(env_values.iter().zip(env_maxes.iter())) {
+            let is_sel = self.selected_row == global_row;
+            render_value_row(g, content_x, y, label, *val, 0.0, *max, is_sel, self.editing && is_sel, &self.edit_input);
+            y += 1;
+            global_row += 1;
         }
 
         // Help text
         let help_y = rect.y + rect.height - 2;
         g.set_style(Style::new().fg(Color::DARK_GRAY));
-        let help_text = match self.tab {
-            Tab::Source => "←/→: adjust | ↑/↓: select | Enter: type | Tab: next tab | Esc: done",
-            Tab::Filter => "f: toggle | t: cycle type | ←/→: adjust | Tab: next tab | Esc: done",
-            Tab::Effects => "a: add | d: remove | ←/→: adjust | Tab: next tab | Esc: done",
-            Tab::Envelope => "←/→: adjust | Enter: type value | p: poly | Tab: next tab | Esc: done",
-        };
-        g.put_str(content_x, help_y, help_text);
+        if self.piano_mode {
+            g.put_str(content_x, help_y, "Play keys | [/]: octave | ←/→: adjust | \\: zero | /: cycle/exit");
+        } else {
+            g.put_str(content_x, help_y, "↑/↓: move | Tab/S-Tab: section | ←/→: adjust | \\: zero | /: piano | Esc: done");
+        }
     }
 
     fn keymap(&self) -> &Keymap {
         &self.keymap
+    }
+
+    fn wants_exclusive_input(&self) -> bool {
+        self.editing || self.piano_mode
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -612,7 +1003,7 @@ impl Default for StripEditPane {
 
 fn render_param_row(
     g: &mut dyn Graphics,
-    x: u16, y: u16, right_edge: u16,
+    x: u16, y: u16,
     param: &Param,
     is_selected: bool,
     is_editing: bool,
@@ -638,7 +1029,7 @@ fn render_param_row(
         ParamValue::Int(v) => (*v as f32, param.min, param.max),
         ParamValue::Bool(v) => (if *v { 1.0 } else { 0.0 }, 0.0, 1.0),
     };
-    let slider = render_slider(val, min, max);
+    let slider = render_slider(val, min, max, 16);
     if is_selected {
         g.set_style(Style::new().fg(Color::LIME).bg(Color::SELECTION_BG));
     } else {
@@ -647,10 +1038,10 @@ fn render_param_row(
     g.put_str(x + 15, y, &slider);
 
     if is_editing {
-        edit_input.render(g, x + 38, y, 12);
+        edit_input.render(g, x + 34, y, 10);
     } else {
         let value_str = match &param.value {
-            ParamValue::Float(v) => format!("{:.1}", v),
+            ParamValue::Float(v) => format!("{:.2}", v),
             ParamValue::Int(v) => format!("{}", v),
             ParamValue::Bool(v) => format!("{}", v),
         };
@@ -659,21 +1050,13 @@ fn render_param_row(
         } else {
             g.set_style(Style::new().fg(Color::WHITE));
         }
-        g.put_str(x + 38, y, &format!("{:10}", value_str));
-    }
-
-    if is_selected {
-        g.set_style(Style::new().bg(Color::SELECTION_BG));
-        let line_end = x + 50;
-        for cx in line_end..(right_edge - 2) {
-            g.put_char(cx, y, ' ');
-        }
+        g.put_str(x + 34, y, &format!("{:10}", value_str));
     }
 }
 
-fn render_modulated_row(
+fn render_value_row(
     g: &mut dyn Graphics,
-    x: u16, y: u16, right_edge: u16,
+    x: u16, y: u16,
     name: &str,
     value: f32, min: f32, max: f32,
     is_selected: bool,
@@ -695,7 +1078,7 @@ fn render_modulated_row(
     }
     g.put_str(x + 2, y, &format!("{:12}", name));
 
-    let slider = render_slider(value, min, max);
+    let slider = render_slider(value, min, max, 16);
     if is_selected {
         g.set_style(Style::new().fg(Color::LIME).bg(Color::SELECTION_BG));
     } else {
@@ -704,21 +1087,13 @@ fn render_modulated_row(
     g.put_str(x + 15, y, &slider);
 
     if is_editing {
-        edit_input.render(g, x + 38, y, 12);
+        edit_input.render(g, x + 34, y, 10);
     } else {
         if is_selected {
             g.set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
         } else {
             g.set_style(Style::new().fg(Color::WHITE));
         }
-        g.put_str(x + 38, y, &format!("{:.1}", value));
-    }
-
-    if is_selected {
-        g.set_style(Style::new().bg(Color::SELECTION_BG));
-        let line_end = x + 50;
-        for cx in line_end..(right_edge - 2) {
-            g.put_char(cx, y, ' ');
-        }
+        g.put_str(x + 34, y, &format!("{:.2}", value));
     }
 }

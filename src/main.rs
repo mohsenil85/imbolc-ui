@@ -3,6 +3,7 @@
 mod audio;
 mod core;
 mod dispatch;
+mod midi;
 mod panes;
 mod playback;
 mod setup;
@@ -14,7 +15,7 @@ use std::time::{Duration, Instant};
 use audio::AudioEngine;
 use panes::{AddPane, FrameEditPane, HelpPane, HomePane, MixerPane, PianoRollPane, SequencerPane, ServerPane, StripEditPane, StripPane};
 use ui::{
-    Action, Frame, InputSource, KeyCode, PaneManager, RatatuiBackend,
+    Action, Frame, InputSource, KeyCode, PaneManager, RatatuiBackend, ViewState,
 };
 
 fn main() -> std::io::Result<()> {
@@ -53,8 +54,60 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 break;
             }
 
-            // Global number-key navigation
+            // Global Ctrl-S to save
+            if event.key == KeyCode::Char('s') && event.modifiers.ctrl {
+                dispatch::dispatch_action(&Action::SaveRack, &mut panes, &mut audio_engine, &mut app_frame, &mut active_notes);
+                continue;
+            }
+
+            // Global Ctrl-L to load
+            if event.key == KeyCode::Char('l') && event.modifiers.ctrl {
+                dispatch::dispatch_action(&Action::LoadRack, &mut panes, &mut audio_engine, &mut app_frame, &mut active_notes);
+                continue;
+            }
+
+            // Global '.' to toggle master mute (works even in piano mode)
+            if event.key == KeyCode::Char('.') {
+                if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                    strip_pane.state_mut().master_mute = !strip_pane.state().master_mute;
+                }
+                if audio_engine.is_running() {
+                    if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                        let _ = audio_engine.rebuild_strip_routing(strip_pane.state());
+                    }
+                }
+                continue;
+            }
+
+            // Global number-key navigation (skip when pane wants exclusive input)
+            if !panes.active().wants_exclusive_input() {
             if let KeyCode::Char(c) = event.key {
+                // Helper to capture current view state
+                let capture_view = |panes: &mut PaneManager| -> ViewState {
+                    let pane_id = panes.active().id().to_string();
+                    let strip_selection = panes.get_pane_mut::<StripPane>("strip")
+                        .map(|sp| sp.state().selected)
+                        .unwrap_or(None);
+                    let edit_tab = panes.get_pane_mut::<StripEditPane>("strip_edit")
+                        .map(|ep| ep.tab_index())
+                        .unwrap_or(0);
+                    ViewState { pane_id, strip_selection, edit_tab }
+                };
+
+                // Helper to restore view state
+                let restore_view = |panes: &mut PaneManager, view: &ViewState| {
+                    // Restore strip selection first
+                    if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
+                        strip_pane.state_mut().selected = view.strip_selection;
+                    }
+                    // Restore edit tab
+                    if let Some(edit_pane) = panes.get_pane_mut::<StripEditPane>("strip_edit") {
+                        edit_pane.set_tab_index(view.edit_tab);
+                    }
+                    // Switch to the pane
+                    panes.switch_to(&view.pane_id);
+                };
+
                 let target = match c {
                     '1' => Some("strip"),
                     '2' => Some("piano_roll"),
@@ -62,17 +115,22 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     '4' => Some("mixer"),
                     '5' => Some("server"),
                     '`' => {
-                        // Sync piano roll state into session before editing
-                        if let Some(strip_pane) = panes.get_pane_mut::<StripPane>("strip") {
-                            let pr = &strip_pane.state().piano_roll;
-                            app_frame.session.time_signature = pr.time_signature;
-                            app_frame.session.bpm = pr.bpm as u16;
+                        // Back navigation
+                        if let Some(back) = app_frame.back_view.take() {
+                            let current = capture_view(&mut panes);
+                            app_frame.forward_view = Some(current);
+                            restore_view(&mut panes, &back);
                         }
-                        let session = app_frame.session.clone();
-                        if let Some(fe) = panes.get_pane_mut::<FrameEditPane>("frame_edit") {
-                            fe.set_session(session);
+                        continue;
+                    }
+                    '~' => {
+                        // Forward navigation
+                        if let Some(forward) = app_frame.forward_view.take() {
+                            let current = capture_view(&mut panes);
+                            app_frame.back_view = Some(current);
+                            restore_view(&mut panes, &forward);
                         }
-                        Some("frame_edit")
+                        continue;
                     }
                     '?' => {
                         if panes.active().id() != "help" {
@@ -99,9 +157,14 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     _ => None,
                 };
                 if let Some(id) = target {
+                    // Save current view before switching
+                    let current = capture_view(&mut panes);
+                    app_frame.back_view = Some(current);
+                    app_frame.forward_view = None;
                     panes.switch_to(id);
                     continue;
                 }
+            }
             }
 
             let action = panes.handle_input(event);
@@ -156,12 +219,32 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 }
             }
         } else if active_id == "piano_roll" {
-            let pr_state = panes
-                .get_pane_mut::<StripPane>("strip")
-                .map(|sp| sp.state().piano_roll.clone());
-            if let Some(pr) = pr_state {
+            // Get state and current track info for piano roll rendering
+            let (strip_state, pr_state, current_track) = {
+                let strip_pane = panes.get_pane_mut::<StripPane>("strip");
+                let state = strip_pane.map(|sp| sp.state().clone());
+                let pr = state.as_ref().map(|s| s.piano_roll.clone());
+                let track_idx = panes
+                    .get_pane_mut::<PianoRollPane>("piano_roll")
+                    .map(|p| p.current_track())
+                    .unwrap_or(0);
+                (state, pr, track_idx)
+            };
+
+            if let (Some(ss), Some(pr)) = (strip_state, pr_state) {
+                // Get waveform data if current track is an AudioIn strip
+                let waveform: Option<Vec<f32>> = pr.track_at(current_track)
+                    .and_then(|track| ss.strip(track.module_id))
+                    .filter(|strip| strip.source.is_audio_input())
+                    .map(|strip| audio_engine.audio_in_waveform(strip.id));
+
                 if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
-                    pr_pane.render_with_state(&mut frame, &pr);
+                    pr_pane.render_with_full_state(
+                        &mut frame,
+                        &pr,
+                        &ss,
+                        waveform.as_deref(),
+                    );
                 }
             }
         } else {

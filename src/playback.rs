@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::audio::AudioEngine;
 use crate::panes::StripPane;
+use crate::state::StripState;
 use crate::ui::PaneManager;
 
 /// Advance the piano roll playhead and process note-on/off events.
@@ -15,6 +16,7 @@ pub fn tick_playback(
     let mut playback_data: Option<(
         Vec<(u32, u8, u8, u32, u32, bool)>, // note_ons: (strip_id, pitch, vel, duration, tick, poly)
         u32,                                  // old_playhead
+        u32,                                  // new_playhead
         u32,                                  // tick_delta
         f64,                                  // secs_per_tick
     )> = None;
@@ -51,19 +53,20 @@ pub fn tick_playback(
                     }
                 }
 
-                playback_data = Some((note_ons, old_playhead, tick_delta, secs_per_tick));
+                playback_data = Some((note_ons, old_playhead, new_playhead, tick_delta, secs_per_tick));
             }
         }
     }
 
-    // Phase 2: send note-ons/offs
-    if let Some((note_ons, old_playhead, tick_delta, secs_per_tick)) = playback_data {
+    // Phase 2: send note-ons/offs and process automation
+    if let Some((note_ons, old_playhead, new_playhead, tick_delta, secs_per_tick)) = playback_data {
         if audio_engine.is_running() {
             let state_clone = panes
                 .get_pane_mut::<StripPane>("strip")
                 .map(|sp| sp.state().clone());
 
             if let Some(state) = state_clone {
+                // Process note-ons
                 for &(strip_id, pitch, velocity, duration, note_tick, polyphonic) in &note_ons {
                     let ticks_from_now = if note_tick >= old_playhead {
                         (note_tick - old_playhead) as f64
@@ -75,6 +78,9 @@ pub fn tick_playback(
                     let _ = audio_engine.spawn_voice(strip_id, pitch, vel_f, offset, polyphonic, &state);
                     active_notes.push((strip_id, pitch, duration));
                 }
+
+                // Process automation
+                process_automation(audio_engine, &state, new_playhead);
             }
         }
 
@@ -95,6 +101,22 @@ pub fn tick_playback(
                 let offset = *remaining as f64 * secs_per_tick;
                 let _ = audio_engine.release_voice(*strip_id, *pitch, offset);
             }
+        }
+    }
+}
+
+/// Process automation lanes and apply values at the current playhead
+fn process_automation(
+    audio_engine: &AudioEngine,
+    state: &StripState,
+    playhead: u32,
+) {
+    for lane in &state.automation.lanes {
+        if !lane.enabled {
+            continue;
+        }
+        if let Some(value) = lane.value_at(playhead) {
+            let _ = audio_engine.apply_automation(&lane.target, value, state);
         }
     }
 }

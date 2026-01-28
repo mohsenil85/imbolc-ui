@@ -103,6 +103,10 @@ pub enum Action {
     PianoRollCycleTimeSig,
     /// Piano roll: toggle polyphonic/monophonic mode for current track
     PianoRollTogglePolyMode,
+    /// Piano roll: play a note immediately from keyboard (pitch, velocity)
+    PianoRollPlayNote(u8, u8),
+    /// Strip: play a note on the selected strip (pitch, velocity)
+    StripPlayNote(u8, u8),
     /// Update session state (from frame edit pane)
     UpdateSession(SessionState),
 }
@@ -130,6 +134,11 @@ pub trait Pane {
     /// Handle an action dispatched from elsewhere (e.g., another pane)
     /// Returns true if the action was handled
     fn receive_action(&mut self, _action: &Action) -> bool {
+        false
+    }
+
+    /// Whether this pane is in an input mode that should suppress global keybindings
+    fn wants_exclusive_input(&self) -> bool {
         false
     }
 
