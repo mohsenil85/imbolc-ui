@@ -2,6 +2,7 @@ use std::any::Any;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::state::AppState;
 use crate::ui::{
     Action, Color, FileSelectAction, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style,
 };
@@ -139,7 +140,7 @@ impl Pane for FileBrowserPane {
         "file_browser"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         match self.keymap.lookup(&event) {
             Some("select") => {
                 if let Some(entry) = self.entries.get(self.selected) {
@@ -205,7 +206,7 @@ impl Pane for FileBrowserPane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
+    fn render(&self, g: &mut dyn Graphics, _state: &AppState) {
         let (width, height) = g.size();
         let box_width = 97;
         let box_height = 29;
@@ -341,7 +342,7 @@ impl Pane for FileBrowserPane {
         self
     }
 
-    fn on_enter(&mut self) {
+    fn on_enter(&mut self, _state: &AppState) {
         self.refresh_entries();
     }
 }

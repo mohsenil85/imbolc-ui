@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use crate::state::{
-    EffectSlot, EffectType, EnvConfig, FilterConfig, FilterType, LfoConfig, LfoShape, LfoTarget,
+    AppState, EffectSlot, EffectType, EnvConfig, FilterConfig, FilterType, LfoConfig, LfoShape, LfoTarget,
     OscType, Param, ParamValue, StripId, Strip,
 };
 use crate::ui::widgets::TextInput;
@@ -451,7 +451,7 @@ impl Pane for StripEditPane {
         "strip_edit"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         // Handle Shift+Tab for prev_section (before other handlers)
         if event.key == KeyCode::Tab && event.modifiers.shift {
             let current = self.current_section();
@@ -729,7 +729,7 @@ impl Pane for StripEditPane {
         Action::None
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
+    fn render(&self, g: &mut dyn Graphics, _state: &AppState) {
         let (width, height) = g.size();
         let box_width = 97;
         let box_height = 29;

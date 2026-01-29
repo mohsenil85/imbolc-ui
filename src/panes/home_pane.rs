@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use crate::state::AppState;
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 /// Menu item for the home screen
@@ -61,7 +62,7 @@ impl Pane for HomePane {
         "home"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         match self.keymap.lookup(&event) {
             Some("up") => {
                 if self.selected > 0 {
@@ -81,7 +82,7 @@ impl Pane for HomePane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
+    fn render(&self, g: &mut dyn Graphics, _state: &AppState) {
         let (width, height) = g.size();
         let box_width = 50;
         let box_height = 12;

@@ -147,6 +147,24 @@ cargo test --bin tuidaw  # unit tests (55 tests)
 cargo test         # all tests including e2e (e2e may fail if tmux not configured)
 ```
 
+## LSP Integration (CCLSP)
+
+This project has CCLSP configured as an MCP server, providing rust-analyzer LSP access to Claude Code. Config lives in `cclsp.json` (LSP server settings) and `.mcp.json` (MCP registration).
+
+Available tools:
+- `find_definition` — jump to where a symbol is defined
+- `find_references` — find all usages of a symbol across the workspace
+- `find_workspace_symbols` — search for symbols by name
+- `get_diagnostics` — get compiler errors/warnings for a file
+- `get_hover` — type info and docs for a symbol at a position
+- `rename_symbol` / `rename_symbol_strict` — rename a symbol across the codebase
+- `find_implementation` — find implementations of a trait/interface
+- `get_incoming_calls` / `get_outgoing_calls` — call hierarchy
+
+Prefer these tools over grep for navigating Rust code — they understand types, scopes, and cross-file references.
+
+Note: rust-analyzer needs time to index on first launch. Some tools may time out until indexing completes.
+
 ## Existing Docs
 
 - `docs/audio-routing.md` — bus model, insert vs send, node ordering, mixer architecture

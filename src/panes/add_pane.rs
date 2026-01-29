@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{CustomSynthDefRegistry, OscType};
+use crate::state::{AppState, CustomSynthDefRegistry, OscType};
 use crate::ui::{Action, Color, FileSelectAction, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 /// Options available in the Add Strip menu
@@ -251,7 +251,7 @@ impl Pane for AddPane {
         "add"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         match self.keymap.lookup(&event) {
             Some("confirm") => {
                 if let Some(option) = self.cached_options.get(self.selected) {
@@ -279,14 +279,16 @@ impl Pane for AddPane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
-        // Render without registry - shows static options only
-        // Main.rs should use render_with_registry instead
-        self.render_with_registry(g, &CustomSynthDefRegistry::new());
+    fn render(&self, g: &mut dyn Graphics, state: &AppState) {
+        self.render_with_registry(g, &state.strip.custom_synthdefs);
     }
 
     fn keymap(&self) -> &Keymap {
         &self.keymap
+    }
+
+    fn on_enter(&mut self, state: &AppState) {
+        self.update_options(&state.strip.custom_synthdefs);
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

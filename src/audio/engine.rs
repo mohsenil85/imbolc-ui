@@ -557,10 +557,13 @@ impl AudioEngine {
         // Sync group IDs with node IDs to avoid collisions in SuperCollider's shared ID space
         self.next_group_id = self.next_node_id;
 
-        // Allocate audio buses for each mixer bus
-        let bus_audio_base = 200;
+        // Allocate audio buses for each mixer bus through the bus allocator
         for bus in &state.buses {
-            self.bus_audio_buses.insert(bus.id, bus_audio_base + (bus.id as i32 - 1) * 2);
+            let bus_audio = self.bus_allocator.get_or_alloc_audio_bus(
+                u32::MAX - bus.id as u32,
+                "bus_out",
+            );
+            self.bus_audio_buses.insert(bus.id, bus_audio);
         }
 
         // Create send synths

@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use crate::state::piano_roll::PianoRollState;
-use crate::state::strip_state::StripState;
+use crate::state::AppState;
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 /// Waveform display characters (8 levels)
@@ -246,28 +246,6 @@ impl PianoRollPane {
         self.cursor_pitch = base_pitch;
     }
 
-    /// Render with external state, including optional waveform data for audio input strips
-    pub fn render_with_full_state(
-        &self,
-        g: &mut dyn Graphics,
-        piano_roll: &PianoRollState,
-        strip_state: &StripState,
-        waveform: Option<&[f32]>,
-    ) {
-        // Check if current track is an AudioIn strip
-        let current_strip_id = piano_roll.track_at(self.current_track).map(|t| t.module_id);
-        let is_audio_in = current_strip_id
-            .and_then(|id| strip_state.strip(id))
-            .map(|s| s.source.is_audio_input())
-            .unwrap_or(false);
-
-        if is_audio_in {
-            self.render_audio_input(g, piano_roll, waveform.unwrap_or(&[]));
-        } else {
-            self.render_notes(g, piano_roll);
-        }
-    }
-
     /// Render waveform for audio input tracks
     fn render_audio_input(&self, g: &mut dyn Graphics, piano_roll: &PianoRollState, waveform: &[f32]) {
         let (width, height) = g.size();
@@ -359,11 +337,6 @@ impl PianoRollPane {
         g.set_style(Style::new().fg(Color::GRAY));
         let status = format!("Samples: {}  Use < > to switch tracks", waveform_len);
         g.put_str(rect.x + 1, status_y, &status);
-    }
-
-    /// Render with external piano roll state (original method for backward compat)
-    pub fn render_with_state(&self, g: &mut dyn Graphics, piano_roll: &PianoRollState) {
-        self.render_notes(g, piano_roll);
     }
 
     /// Render notes grid (original rendering logic)
@@ -581,7 +554,7 @@ impl Pane for PianoRollPane {
         "piano_roll"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         // Handle shift+arrow for duration adjustment (before keymap, since keymap doesn't support shift)
         if event.modifiers.shift {
             match event.key {
@@ -709,10 +682,20 @@ impl Pane for PianoRollPane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
-        // Fallback render with empty state (actual rendering uses render_with_state)
-        let empty = PianoRollState::new();
-        self.render_with_state(g, &empty);
+    fn render(&self, g: &mut dyn Graphics, state: &AppState) {
+        // Check if current track is an AudioIn strip
+        let piano_roll = &state.strip.piano_roll;
+        let current_strip_id = piano_roll.track_at(self.current_track).map(|t| t.module_id);
+        let is_audio_in = current_strip_id
+            .and_then(|id| state.strip.strip(id))
+            .map(|s| s.source.is_audio_input())
+            .unwrap_or(false);
+
+        if is_audio_in {
+            self.render_audio_input(g, piano_roll, state.audio_in_waveform.as_deref().unwrap_or(&[]));
+        } else {
+            self.render_notes(g, piano_roll);
+        }
     }
 
     fn keymap(&self) -> &Keymap {

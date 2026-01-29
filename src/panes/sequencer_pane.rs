@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use crate::state::AppState;
 use crate::ui::{Action, Color, Graphics, InputEvent, Keymap, Pane, Rect, Style};
 
 pub struct SequencerPane {
@@ -26,14 +27,14 @@ impl Pane for SequencerPane {
         "sequencer"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         match self.keymap.lookup(&event) {
             Some("quit") => Action::Quit,
             _ => Action::None,
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
+    fn render(&self, g: &mut dyn Graphics, _state: &AppState) {
         let (width, height) = g.size();
         let rect = Rect::centered(width, height, 50, 10);
 

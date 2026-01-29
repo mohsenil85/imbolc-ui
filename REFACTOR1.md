@@ -247,47 +247,21 @@ Adding `source_node` enables sampler automation (bug 1.3). Adding
 `spawn_time` enables proper oldest-voice stealing instead of always
 removing the first match in the Vec.
 
-### Proposed: Configurable release cleanup
+### ~~Proposed: Configurable release cleanup~~ DONE
 
-Replace the hardcoded 5-second group free:
+Replaced the hardcoded 5-second group free with envelope-aware cleanup.
+`release_voice()` now takes `&StripState`, looks up the strip's
+`amp_envelope.release` time, and schedules cleanup at `offset_secs +
+release_time + 1.0`. The +1.0 second margin accounts for
+SuperCollider's envelope grain.
 
-```rust
-// engine.rs:959 (current)
-let cleanup_time = osc_time_from_now(offset_secs + 5.0);
-```
+### ~~Proposed: Mixer bus allocation through BusAllocator~~ DONE
 
-With envelope-aware cleanup:
-
-```rust
-let release_time = strip.amp_envelope.release;
-let cleanup_time = osc_time_from_now(offset_secs + release_time as f64 + 1.0);
-```
-
-The +1.0 second margin accounts for SuperCollider's envelope grain and
-ensures the synth has fully faded before being freed.
-
-### Proposed: Mixer bus allocation through BusAllocator
-
-Replace:
-
-```rust
-// engine.rs:530-532 (current)
-let bus_audio_base = 200;
-for bus in &state.buses {
-    self.bus_audio_buses.insert(bus.id, bus_audio_base + (bus.id as i32 - 1) * 2);
-}
-```
-
-With:
-
-```rust
-for bus in &state.buses {
-    let bus_audio = self.bus_allocator.alloc_audio_bus_pair();
-    self.bus_audio_buses.insert(bus.id, bus_audio);
-}
-```
-
-This prevents collisions with dynamically-allocated per-strip buses.
+Replaced hardcoded `bus_audio_base = 200` with
+`bus_allocator.get_or_alloc_audio_bus()` calls using sentinel StripIds
+(`u32::MAX - bus_id`). Mixer buses now share the allocator's address
+space with strip buses, preventing collisions regardless of strip
+count.
 
 ### ~~Proposed: Stop rebuilding the full graph for mixer changes~~ DONE
 
@@ -518,14 +492,20 @@ confirmations) that return to the previous context.
    `update_all_strip_mixer_params()` for level/mute/solo/pan; 4
    rebuild calls replaced
 
-### Next: Short-term (remaining audible improvements)
+### ~~Short-term (remaining audible improvements)~~ DONE
 
-7. **Configurable release cleanup** -- use actual envelope release
-   time instead of hardcoded 5 seconds
-8. **Route mixer buses through BusAllocator** -- prevent bus address
+7. ~~**Configurable release cleanup**~~ -- replaced hardcoded 5-second
+   group free with `strip.amp_envelope.release + 1.0s` margin;
+   `release_voice()` now takes `&StripState` parameter; `playback.rs`
+   restructured to hoist state clone for both note-on and note-off
+   blocks
+8. ~~**Route mixer buses through BusAllocator**~~ -- replaced hardcoded
+   `bus_audio_base = 200` formula with `bus_allocator.get_or_alloc_audio_bus()`
+   calls using sentinel StripIds (`u32::MAX - bus_id`); mixer buses now
+   share the allocator's address space with strip buses, preventing
    collisions
 
-### Medium-term (structural)
+### Next: Medium-term (structural)
 
 9. **Extract `AppState` from panes** -- eliminates clone-per-frame and
    render_with_state pattern

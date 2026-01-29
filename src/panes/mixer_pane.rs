@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{MixerSelection, OutputTarget, StripState};
+use crate::state::{AppState, MixerSelection, OutputTarget};
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 const STRIP_WIDTH: u16 = 8;
@@ -117,7 +117,7 @@ impl Pane for MixerPane {
         "mixer"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         match self.keymap.lookup(&event) {
             Some("prev") => { self.send_target = None; Action::MixerMove(-1) }
             Some("next") => { self.send_target = None; Action::MixerMove(1) }
@@ -184,14 +184,8 @@ impl Pane for MixerPane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
-        let (width, height) = g.size();
-        let rect = Rect::centered(width, height, 80, 14);
-
-        g.set_style(Style::new().fg(Color::CYAN));
-        g.draw_box(rect, Some(" MIXER "));
-
-        g.put_str(rect.x + 2, rect.y + 2, "Mixer pane - use MixerPane::render_with_state");
+    fn render(&self, g: &mut dyn Graphics, state: &AppState) {
+        self.render_mixer(g, &state.strip);
     }
 
     fn keymap(&self) -> &Keymap {
@@ -212,7 +206,7 @@ impl MixerPane {
         }
     }
 
-    pub fn render_with_state(&self, g: &mut dyn Graphics, state: &StripState) {
+    fn render_mixer(&self, g: &mut dyn Graphics, state: &crate::state::StripState) {
         let (width, height) = g.size();
 
         let box_width = (NUM_VISIBLE_CHANNELS as u16 * STRIP_WIDTH) + 2 +

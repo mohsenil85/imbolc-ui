@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use super::{Graphics, InputEvent, Keymap};
 use super::frame::SessionState;
-use crate::state::{EffectType, FilterType, OscType, StripId};
+use crate::state::{AppState, EffectType, FilterType, OscType, StripId};
 
 /// Actions that can be returned from pane input handling
 #[derive(Debug, Clone, PartialEq)]
@@ -110,6 +110,14 @@ pub enum Action {
     PianoRollPlayStopRecord,
     /// Strip: play a note on the selected strip (pitch, velocity)
     StripPlayNote(u8, u8),
+    /// Strip: select next strip
+    StripSelectNext,
+    /// Strip: select previous strip
+    StripSelectPrev,
+    /// Strip: select first strip
+    StripSelectFirst,
+    /// Strip: select last strip
+    StripSelectLast,
     /// Update session state (from frame edit pane)
     UpdateSession(SessionState),
     /// Open file browser for custom synthdef import
@@ -130,25 +138,19 @@ pub trait Pane {
     fn id(&self) -> &'static str;
 
     /// Handle an input event, returning an action
-    fn handle_input(&mut self, event: InputEvent) -> Action;
+    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action;
 
     /// Render the pane to the graphics context
-    fn render(&self, g: &mut dyn Graphics);
+    fn render(&self, g: &mut dyn Graphics, state: &AppState);
 
     /// Get the keymap for this pane (for introspection/help)
     fn keymap(&self) -> &Keymap;
 
     /// Called when this pane becomes active
-    fn on_enter(&mut self) {}
+    fn on_enter(&mut self, _state: &AppState) {}
 
     /// Called when this pane becomes inactive
-    fn on_exit(&mut self) {}
-
-    /// Handle an action dispatched from elsewhere (e.g., another pane)
-    /// Returns true if the action was handled
-    fn receive_action(&mut self, _action: &Action) -> bool {
-        false
-    }
+    fn on_exit(&mut self, _state: &AppState) {}
 
     /// Whether this pane is in an input mode that should suppress global keybindings
     fn wants_exclusive_input(&self) -> bool {
@@ -190,12 +192,12 @@ impl PaneManager {
     }
 
     /// Switch to a pane by ID
-    pub fn switch_to(&mut self, id: &str) -> bool {
+    pub fn switch_to(&mut self, id: &str, state: &AppState) -> bool {
         if let Some(index) = self.panes.iter().position(|p| p.id() == id) {
             if index != self.active_index {
-                self.panes[self.active_index].on_exit();
+                self.panes[self.active_index].on_exit(state);
                 self.active_index = index;
-                self.panes[self.active_index].on_enter();
+                self.panes[self.active_index].on_enter(state);
             }
             true
         } else {
@@ -204,15 +206,15 @@ impl PaneManager {
     }
 
     /// Handle input for the active pane and process the resulting action
-    pub fn handle_input(&mut self, event: InputEvent) -> Action {
-        let action = self.active_mut().handle_input(event);
+    pub fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
+        let action = self.active_mut().handle_input(event, state);
 
         match &action {
             Action::SwitchPane(id) => {
-                self.switch_to(id);
+                self.switch_to(id, state);
             }
             Action::PushPane(id) => {
-                self.switch_to(id);
+                self.switch_to(id, state);
             }
             Action::PopPane => {}
             _ => {}
@@ -222,8 +224,8 @@ impl PaneManager {
     }
 
     /// Render the active pane
-    pub fn render(&self, g: &mut dyn Graphics) {
-        self.active().render(g);
+    pub fn render(&self, g: &mut dyn Graphics, state: &AppState) {
+        self.active().render(g, state);
     }
 
     /// Get the keymap of the active pane
@@ -234,15 +236,6 @@ impl PaneManager {
     /// Get all registered pane IDs
     pub fn pane_ids(&self) -> Vec<&'static str> {
         self.panes.iter().map(|p| p.id()).collect()
-    }
-
-    /// Dispatch an action to a specific pane by ID
-    pub fn dispatch_to(&mut self, id: &str, action: &Action) -> bool {
-        if let Some(pane) = self.panes.iter_mut().find(|p| p.id() == id) {
-            pane.receive_action(action)
-        } else {
-            false
-        }
     }
 
     /// Get a mutable reference to a pane by ID, downcasted to a specific type

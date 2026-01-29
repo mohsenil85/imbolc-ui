@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::music::{Key, Scale};
+use crate::state::AppState;
 use crate::ui::frame::SessionState;
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 use crate::ui::widgets::TextInput;
@@ -136,7 +137,7 @@ impl Pane for FrameEditPane {
         "frame_edit"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
         // Text editing mode for BPM/Tuning
         if self.editing {
             match event.key {
@@ -216,7 +217,7 @@ impl Pane for FrameEditPane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
+    fn render(&self, g: &mut dyn Graphics, _state: &AppState) {
         let (width, height) = g.size();
         let box_width = 50;
         let box_height = 13;

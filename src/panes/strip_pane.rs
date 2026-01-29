@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{EffectType, FilterType, OscType, StripId, StripState};
+use crate::state::{AppState, EffectType, FilterType, OscType, StripId};
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, Pane, Rect, Style};
 
 fn osc_color(osc: OscType) -> Color {
@@ -24,7 +24,6 @@ enum PianoLayout {
 
 pub struct StripPane {
     keymap: Keymap,
-    state: StripState,
     // Piano keyboard mode
     piano_mode: bool,
     piano_octave: i8,
@@ -46,7 +45,6 @@ impl StripPane {
                 .bind('w', "save", "Save")
                 .bind('o', "load", "Load")
                 .bind('/', "piano_mode", "Toggle piano keyboard mode"),
-            state: StripState::new(),
             piano_mode: false,
             piano_octave: 4,
             piano_layout: PianoLayout::C,
@@ -116,18 +114,6 @@ impl StripPane {
         })
     }
 
-    pub fn state(&self) -> &StripState {
-        &self.state
-    }
-
-    pub fn state_mut(&mut self) -> &mut StripState {
-        &mut self.state
-    }
-
-    pub fn set_state(&mut self, state: StripState) {
-        self.state = state;
-    }
-
     fn format_filter(strip: &crate::state::strip::Strip) -> String {
         match &strip.filter {
             Some(f) => format!("[{}]", f.filter_type.name()),
@@ -169,7 +155,7 @@ impl Pane for StripPane {
         "strip"
     }
 
-    fn handle_input(&mut self, event: InputEvent) -> Action {
+    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
         // Piano mode: letter keys play notes
         if self.piano_mode {
             match event.key {
@@ -194,12 +180,10 @@ impl Pane for StripPane {
                     return Action::None;
                 }
                 KeyCode::Up => {
-                    self.state.select_prev();
-                    return Action::None;
+                    return Action::StripSelectPrev;
                 }
                 KeyCode::Down => {
-                    self.state.select_next();
-                    return Action::None;
+                    return Action::StripSelectNext;
                 }
                 KeyCode::Char(c) => {
                     if let Some(pitch) = self.key_to_pitch(c) {
@@ -214,36 +198,20 @@ impl Pane for StripPane {
 
         match self.keymap.lookup(&event) {
             Some("quit") => Action::Quit,
-            Some("next") => {
-                self.state.select_next();
-                Action::None
-            }
-            Some("prev") => {
-                self.state.select_prev();
-                Action::None
-            }
-            Some("goto_top") => {
-                if !self.state.strips.is_empty() {
-                    self.state.selected = Some(0);
-                }
-                Action::None
-            }
-            Some("goto_bottom") => {
-                if !self.state.strips.is_empty() {
-                    self.state.selected = Some(self.state.strips.len() - 1);
-                }
-                Action::None
-            }
+            Some("next") => Action::StripSelectNext,
+            Some("prev") => Action::StripSelectPrev,
+            Some("goto_top") => Action::StripSelectFirst,
+            Some("goto_bottom") => Action::StripSelectLast,
             Some("add") => Action::SwitchPane("add"),
             Some("delete") => {
-                if let Some(strip) = self.state.selected_strip() {
+                if let Some(strip) = state.strip.selected_strip() {
                     Action::DeleteStrip(strip.id)
                 } else {
                     Action::None
                 }
             }
             Some("edit") => {
-                if let Some(strip) = self.state.selected_strip() {
+                if let Some(strip) = state.strip.selected_strip() {
                     Action::EditStrip(strip.id)
                 } else {
                     Action::None
@@ -260,7 +228,7 @@ impl Pane for StripPane {
         }
     }
 
-    fn render(&self, g: &mut dyn Graphics) {
+    fn render(&self, g: &mut dyn Graphics, state: &AppState) {
         let (width, height) = g.size();
         let box_width = 97;
         let box_height = 29;
@@ -278,22 +246,22 @@ impl Pane for StripPane {
         let list_y = content_y + 2;
         let max_visible = ((rect.height - 8) as usize).max(3);
 
-        if self.state.strips.is_empty() {
+        if state.strip.strips.is_empty() {
             g.set_style(Style::new().fg(Color::DARK_GRAY));
             g.put_str(content_x + 2, list_y, "(no strips — press 'a' to add)");
         }
 
-        let scroll_offset = self.state.selected
+        let scroll_offset = state.strip.selected
             .map(|s| if s >= max_visible { s - max_visible + 1 } else { 0 })
             .unwrap_or(0);
 
-        for (i, strip) in self.state.strips.iter().enumerate().skip(scroll_offset) {
+        for (i, strip) in state.strip.strips.iter().enumerate().skip(scroll_offset) {
             let row = i - scroll_offset;
             if row >= max_visible {
                 break;
             }
             let y = list_y + row as u16;
-            let is_selected = self.state.selected == Some(i);
+            let is_selected = state.strip.selected == Some(i);
 
             // Selection indicator
             if is_selected {
@@ -364,7 +332,7 @@ impl Pane for StripPane {
             g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y, "...");
         }
-        if scroll_offset + max_visible < self.state.strips.len() {
+        if scroll_offset + max_visible < state.strip.strips.len() {
             g.set_style(Style::new().fg(Color::ORANGE));
             g.put_str(rect.x + rect.width - 4, list_y + max_visible as u16 - 1, "...");
         }
@@ -397,16 +365,6 @@ impl Pane for StripPane {
 
     fn wants_exclusive_input(&self) -> bool {
         self.piano_mode
-    }
-
-    fn receive_action(&mut self, action: &Action) -> bool {
-        match action {
-            Action::AddStrip(osc_type) => {
-                self.state.add_strip(*osc_type);
-                true
-            }
-            _ => false,
-        }
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
