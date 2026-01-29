@@ -24,3 +24,4 @@ esc takes you directly out of piano mode (or insert mode)
 touch ups around insert mode
 pane markup language
 remove homepane
+file picker, scroll to bottom, does not loop back to top

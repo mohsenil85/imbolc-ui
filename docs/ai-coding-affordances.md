@@ -108,10 +108,10 @@ cloned), not a reference into `pane_a`.
 
 ### Where this applies
 
-Every `Action::PianoRoll*` handler that reads cursor state from
-`PianoRollPane` and writes to `RackState` via `RackPane`. Every
-`render_with_state` call (clone state, then pass). Any future
-cross-pane interaction.
+Any `dispatch_action()` handler that needs to read from one pane and
+configure another. For example, `EditStrip` clones strip data from
+`AppState`, then passes it to `StripEditPane`. Any future cross-pane
+interaction follows the same pattern.
 
 ## 3. Build Verification
 
@@ -160,49 +160,28 @@ The AI agent doesn't directly run hooks, but if it tries to commit
 broken code, the hook blocks it and the agent sees the error — a
 safety net.
 
-## 4. The render_with_state Convention
+## 4. Centralized State (Post-Refactor)
 
-### Problem
+### Previous problem (now resolved)
 
-New panes that need data from `RackState` silently fail — their
-`Pane::render()` method gets called with no external state, and the
-developer doesn't realize they need to add a special case in main.rs.
-An AI agent adding a new pane will implement `render()` and wonder why
-it has no data.
+Previously, state was owned by `RackPane`, requiring a
+`render_with_state()` workaround for panes that needed access. This
+caused silent failures when new panes forgot the special case.
 
-### What helps
+### Current approach
 
-A comment on the `Pane` trait explaining the convention:
+State now lives in `AppState`, owned by `main.rs` and passed to all
+panes via the `Pane` trait methods:
 
 ```rust
-/// UI pane trait. All panes implement this for input handling and rendering.
-///
-/// ## External State
-///
-/// Some panes need data from RackState (which is owned by RackPane).
-/// Because PaneManager only allows one &mut borrow at a time, these
-/// panes implement a separate `render_with_state()` method and get
-/// special-cased in the render block in main.rs.
-///
-/// If your pane needs rack/mixer/piano_roll state:
-/// 1. Add a `pub fn render_with_state(&self, g, state)` method
-/// 2. Make `render()` a no-op fallback
-/// 3. Add a branch in main.rs's render section (search for "active_id")
-///
-/// Current panes using this pattern: MixerPane, PianoRollPane
-pub trait Pane { ... }
+fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action;
+fn render(&self, g: &mut dyn Graphics, state: &AppState);
 ```
 
-This tells the AI agent exactly what to do without having to reverse-
-engineer the pattern from main.rs. The "search for" hint gives a
-concrete grep target.
-
-### Longer term
-
-The root cause is that state ownership is tangled with pane ownership.
-A cleaner architecture would pass `&AppState` to every pane's
-`render()` call, eliminating the special cases entirely. But that's a
-larger refactor — the comment is the pragmatic fix.
+Every pane gets `&AppState` automatically. No special cases needed.
+New panes just implement the trait and have full read access to all
+state. Mutation still goes through actions dispatched via
+`dispatch::dispatch_action()`.
 
 ## General Principles
 

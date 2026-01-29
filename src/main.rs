@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_imports)]
 
 mod audio;
-mod core;
+
 mod dispatch;
 mod midi;
 mod panes;

@@ -4,75 +4,71 @@ Guide for AI agents working on this codebase.
 
 ## What This Is
 
-A terminal-based DAW (Digital Audio Workstation) in Rust. Uses ratatui for TUI rendering and SuperCollider via OSC for audio synthesis. Modules are wired together in a virtual rack, routed through a mixer, and sequenced via piano roll.
+A terminal-based DAW (Digital Audio Workstation) in Rust. Uses ratatui for TUI rendering and SuperCollider via OSC for audio synthesis. Strips combine an oscillator source, filter, effects chain, LFO, envelope, and mixer controls into a single instrument unit. Strips are sequenced via piano roll.
 
-## Architecture
+## Directory Structure
 
 ```
 src/
-  main.rs          — Event loop, action dispatch, playback engine, pane rendering
-  state/           — All application state (rack, modules, mixer, piano roll)
-  panes/           — UI views (rack, mixer, piano roll, sequencer, server, etc.)
+  main.rs          — Event loop, global keybindings, render loop
+  dispatch.rs      — Action handler (all state mutation happens here)
+  playback.rs      — Piano roll playback engine (tick-based, runs in main loop)
+  setup.rs         — Auto-startup for SuperCollider
+  scd_parser.rs    — SuperCollider .scd file parser
+  state/           — All application state
+    mod.rs           — AppState (top-level), re-exports
+    strip.rs         — Strip, StripId, OscType, FilterType, EffectType, LFO, envelope types
+    strip_state.rs   — StripState (strips, buses, mixer, persistence methods)
+    persistence.rs   — SQLite save/load implementation
+    piano_roll.rs    — PianoRollState, Track, Note
+    automation.rs    — AutomationState, lanes, points, curve types
+    sampler.rs       — SamplerConfig, SampleRegistry, slices
+    custom_synthdef.rs — CustomSynthDef registry and param specs
+    music.rs         — Key, Scale, musical theory types
+    midi_recording.rs — MIDI recording state, CC mappings
+    param.rs         — Param, ParamValue (Float/Int/Bool)
+  panes/           — UI views (see docs/architecture.md for full list)
   ui/              — TUI framework (pane trait, keymap, input, style, widgets)
   audio/           — SuperCollider OSC client and audio engine
-  core/            — Shared types (actions, effects)
+  midi/            — MIDI utilities
 ```
 
-### Data Flow
+## Key Types
 
-```
-User Input → Pane::handle_input() → Action enum → main.rs match → mutate state / call audio engine
-```
+| Type | Location | What It Is |
+|------|----------|------------|
+| `AppState` | `state/mod.rs` | Top-level state, owned by `main.rs`, passed to panes as `&AppState` |
+| `StripState` | `state/strip_state.rs` | All strips, buses, piano roll, automation, custom synthdefs |
+| `Strip` | `state/strip.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
+| `StripId` | `state/strip.rs` | `u32` — unique identifier for strips |
+| `OscType` | `state/strip.rs` | Oscillator source: Saw, Sin, Sqr, Tri, AudioIn, Sampler, Custom |
+| `Action` | `ui/pane.rs` | ~50-variant enum for all user-dispatchable actions |
+| `Pane` | `ui/pane.rs` | Trait: `id()`, `handle_input()`, `render()`, `keymap()` |
+| `PaneManager` | `ui/pane.rs` | Owns all panes, manages active pane, dispatches input |
 
-All state lives in `RackState` (owned by `RackPane`). Other panes that need state (mixer, piano roll) get it via `render_with_state()` — see "Render With State Pattern" below.
+## Critical Patterns
 
-### Key Types
-
-- `ModuleId` = `u32` — unique identifier for rack modules
-- `ModuleType` — enum of all module types (Midi, SawOsc, Lpf, Output, etc.)
-- `Action` — enum in `src/ui/pane.rs` for all dispatchable actions
-- `RackState` — central state container in `src/state/rack.rs`
-- `PianoRollState` — tracks, notes, transport in `src/state/piano_roll.rs`
-- `MixerState` — channels, buses, sends in `src/state/mixer.rs`
-
-## Important Patterns
-
-### Render With State Pattern
-
-Some panes need data from `RackState` but don't own it (only `RackPane` does). These panes implement `render_with_state()` as a public method and get special-cased in main.rs:
-
-```rust
-// main.rs render section
-if active_id == "mixer" {
-    let rack_state = panes.get_pane_mut::<RackPane>("rack").map(|r| r.rack().clone());
-    if let Some(rack) = rack_state {
-        panes.get_pane_mut::<MixerPane>("mixer").unwrap().render_with_state(&mut frame, &rack);
-    }
-} else if active_id == "piano_roll" {
-    // similar — clones piano_roll state, passes to pane
-}
-```
-
-The `Pane::render()` trait method is a fallback that renders with empty/default state. **Any new pane that needs rack state must be added to this block in main.rs.**
-
-This is a workaround for Rust's borrow checker — you can't hold two `&mut` references from `PaneManager` simultaneously. The pattern is: extract data (clone), drop the borrow, then pass to the target pane.
+See [docs/architecture.md](docs/architecture.md) for detailed architecture, state ownership, borrow patterns, and persistence.
 
 ### Action Dispatch
 
-Pane input handlers return `Action` values. `main.rs` matches on them and mutates state. Panes never mutate `RackState` directly — they return actions.
+Panes return `Action` values from `handle_input()`. `dispatch.rs` matches on them and mutates state. Panes never mutate state directly.
 
 When adding a new action:
 1. Add variant to `Action` enum in `src/ui/pane.rs`
 2. Return it from the pane's `handle_input()`
-3. Handle it in the `match &action` block in `main.rs`
+3. Handle it in `dispatch::dispatch_action()` in `src/dispatch.rs`
 
-### Auto-Assignment
+### Navigation
 
-When modules are added to the rack:
-- `Output` modules → auto-assigned to a free mixer channel
-- `Midi` modules → auto-assigned a piano roll track
+Number keys switch panes (when not in exclusive input mode): `1`=strip, `2`=piano_roll, `3`=sequencer, `4`=mixer, `5`=server. `` ` ``/`~` for back/forward. `?` for context-sensitive help.
 
-Both happen in `RackState::add_module()` / `remove_module()`.
+### Pane Registration
+
+New panes must be:
+1. Created in `src/panes/` and added to `src/panes/mod.rs`
+2. Registered in `main.rs`: `panes.add_pane(Box::new(MyPane::new()));`
+3. Given a number-key binding in the global key match block (if navigable)
 
 ## UI Framework API
 
@@ -80,94 +76,50 @@ Both happen in `RackState::add_module()` / `remove_module()`.
 
 ```rust
 Keymap::new()
-    .bind('q', "action_name", "Description")           // char key
-    .bind_key(KeyCode::Up, "action_name", "Description") // special key
-    .bind_ctrl('s', "action_name", "Description")       // Ctrl+char
-    .bind_alt('x', "action_name", "Description")        // Alt+char
-    .bind_ctrl_key(KeyCode::Left, "action_name", "Desc") // Ctrl+special key
+    .bind('q', "action_name", "Description")
+    .bind_key(KeyCode::Up, "action_name", "Description")
+    .bind_ctrl('s', "action_name", "Description")
+    .bind_alt('x', "action_name", "Description")
+    .bind_ctrl_key(KeyCode::Left, "action_name", "Desc")
 ```
 
-**There is no `bind_shift_key`.** Shift state is available on `event.modifiers.shift` — handle it manually before keymap lookup if needed.
+**There is no `bind_shift_key`.** Check `event.modifiers.shift` manually.
 
 ### Colors
 
-```rust
-Color::new(r, g, b)  // custom RGB
-Color::WHITE          // named constants
-Color::PINK
-Color::SELECTION_BG   // UI semantic colors
-Color::MIDI_COLOR     // module type colors
-Color::METER_LOW      // meter colors
-```
-
-No `Color::rgb()` — use `Color::new()`.
+`Color::new(r, g, b)` for custom RGB. Named constants: `Color::WHITE`, `Color::PINK`, `Color::SELECTION_BG`, `Color::MIDI_COLOR`, `Color::METER_LOW`. **No `Color::rgb()`** — use `Color::new()`.
 
 ### Pane Sizing
 
-All main panes use `Rect::centered(width, height, 97, 29)` for consistent sizing within the outer frame. Follow this convention for new panes.
-
-### Pane Registration
-
-New panes must be:
-1. Created in `src/panes/` and added to `src/panes/mod.rs`
-2. Registered in `main.rs`: `panes.add_pane(Box::new(MyPane::new()));`
-3. Given an F-key binding in the global F-key match block (if navigable)
-
-## Audio Engine
-
-### OSC Communication
-
-All audio is handled by SuperCollider (scsynth) via OSC over UDP.
-
-- `OscClient::send_message()` — fire-and-forget single message
-- `OscClient::set_params_bundled()` — multiple params in one timestamped bundle (for note-on)
-- `OscClient::send_bundle()` — multiple messages in one timestamped bundle
-- `osc_time_from_now(offset_secs)` — NTP timetag for sample-accurate scheduling
-
-Use bundles for anything timing-sensitive (note events). Individual `set_param` is fine for UI knob tweaks.
-
-### Module → Synth Mapping
-
-Each rack module gets a SuperCollider synth node. `AudioEngine::node_map` maps `ModuleId → node_id`. Modules communicate via buses (audio and control), allocated during `rebuild_routing()`.
-
-## Persistence
-
-- File format: `.tuidaw` (SQLite database)
-- Schema: see `docs/sqlite-persistence.md`
-- Save/load in `RackState::save()` / `RackState::load()` in `src/state/rack.rs`
-- Currently persists: modules, params, connections, next_id
-- NOT yet persisted (`#[serde(skip)]`): mixer state, piano roll state, UI selection
-- Save path: `~/.config/tuidaw/rack.tuidaw`
+Most main panes use `Rect::centered(width, height, box_width, 29)` — height 29 is standard for full panes. Width varies by pane.
 
 ## Build & Test
 
 ```bash
-cargo build        # compile
-cargo test --bin tuidaw  # unit tests (55 tests)
-cargo test         # all tests including e2e (e2e may fail if tmux not configured)
+cargo build                 # compile
+cargo test --bin tuidaw     # unit tests (~41 tests)
+cargo test                  # all tests including e2e
 ```
+
+## Persistence
+
+- Format: SQLite database (`.tuidaw` / `.sqlite`)
+- Save/load: `StripState::save()` / `StripState::load()` in `src/state/persistence.rs`
+- Default path: `~/.config/tuidaw/default.sqlite`
+- Persists: strips, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs
 
 ## LSP Integration (CCLSP)
 
-This project has CCLSP configured as an MCP server, providing rust-analyzer LSP access to Claude Code. Config lives in `cclsp.json` (LSP server settings) and `.mcp.json` (MCP registration).
+Configured as MCP server (`cclsp.json` + `.mcp.json`). Provides rust-analyzer access. Prefer LSP tools over grep for navigating Rust code — they understand types, scopes, and cross-file references.
 
-Available tools:
-- `find_definition` — jump to where a symbol is defined
-- `find_references` — find all usages of a symbol across the workspace
-- `find_workspace_symbols` — search for symbols by name
-- `get_diagnostics` — get compiler errors/warnings for a file
-- `get_hover` — type info and docs for a symbol at a position
-- `rename_symbol` / `rename_symbol_strict` — rename a symbol across the codebase
-- `find_implementation` — find implementations of a trait/interface
-- `get_incoming_calls` / `get_outgoing_calls` — call hierarchy
+## Detailed Documentation
 
-Prefer these tools over grep for navigating Rust code — they understand types, scopes, and cross-file references.
-
-Note: rust-analyzer needs time to index on first launch. Some tools may time out until indexing completes.
-
-## Existing Docs
-
-- `docs/audio-routing.md` — bus model, insert vs send, node ordering, mixer architecture
-- `docs/sqlite-persistence.md` — SQLite schema design, sharing, presets
-- `docs/keybindings.md` — keybinding philosophy and conventions
-- `docs/ai-integration.md` — planned Haiku integration for natural language commands
+- [docs/architecture.md](docs/architecture.md) — state ownership, strip model, pane rendering, action dispatch, borrow patterns
+- [docs/audio-routing.md](docs/audio-routing.md) — bus model, insert vs send, node ordering
+- [docs/keybindings.md](docs/keybindings.md) — keybinding philosophy and conventions
+- [docs/ai-coding-affordances.md](docs/ai-coding-affordances.md) — patterns that help AI agents work faster
+- [docs/sc-engine-architecture.md](docs/sc-engine-architecture.md) — SuperCollider engine modules
+- [docs/polyphonic-voice-allocation.md](docs/polyphonic-voice-allocation.md) — voice allocation design
+- [docs/custom-synthdef-plan.md](docs/custom-synthdef-plan.md) — custom SynthDef import system
+- [docs/sqlite-persistence.md](docs/sqlite-persistence.md) — original schema design (partially outdated)
+- [docs/ai-integration.md](docs/ai-integration.md) — planned Haiku integration
