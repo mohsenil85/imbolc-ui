@@ -523,6 +523,9 @@ impl AudioEngine {
         self.next_voice_audio_bus = self.bus_allocator.next_audio_bus;
         self.next_voice_control_bus = self.bus_allocator.next_control_bus;
 
+        // Sync group IDs with node IDs to avoid collisions in SuperCollider's shared ID space
+        self.next_group_id = self.next_node_id;
+
         // Allocate audio buses for each mixer bus
         let bus_audio_base = 200;
         for bus in &state.buses {
