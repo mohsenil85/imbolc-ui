@@ -186,7 +186,7 @@ impl Pane for MixerPane {
     }
 
     fn render(&self, g: &mut dyn Graphics, state: &AppState) {
-        self.render_mixer(g, &state.strip);
+        self.render_mixer(g, state);
     }
 
     fn keymap(&self) -> &Keymap {
@@ -207,7 +207,7 @@ impl MixerPane {
         }
     }
 
-    fn render_mixer(&self, g: &mut dyn Graphics, state: &crate::state::StripState) {
+    fn render_mixer(&self, g: &mut dyn Graphics, state: &AppState) {
         let (width, height) = g.size();
 
         let box_width = (NUM_VISIBLE_CHANNELS as u16 * STRIP_WIDTH) + 2 +
@@ -230,16 +230,16 @@ impl MixerPane {
         let output_y = indicator_y + 1;
 
         // Calculate scroll offsets
-        let strip_scroll = match state.mixer_selection {
+        let strip_scroll = match state.session.mixer_selection {
             MixerSelection::Strip(idx) => {
-                Self::calc_scroll_offset(idx, state.strips.len(), NUM_VISIBLE_CHANNELS)
+                Self::calc_scroll_offset(idx, state.strip.strips.len(), NUM_VISIBLE_CHANNELS)
             }
             _ => 0,
         };
 
-        let bus_scroll = match state.mixer_selection {
+        let bus_scroll = match state.session.mixer_selection {
             MixerSelection::Bus(id) => {
-                Self::calc_scroll_offset((id - 1) as usize, state.buses.len(), NUM_VISIBLE_BUSES)
+                Self::calc_scroll_offset((id - 1) as usize, state.session.buses.len(), NUM_VISIBLE_BUSES)
             }
             _ => 0,
         };
@@ -249,9 +249,9 @@ impl MixerPane {
         // Render strip channels (filled + empty slots)
         for i in 0..NUM_VISIBLE_CHANNELS {
             let idx = strip_scroll + i;
-            if idx < state.strips.len() {
-                let strip = &state.strips[idx];
-                let is_selected = matches!(state.mixer_selection, MixerSelection::Strip(s) if s == idx);
+            if idx < state.strip.strips.len() {
+                let strip = &state.strip.strips[idx];
+                let is_selected = matches!(state.session.mixer_selection, MixerSelection::Strip(s) if s == idx);
 
                 self.render_vertical_strip(
                     g, x, &format!("S{}", strip.id), &strip.name,
@@ -279,11 +279,11 @@ impl MixerPane {
         // Render buses
         for i in 0..NUM_VISIBLE_BUSES {
             let bus_idx = bus_scroll + i;
-            if bus_idx >= state.buses.len() {
+            if bus_idx >= state.session.buses.len() {
                 break;
             }
-            let bus = &state.buses[bus_idx];
-            let is_selected = matches!(state.mixer_selection, MixerSelection::Bus(id) if id == bus.id);
+            let bus = &state.session.buses[bus_idx];
+            let is_selected = matches!(state.session.mixer_selection, MixerSelection::Bus(id) if id == bus.id);
 
             self.render_vertical_strip(
                 g, x, &format!("BUS{}", bus.id), &bus.name,
@@ -302,18 +302,18 @@ impl MixerPane {
         x += 2;
 
         // Master
-        let is_master_selected = matches!(state.mixer_selection, MixerSelection::Master);
+        let is_master_selected = matches!(state.session.mixer_selection, MixerSelection::Master);
         self.render_vertical_strip(
             g, x, "MASTER", "",
-            state.master_level, state.master_mute, false, None, is_master_selected,
+            state.session.master_level, state.session.master_mute, false, None, is_master_selected,
             label_y, name_y, meter_top_y, db_y, indicator_y, output_y,
         );
 
         // Send info line
         let send_y = output_y + 1;
         if let Some(bus_id) = self.send_target {
-            if let MixerSelection::Strip(idx) = state.mixer_selection {
-                if let Some(strip) = state.strips.get(idx) {
+            if let MixerSelection::Strip(idx) = state.session.mixer_selection {
+                if let Some(strip) = state.strip.strips.get(idx) {
                     if let Some(send) = strip.sends.iter().find(|s| s.bus_id == bus_id) {
                         let status = if send.enabled { "ON" } else { "OFF" };
                         let info = format!("Send\u{2192}B{}: {:.0}% [{}]", bus_id, send.level * 100.0, status);

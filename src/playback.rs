@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::audio::AudioEngine;
-use crate::state::{AppState, StripState};
+use crate::state::AppState;
 
 /// Advance the piano roll playhead and process note-on/off events.
 pub fn tick_playback(
@@ -20,7 +20,7 @@ pub fn tick_playback(
     )> = None;
 
     {
-        let pr = &mut state.strip.piano_roll;
+        let pr = &mut state.session.piano_roll;
         if pr.playing {
             let seconds = elapsed.as_secs_f32();
             let ticks_f = seconds * (pr.bpm / 60.0) * pr.ticks_per_beat as f32;
@@ -67,12 +67,19 @@ pub fn tick_playback(
                 };
                 let offset = ticks_from_now * secs_per_tick;
                 let vel_f = velocity as f32 / 127.0;
-                let _ = audio_engine.spawn_voice(strip_id, pitch, vel_f, offset, &state.strip);
+                let _ = audio_engine.spawn_voice(strip_id, pitch, vel_f, offset, &state.strip, &state.session);
                 active_notes.push((strip_id, pitch, duration));
             }
 
             // Process automation
-            process_automation(audio_engine, &state.strip, new_playhead);
+            for lane in &state.session.automation.lanes {
+                if !lane.enabled {
+                    continue;
+                }
+                if let Some(value) = lane.value_at(new_playhead) {
+                    let _ = audio_engine.apply_automation(&lane.target, value, &state.strip, &state.session);
+                }
+            }
         }
 
         // Process active notes: decrement remaining ticks, send note-offs
@@ -102,8 +109,8 @@ pub fn tick_drum_sequencer(
     audio_engine: &mut AudioEngine,
     elapsed: Duration,
 ) {
-    let bpm = state.strip.piano_roll.bpm;
-    let seq = &mut state.strip.drum_sequencer;
+    let bpm = state.session.piano_roll.bpm;
+    let seq = &mut state.session.drum_sequencer;
     if !seq.playing {
         return;
     }
@@ -138,22 +145,6 @@ pub fn tick_drum_sequencer(
                     }
                 }
             }
-        }
-    }
-}
-
-/// Process automation lanes and apply values at the current playhead
-fn process_automation(
-    audio_engine: &AudioEngine,
-    state: &StripState,
-    playhead: u32,
-) {
-    for lane in &state.automation.lanes {
-        if !lane.enabled {
-            continue;
-        }
-        if let Some(value) = lane.value_at(playhead) {
-            let _ = audio_engine.apply_automation(&lane.target, value, state);
         }
     }
 }

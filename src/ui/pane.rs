@@ -2,8 +2,7 @@ use std::any::Any;
 use std::path::PathBuf;
 
 use super::{Graphics, InputEvent, Keymap};
-use super::frame::SessionState;
-use crate::state::{AppState, EffectType, FilterType, OscType, StripId};
+use crate::state::{AppState, EffectType, FilterType, MusicalSettings, OscType, StripId};
 
 /// Drum sequencer actions
 #[derive(Debug, Clone, PartialEq)]
@@ -113,7 +112,7 @@ pub enum ServerAction {
 pub enum SessionAction {
     Save,
     Load,
-    UpdateSession(SessionState),
+    UpdateSession(MusicalSettings),
     OpenFileBrowser(FileSelectAction),
     ImportCustomSynthDef(PathBuf),
 }

@@ -57,7 +57,7 @@ impl Pane for SequencerPane {
     }
 
     fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
-        let pattern_length = state.strip.drum_sequencer.pattern().length;
+        let pattern_length = state.session.drum_sequencer.pattern().length;
 
         // Manual shift checks before keymap lookup
         if event.modifiers.shift {
@@ -132,7 +132,7 @@ impl Pane for SequencerPane {
         let box_height: u16 = 29;
         let rect = Rect::centered(width, height, box_width, box_height);
 
-        let seq = &state.strip.drum_sequencer;
+        let seq = &state.session.drum_sequencer;
         let pattern = seq.pattern();
         let visible = self.visible_steps(box_width);
 
@@ -177,7 +177,7 @@ impl Pane for SequencerPane {
         g.set_style(Style::new().fg(Color::DARK_GRAY));
         g.put_str(cx + 12, cy, &format!("Length: {}", pattern.length));
 
-        let bpm = state.strip.piano_roll.bpm;
+        let bpm = state.session.piano_roll.bpm;
         g.put_str(cx + 24, cy, &format!("BPM: {:.0}", bpm));
 
         g.set_style(Style::new().fg(play_color).bold());

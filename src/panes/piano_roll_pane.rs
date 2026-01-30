@@ -584,7 +584,7 @@ impl Pane for PianoRollPane {
 
     fn render(&self, g: &mut dyn Graphics, state: &AppState) {
         // Check if current track is an AudioIn strip
-        let piano_roll = &state.strip.piano_roll;
+        let piano_roll = &state.session.piano_roll;
         let current_strip_id = piano_roll.track_at(self.current_track).map(|t| t.module_id);
         let is_audio_in = current_strip_id
             .and_then(|id| state.strip.strip(id))

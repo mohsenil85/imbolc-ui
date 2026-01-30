@@ -272,7 +272,7 @@ impl Pane for AddPane {
     }
 
     fn render(&self, g: &mut dyn Graphics, state: &AppState) {
-        self.render_with_registry(g, &state.strip.custom_synthdefs);
+        self.render_with_registry(g, &state.session.custom_synthdefs);
     }
 
     fn keymap(&self) -> &Keymap {
@@ -280,7 +280,7 @@ impl Pane for AddPane {
     }
 
     fn on_enter(&mut self, state: &AppState) {
-        self.update_options(&state.strip.custom_synthdefs);
+        self.update_options(&state.session.custom_synthdefs);
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

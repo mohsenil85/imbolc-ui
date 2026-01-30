@@ -6,17 +6,16 @@ use super::custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
 use super::music::{Key, Scale};
 use super::param::{Param, ParamValue};
 use super::piano_roll::PianoRollState;
+use super::session::{SessionState, MAX_BUSES};
 use super::strip::*;
-use super::strip_state::{MixerSelection, StripState};
-use crate::ui::frame::SessionState;
+use super::strip_state::StripState;
 
-impl StripState {
-    /// Save to SQLite
-    pub fn save(&self, path: &Path, session: &SessionState) -> SqlResult<()> {
-        let conn = SqlConnection::open(path)?;
+/// Save to SQLite
+pub fn save_project(path: &Path, session: &SessionState, strips: &StripState) -> SqlResult<()> {
+    let conn = SqlConnection::open(path)?;
 
-        conn.execute_batch(
-            "
+    conn.execute_batch(
+        "
             CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY,
                 applied_at TEXT NOT NULL
@@ -252,446 +251,545 @@ impl StripState {
             DELETE FROM mixer_master;
             DELETE FROM session;
             ",
-        )?;
+    )?;
 
-        conn.execute(
-            "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (2, datetime('now'))",
-            [],
-        )?;
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (2, datetime('now'))",
+        [],
+    )?;
 
-        conn.execute(
-            "INSERT INTO session (id, name, created_at, modified_at, next_strip_id)
+    conn.execute(
+        "INSERT INTO session (id, name, created_at, modified_at, next_strip_id)
              VALUES (1, 'default', datetime('now'), datetime('now'), ?1)",
-            [&self.next_id],
-        )?;
+        [&strips.next_id],
+    )?;
 
-        self.save_strips(&conn)?;
-        self.save_source_params(&conn)?;
-        self.save_effects(&conn)?;
-        self.save_sends(&conn)?;
-        self.save_modulations(&conn)?;
-        self.save_mixer(&conn)?;
-        self.save_piano_roll(&conn, session)?;
-        self.save_sampler_configs(&conn)?;
-        self.save_automation(&conn)?;
-        self.save_custom_synthdefs(&conn)?;
-        self.save_drum_sequencer(&conn)?;
+    save_strips(&conn, strips)?;
+    save_source_params(&conn, strips)?;
+    save_effects(&conn, strips)?;
+    save_sends(&conn, strips)?;
+    save_modulations(&conn, strips)?;
+    save_mixer(&conn, session)?;
+    save_piano_roll(&conn, session)?;
+    save_sampler_configs(&conn, strips)?;
+    save_automation(&conn, session)?;
+    save_custom_synthdefs(&conn, session)?;
+    save_drum_sequencer(&conn, session)?;
 
-        Ok(())
-    }
+    Ok(())
+}
 
-    fn save_drum_sequencer(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let seq = &self.drum_sequencer;
+/// Load from SQLite
+pub fn load_project(path: &Path) -> SqlResult<(SessionState, StripState)> {
+    let conn = SqlConnection::open(path)?;
 
-        // Save pads
-        let mut pad_stmt = conn.prepare(
-            "INSERT INTO drum_pads (pad_index, buffer_id, path, name, level)
+    let next_id: StripId = conn.query_row(
+        "SELECT next_strip_id FROM session WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?;
+
+    let mut strips = load_strips(&conn)?;
+    load_source_params(&conn, &mut strips)?;
+    load_effects(&conn, &mut strips)?;
+    load_sends(&conn, &mut strips)?;
+    load_modulations(&conn, &mut strips)?;
+    load_sampler_configs(&conn, &mut strips)?;
+    let buses = load_buses(&conn)?;
+    let (master_level, master_mute) = load_master(&conn);
+    let (piano_roll, musical) = load_piano_roll(&conn)?;
+    let automation = load_automation(&conn)?;
+    let custom_synthdefs = load_custom_synthdefs(&conn)?;
+    let drum_sequencer = load_drum_sequencer(&conn)
+        .unwrap_or_else(|_| super::drum_sequencer::DrumSequencerState::new());
+
+    let mut session = SessionState::new();
+    session.buses = buses;
+    session.master_level = master_level;
+    session.master_mute = master_mute;
+    session.piano_roll = piano_roll;
+    session.automation = automation;
+    session.custom_synthdefs = custom_synthdefs;
+    session.drum_sequencer = drum_sequencer;
+    // Apply musical settings from load_piano_roll
+    session.bpm = musical.bpm;
+    session.time_signature = musical.time_signature;
+    session.key = musical.key;
+    session.scale = musical.scale;
+    session.tuning_a4 = musical.tuning_a4;
+    session.snap = musical.snap;
+
+    let strip_state = StripState {
+        strips,
+        selected: None,
+        next_id,
+    };
+
+    Ok((session, strip_state))
+}
+
+// --- Save helpers ---
+
+fn save_drum_sequencer(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    let seq = &session.drum_sequencer;
+
+    // Save pads
+    let mut pad_stmt = conn.prepare(
+        "INSERT INTO drum_pads (pad_index, buffer_id, path, name, level)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-        )?;
-        for (i, pad) in seq.pads.iter().enumerate() {
-            pad_stmt.execute(rusqlite::params![
-                i,
-                pad.buffer_id.map(|id| id as i32),
-                pad.path,
-                pad.name,
-                pad.level as f64,
-            ])?;
-        }
+    )?;
+    for (i, pad) in seq.pads.iter().enumerate() {
+        pad_stmt.execute(rusqlite::params![
+            i,
+            pad.buffer_id.map(|id| id as i32),
+            pad.path,
+            pad.name,
+            pad.level as f64,
+        ])?;
+    }
 
-        // Save patterns
-        let mut pattern_stmt = conn.prepare(
-            "INSERT INTO drum_patterns (pattern_index, length) VALUES (?1, ?2)",
-        )?;
-        let mut step_stmt = conn.prepare(
-            "INSERT INTO drum_steps (pattern_index, pad_index, step_index, velocity)
+    // Save patterns
+    let mut pattern_stmt =
+        conn.prepare("INSERT INTO drum_patterns (pattern_index, length) VALUES (?1, ?2)")?;
+    let mut step_stmt = conn.prepare(
+        "INSERT INTO drum_steps (pattern_index, pad_index, step_index, velocity)
              VALUES (?1, ?2, ?3, ?4)",
-        )?;
+    )?;
 
-        for (pi, pattern) in seq.patterns.iter().enumerate() {
-            pattern_stmt.execute(rusqlite::params![pi, pattern.length])?;
+    for (pi, pattern) in seq.patterns.iter().enumerate() {
+        pattern_stmt.execute(rusqlite::params![pi, pattern.length])?;
 
-            // Save only active steps
-            for (pad_idx, pad_steps) in pattern.steps.iter().enumerate() {
-                for (step_idx, step) in pad_steps.iter().enumerate() {
-                    if step.active {
-                        step_stmt.execute(rusqlite::params![
-                            pi, pad_idx, step_idx, step.velocity as i32
-                        ])?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn save_custom_synthdefs(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut synthdef_stmt = conn.prepare(
-            "INSERT INTO custom_synthdefs (id, name, synthdef_name, source_path)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        let mut param_stmt = conn.prepare(
-            "INSERT INTO custom_synthdef_params (synthdef_id, position, name, default_val, min_val, max_val)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        )?;
-
-        for synthdef in &self.custom_synthdefs.synthdefs {
-            synthdef_stmt.execute(rusqlite::params![
-                synthdef.id,
-                &synthdef.name,
-                &synthdef.synthdef_name,
-                synthdef.source_path.to_string_lossy().as_ref(),
-            ])?;
-
-            for (pos, param) in synthdef.params.iter().enumerate() {
-                param_stmt.execute(rusqlite::params![
-                    synthdef.id,
-                    pos as i32,
-                    &param.name,
-                    param.default as f64,
-                    param.min as f64,
-                    param.max as f64,
-                ])?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn save_strips(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut stmt = conn.prepare(
-            "INSERT INTO strips (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
-             lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
-             amp_attack, amp_decay, amp_sustain, amp_release, polyphonic, has_track,
-             level, pan, mute, solo, output_target)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
-        )?;
-        for (pos, strip) in self.strips.iter().enumerate() {
-            let source_str = match strip.source {
-                OscType::Custom(id) => format!("custom:{}", id),
-                _ => strip.source.short_name().to_string(),
-            };
-            let (filter_type, filter_cutoff, filter_res): (Option<String>, Option<f64>, Option<f64>) =
-                if let Some(ref f) = strip.filter {
-                    (Some(format!("{:?}", f.filter_type).to_lowercase()), Some(f.cutoff.value as f64), Some(f.resonance.value as f64))
-                } else {
-                    (None, None, None)
-                };
-            let lfo_shape_str = match strip.lfo.shape {
-                LfoShape::Sine => "sine",
-                LfoShape::Square => "square",
-                LfoShape::Saw => "saw",
-                LfoShape::Triangle => "triangle",
-            };
-            let lfo_target_str = match strip.lfo.target {
-                LfoTarget::FilterCutoff => "filter_cutoff",
-                LfoTarget::FilterResonance => "filter_res",
-                LfoTarget::Amplitude => "amp",
-                LfoTarget::Pitch => "pitch",
-                LfoTarget::Pan => "pan",
-                LfoTarget::PulseWidth => "pulse_width",
-                LfoTarget::SampleRate => "sample_rate",
-                LfoTarget::DelayTime => "delay_time",
-                LfoTarget::DelayFeedback => "delay_feedback",
-                LfoTarget::ReverbMix => "reverb_mix",
-                LfoTarget::GateRate => "gate_rate",
-                LfoTarget::SendLevel => "send_level",
-                LfoTarget::Detune => "detune",
-                LfoTarget::Attack => "attack",
-                LfoTarget::Release => "release",
-            };
-            let output_str = match strip.output_target {
-                OutputTarget::Master => "master".to_string(),
-                OutputTarget::Bus(n) => format!("bus:{}", n),
-            };
-            stmt.execute(rusqlite::params![
-                strip.id, strip.name, pos as i32, source_str,
-                filter_type, filter_cutoff, filter_res,
-                strip.lfo.enabled, strip.lfo.rate as f64, strip.lfo.depth as f64,
-                lfo_shape_str, lfo_target_str,
-                strip.amp_envelope.attack as f64, strip.amp_envelope.decay as f64,
-                strip.amp_envelope.sustain as f64, strip.amp_envelope.release as f64,
-                strip.polyphonic, strip.has_track,
-                strip.level as f64, strip.pan as f64, strip.mute, strip.solo,
-                output_str,
-            ])?;
-        }
-        Ok(())
-    }
-
-    fn save_source_params(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut stmt = conn.prepare(
-            "INSERT INTO strip_source_params (strip_id, param_name, param_value, param_min, param_max, param_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        )?;
-        for strip in &self.strips {
-            for param in &strip.source_params {
-                let (value, param_type) = match &param.value {
-                    ParamValue::Float(v) => (*v as f64, "float"),
-                    ParamValue::Int(v) => (*v as f64, "int"),
-                    ParamValue::Bool(v) => (if *v { 1.0 } else { 0.0 }, "bool"),
-                };
-                stmt.execute(rusqlite::params![
-                    strip.id, param.name, value, param.min as f64, param.max as f64, param_type,
-                ])?;
-            }
-        }
-        Ok(())
-    }
-
-    fn save_effects(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut effect_stmt = conn.prepare(
-            "INSERT INTO strip_effects (strip_id, position, effect_type, enabled)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        let mut param_stmt = conn.prepare(
-            "INSERT INTO strip_effect_params (strip_id, effect_position, param_name, param_value)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        for strip in &self.strips {
-            for (pos, effect) in strip.effects.iter().enumerate() {
-                let type_str = format!("{:?}", effect.effect_type).to_lowercase();
-                effect_stmt.execute(rusqlite::params![strip.id, pos as i32, type_str, effect.enabled])?;
-                for param in &effect.params {
-                    let value = match &param.value {
-                        ParamValue::Float(v) => *v as f64,
-                        ParamValue::Int(v) => *v as f64,
-                        ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
-                    };
-                    param_stmt.execute(rusqlite::params![strip.id, pos as i32, param.name, value])?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn save_sends(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut stmt = conn.prepare(
-            "INSERT INTO strip_sends (strip_id, bus_id, level, enabled)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        for strip in &self.strips {
-            for send in &strip.sends {
-                stmt.execute(rusqlite::params![strip.id, send.bus_id, send.level as f64, send.enabled])?;
-            }
-        }
-        Ok(())
-    }
-
-    fn save_modulations(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut stmt = conn.prepare(
-            "INSERT INTO strip_modulations (strip_id, target_param, mod_type,
-             lfo_rate, lfo_depth, env_attack, env_decay, env_sustain, env_release,
-             source_strip_id, source_param_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        )?;
-
-        for strip in &self.strips {
-            if let Some(ref f) = strip.filter {
-                if let Some(ref ms) = f.cutoff.mod_source {
-                    insert_mod_source(&mut stmt, strip.id, "cutoff", ms)?;
-                }
-                if let Some(ref ms) = f.resonance.mod_source {
-                    insert_mod_source(&mut stmt, strip.id, "resonance", ms)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn save_mixer(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut stmt = conn.prepare(
-            "INSERT INTO mixer_buses (id, name, level, pan, mute, solo)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        )?;
-        for bus in &self.buses {
-            stmt.execute(rusqlite::params![bus.id, bus.name, bus.level as f64, bus.pan as f64, bus.mute, bus.solo])?;
-        }
-
-        conn.execute(
-            "INSERT INTO mixer_master (id, level, mute) VALUES (1, ?1, ?2)",
-            rusqlite::params![self.master_level as f64, self.master_mute],
-        )?;
-        Ok(())
-    }
-
-    fn save_sampler_configs(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut config_stmt = conn.prepare(
-            "INSERT INTO sampler_configs (strip_id, buffer_id, loop_mode, pitch_tracking, next_slice_id)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-        )?;
-        let mut slice_stmt = conn.prepare(
-            "INSERT INTO sampler_slices (strip_id, slice_id, position, start_pos, end_pos, name, root_note)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )?;
-
-        for strip in &self.strips {
-            if let Some(ref config) = strip.sampler_config {
-                config_stmt.execute(rusqlite::params![
-                    strip.id,
-                    config.buffer_id.map(|id| id as i32),
-                    config.loop_mode,
-                    config.pitch_tracking,
-                    config.next_slice_id() as i32,
-                ])?;
-
-                for (pos, slice) in config.slices.iter().enumerate() {
-                    slice_stmt.execute(rusqlite::params![
-                        strip.id,
-                        slice.id as i32,
-                        pos as i32,
-                        slice.start as f64,
-                        slice.end as f64,
-                        &slice.name,
-                        slice.root_note as i32,
+        // Save only active steps
+        for (pad_idx, pad_steps) in pattern.steps.iter().enumerate() {
+            for (step_idx, step) in pad_steps.iter().enumerate() {
+                if step.active {
+                    step_stmt.execute(rusqlite::params![
+                        pi, pad_idx, step_idx, step.velocity as i32
                     ])?;
                 }
             }
         }
-        Ok(())
+    }
+    Ok(())
+}
+
+fn save_custom_synthdefs(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    let mut synthdef_stmt = conn.prepare(
+        "INSERT INTO custom_synthdefs (id, name, synthdef_name, source_path)
+             VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    let mut param_stmt = conn.prepare(
+        "INSERT INTO custom_synthdef_params (synthdef_id, position, name, default_val, min_val, max_val)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+
+    for synthdef in &session.custom_synthdefs.synthdefs {
+        synthdef_stmt.execute(rusqlite::params![
+            synthdef.id,
+            &synthdef.name,
+            &synthdef.synthdef_name,
+            synthdef.source_path.to_string_lossy().as_ref(),
+        ])?;
+
+        for (pos, param) in synthdef.params.iter().enumerate() {
+            param_stmt.execute(rusqlite::params![
+                synthdef.id,
+                pos as i32,
+                &param.name,
+                param.default as f64,
+                param.min as f64,
+                param.max as f64,
+            ])?;
+        }
     }
 
-    fn save_automation(&self, conn: &SqlConnection) -> SqlResult<()> {
-        let mut lane_stmt = conn.prepare(
-            "INSERT INTO automation_lanes (id, target_type, target_strip_id, target_effect_idx, target_param_idx, enabled, min_value, max_value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        )?;
-        let mut point_stmt = conn.prepare(
-            "INSERT INTO automation_points (lane_id, tick, value, curve_type)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
+    Ok(())
+}
 
-        for lane in &self.automation.lanes {
-            let (target_type, strip_id, effect_idx, param_idx) = match &lane.target {
-                super::automation::AutomationTarget::StripLevel(id) => ("strip_level", *id, None, None),
-                super::automation::AutomationTarget::StripPan(id) => ("strip_pan", *id, None, None),
-                super::automation::AutomationTarget::FilterCutoff(id) => ("filter_cutoff", *id, None, None),
-                super::automation::AutomationTarget::FilterResonance(id) => ("filter_resonance", *id, None, None),
-                super::automation::AutomationTarget::EffectParam(id, fx, param) => {
-                    ("effect_param", *id, Some(*fx as i32), Some(*param as i32))
-                }
-                super::automation::AutomationTarget::SamplerRate(id) => ("sampler_rate", *id, None, None),
-                super::automation::AutomationTarget::SamplerAmp(id) => ("sampler_amp", *id, None, None),
+fn save_strips(conn: &SqlConnection, strips: &StripState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO strips (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
+             lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
+             amp_attack, amp_decay, amp_sustain, amp_release, polyphonic, has_track,
+             level, pan, mute, solo, output_target)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+    )?;
+    for (pos, strip) in strips.strips.iter().enumerate() {
+        let source_str = match strip.source {
+            OscType::Custom(id) => format!("custom:{}", id),
+            _ => strip.source.short_name().to_string(),
+        };
+        let (filter_type, filter_cutoff, filter_res): (Option<String>, Option<f64>, Option<f64>) =
+            if let Some(ref f) = strip.filter {
+                (
+                    Some(format!("{:?}", f.filter_type).to_lowercase()),
+                    Some(f.cutoff.value as f64),
+                    Some(f.resonance.value as f64),
+                )
+            } else {
+                (None, None, None)
             };
+        let lfo_shape_str = match strip.lfo.shape {
+            LfoShape::Sine => "sine",
+            LfoShape::Square => "square",
+            LfoShape::Saw => "saw",
+            LfoShape::Triangle => "triangle",
+        };
+        let lfo_target_str = match strip.lfo.target {
+            LfoTarget::FilterCutoff => "filter_cutoff",
+            LfoTarget::FilterResonance => "filter_res",
+            LfoTarget::Amplitude => "amp",
+            LfoTarget::Pitch => "pitch",
+            LfoTarget::Pan => "pan",
+            LfoTarget::PulseWidth => "pulse_width",
+            LfoTarget::SampleRate => "sample_rate",
+            LfoTarget::DelayTime => "delay_time",
+            LfoTarget::DelayFeedback => "delay_feedback",
+            LfoTarget::ReverbMix => "reverb_mix",
+            LfoTarget::GateRate => "gate_rate",
+            LfoTarget::SendLevel => "send_level",
+            LfoTarget::Detune => "detune",
+            LfoTarget::Attack => "attack",
+            LfoTarget::Release => "release",
+        };
+        let output_str = match strip.output_target {
+            OutputTarget::Master => "master".to_string(),
+            OutputTarget::Bus(n) => format!("bus:{}", n),
+        };
+        stmt.execute(rusqlite::params![
+            strip.id,
+            strip.name,
+            pos as i32,
+            source_str,
+            filter_type,
+            filter_cutoff,
+            filter_res,
+            strip.lfo.enabled,
+            strip.lfo.rate as f64,
+            strip.lfo.depth as f64,
+            lfo_shape_str,
+            lfo_target_str,
+            strip.amp_envelope.attack as f64,
+            strip.amp_envelope.decay as f64,
+            strip.amp_envelope.sustain as f64,
+            strip.amp_envelope.release as f64,
+            strip.polyphonic,
+            strip.has_track,
+            strip.level as f64,
+            strip.pan as f64,
+            strip.mute,
+            strip.solo,
+            output_str,
+        ])?;
+    }
+    Ok(())
+}
 
-            lane_stmt.execute(rusqlite::params![
-                lane.id as i32,
-                target_type,
-                strip_id,
-                effect_idx,
-                param_idx,
-                lane.enabled,
-                lane.min_value as f64,
-                lane.max_value as f64,
+fn save_source_params(conn: &SqlConnection, strips: &StripState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO strip_source_params (strip_id, param_name, param_value, param_min, param_max, param_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for strip in &strips.strips {
+        for param in &strip.source_params {
+            let (value, param_type) = match &param.value {
+                ParamValue::Float(v) => (*v as f64, "float"),
+                ParamValue::Int(v) => (*v as f64, "int"),
+                ParamValue::Bool(v) => (if *v { 1.0 } else { 0.0 }, "bool"),
+            };
+            stmt.execute(rusqlite::params![
+                strip.id,
+                param.name,
+                value,
+                param.min as f64,
+                param.max as f64,
+                param_type,
             ])?;
+        }
+    }
+    Ok(())
+}
 
-            for point in &lane.points {
-                let curve_str = match point.curve {
-                    super::automation::CurveType::Linear => "linear",
-                    super::automation::CurveType::Exponential => "exponential",
-                    super::automation::CurveType::Step => "step",
-                    super::automation::CurveType::SCurve => "scurve",
+fn save_effects(conn: &SqlConnection, strips: &StripState) -> SqlResult<()> {
+    let mut effect_stmt = conn.prepare(
+        "INSERT INTO strip_effects (strip_id, position, effect_type, enabled)
+             VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    let mut param_stmt = conn.prepare(
+        "INSERT INTO strip_effect_params (strip_id, effect_position, param_name, param_value)
+             VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for strip in &strips.strips {
+        for (pos, effect) in strip.effects.iter().enumerate() {
+            let type_str = format!("{:?}", effect.effect_type).to_lowercase();
+            effect_stmt.execute(rusqlite::params![
+                strip.id,
+                pos as i32,
+                type_str,
+                effect.enabled
+            ])?;
+            for param in &effect.params {
+                let value = match &param.value {
+                    ParamValue::Float(v) => *v as f64,
+                    ParamValue::Int(v) => *v as f64,
+                    ParamValue::Bool(v) => {
+                        if *v {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    }
                 };
-                point_stmt.execute(rusqlite::params![
-                    lane.id as i32,
-                    point.tick as i32,
-                    point.value as f64,
-                    curve_str,
+                param_stmt.execute(rusqlite::params![
+                    strip.id,
+                    pos as i32,
+                    param.name,
+                    value
                 ])?;
             }
         }
-        Ok(())
+    }
+    Ok(())
+}
+
+fn save_sends(conn: &SqlConnection, strips: &StripState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO strip_sends (strip_id, bus_id, level, enabled)
+             VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for strip in &strips.strips {
+        for send in &strip.sends {
+            stmt.execute(rusqlite::params![
+                strip.id,
+                send.bus_id,
+                send.level as f64,
+                send.enabled
+            ])?;
+        }
+    }
+    Ok(())
+}
+
+fn save_modulations(conn: &SqlConnection, strips: &StripState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO strip_modulations (strip_id, target_param, mod_type,
+             lfo_rate, lfo_depth, env_attack, env_decay, env_sustain, env_release,
+             source_strip_id, source_param_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )?;
+
+    for strip in &strips.strips {
+        if let Some(ref f) = strip.filter {
+            if let Some(ref ms) = f.cutoff.mod_source {
+                insert_mod_source(&mut stmt, strip.id, "cutoff", ms)?;
+            }
+            if let Some(ref ms) = f.resonance.mod_source {
+                insert_mod_source(&mut stmt, strip.id, "resonance", ms)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn save_mixer(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO mixer_buses (id, name, level, pan, mute, solo)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for bus in &session.buses {
+        stmt.execute(rusqlite::params![
+            bus.id,
+            bus.name,
+            bus.level as f64,
+            bus.pan as f64,
+            bus.mute,
+            bus.solo
+        ])?;
     }
 
-    fn save_piano_roll(&self, conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
-        // Tracks
-        {
-            let mut stmt = conn.prepare(
-                "INSERT INTO piano_roll_tracks (strip_id, position, polyphonic)
+    conn.execute(
+        "INSERT INTO mixer_master (id, level, mute) VALUES (1, ?1, ?2)",
+        rusqlite::params![session.master_level as f64, session.master_mute],
+    )?;
+    Ok(())
+}
+
+fn save_sampler_configs(conn: &SqlConnection, strips: &StripState) -> SqlResult<()> {
+    let mut config_stmt = conn.prepare(
+        "INSERT INTO sampler_configs (strip_id, buffer_id, loop_mode, pitch_tracking, next_slice_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?;
+    let mut slice_stmt = conn.prepare(
+        "INSERT INTO sampler_slices (strip_id, slice_id, position, start_pos, end_pos, name, root_note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+
+    for strip in &strips.strips {
+        if let Some(ref config) = strip.sampler_config {
+            config_stmt.execute(rusqlite::params![
+                strip.id,
+                config.buffer_id.map(|id| id as i32),
+                config.loop_mode,
+                config.pitch_tracking,
+                config.next_slice_id() as i32,
+            ])?;
+
+            for (pos, slice) in config.slices.iter().enumerate() {
+                slice_stmt.execute(rusqlite::params![
+                    strip.id,
+                    slice.id as i32,
+                    pos as i32,
+                    slice.start as f64,
+                    slice.end as f64,
+                    &slice.name,
+                    slice.root_note as i32,
+                ])?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn save_automation(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    let mut lane_stmt = conn.prepare(
+        "INSERT INTO automation_lanes (id, target_type, target_strip_id, target_effect_idx, target_param_idx, enabled, min_value, max_value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+    let mut point_stmt = conn.prepare(
+        "INSERT INTO automation_points (lane_id, tick, value, curve_type)
+             VALUES (?1, ?2, ?3, ?4)",
+    )?;
+
+    for lane in &session.automation.lanes {
+        let (target_type, strip_id, effect_idx, param_idx) = match &lane.target {
+            super::automation::AutomationTarget::StripLevel(id) => {
+                ("strip_level", *id, None, None)
+            }
+            super::automation::AutomationTarget::StripPan(id) => ("strip_pan", *id, None, None),
+            super::automation::AutomationTarget::FilterCutoff(id) => {
+                ("filter_cutoff", *id, None, None)
+            }
+            super::automation::AutomationTarget::FilterResonance(id) => {
+                ("filter_resonance", *id, None, None)
+            }
+            super::automation::AutomationTarget::EffectParam(id, fx, param) => {
+                ("effect_param", *id, Some(*fx as i32), Some(*param as i32))
+            }
+            super::automation::AutomationTarget::SamplerRate(id) => {
+                ("sampler_rate", *id, None, None)
+            }
+            super::automation::AutomationTarget::SamplerAmp(id) => {
+                ("sampler_amp", *id, None, None)
+            }
+        };
+
+        lane_stmt.execute(rusqlite::params![
+            lane.id as i32,
+            target_type,
+            strip_id,
+            effect_idx,
+            param_idx,
+            lane.enabled,
+            lane.min_value as f64,
+            lane.max_value as f64,
+        ])?;
+
+        for point in &lane.points {
+            let curve_str = match point.curve {
+                super::automation::CurveType::Linear => "linear",
+                super::automation::CurveType::Exponential => "exponential",
+                super::automation::CurveType::Step => "step",
+                super::automation::CurveType::SCurve => "scurve",
+            };
+            point_stmt.execute(rusqlite::params![
+                lane.id as i32,
+                point.tick as i32,
+                point.value as f64,
+                curve_str,
+            ])?;
+        }
+    }
+    Ok(())
+}
+
+fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    // Tracks
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO piano_roll_tracks (strip_id, position, polyphonic)
                  VALUES (?1, ?2, ?3)",
-            )?;
-            for (pos, &sid) in self.piano_roll.track_order.iter().enumerate() {
-                if let Some(track) = self.piano_roll.tracks.get(&sid) {
-                    stmt.execute(rusqlite::params![sid, pos as i32, track.polyphonic])?;
-                }
+        )?;
+        for (pos, &sid) in session.piano_roll.track_order.iter().enumerate() {
+            if let Some(track) = session.piano_roll.tracks.get(&sid) {
+                stmt.execute(rusqlite::params![sid, pos as i32, track.polyphonic])?;
             }
         }
+    }
 
-        // Notes
-        {
-            let mut stmt = conn.prepare(
-                "INSERT INTO piano_roll_notes (track_strip_id, tick, duration, pitch, velocity)
+    // Notes
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO piano_roll_notes (track_strip_id, tick, duration, pitch, velocity)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-            )?;
-            for track in self.piano_roll.tracks.values() {
-                for note in &track.notes {
-                    stmt.execute(rusqlite::params![track.module_id, note.tick, note.duration, note.pitch, note.velocity])?;
-                }
+        )?;
+        for track in session.piano_roll.tracks.values() {
+            for note in &track.notes {
+                stmt.execute(rusqlite::params![
+                    track.module_id,
+                    note.tick,
+                    note.duration,
+                    note.pitch,
+                    note.velocity
+                ])?;
             }
         }
+    }
 
-        // Musical settings
-        conn.execute(
-            "INSERT INTO musical_settings (id, bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping, key, scale, tuning_a4, snap)
+    // Musical settings
+    conn.execute(
+        "INSERT INTO musical_settings (id, bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping, key, scale, tuning_a4, snap)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            rusqlite::params![
-                session.bpm as f64,
-                session.time_signature.0,
-                session.time_signature.1,
-                self.piano_roll.ticks_per_beat,
-                self.piano_roll.loop_start,
-                self.piano_roll.loop_end,
-                self.piano_roll.looping,
-                session.key.name(),
-                session.scale.name(),
-                session.tuning_a4 as f64,
-                session.snap,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// Load from SQLite
-    pub fn load(path: &Path) -> SqlResult<(Self, SessionState)> {
-        let conn = SqlConnection::open(path)?;
-
-        let next_id: StripId = conn.query_row(
-            "SELECT next_strip_id FROM session WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )?;
-
-        let mut strips = load_strips(&conn)?;
-        load_source_params(&conn, &mut strips)?;
-        load_effects(&conn, &mut strips)?;
-        load_sends(&conn, &mut strips)?;
-        load_modulations(&conn, &mut strips)?;
-        load_sampler_configs(&conn, &mut strips)?;
-        let buses = load_buses(&conn)?;
-        let (master_level, master_mute) = load_master(&conn);
-        let (piano_roll, session) = load_piano_roll(&conn)?;
-        let automation = load_automation(&conn)?;
-
-        let custom_synthdefs = load_custom_synthdefs(&conn)?;
-        let drum_sequencer = load_drum_sequencer(&conn).unwrap_or_else(|_| super::drum_sequencer::DrumSequencerState::new());
-
-        Ok((Self {
-            strips,
-            selected: None,
-            next_id,
-            buses,
-            master_level,
-            master_mute,
-            piano_roll,
-            mixer_selection: MixerSelection::default(),
-            automation,
-            midi_recording: super::midi_recording::MidiRecordingState::new(),
-            custom_synthdefs,
-            drum_sequencer,
-        }, session))
-    }
+        rusqlite::params![
+            session.bpm as f64,
+            session.time_signature.0,
+            session.time_signature.1,
+            session.piano_roll.ticks_per_beat,
+            session.piano_roll.loop_start,
+            session.piano_roll.loop_end,
+            session.piano_roll.looping,
+            session.key.name(),
+            session.scale.name(),
+            session.tuning_a4 as f64,
+            session.snap,
+        ],
+    )?;
+    Ok(())
 }
 
 // --- Load helpers ---
+
+/// Musical settings loaded from the database, used to populate SessionState fields.
+struct MusicalSettingsLoaded {
+    bpm: u16,
+    time_signature: (u8, u8),
+    key: Key,
+    scale: Scale,
+    tuning_a4: f32,
+    snap: bool,
+}
+
+impl Default for MusicalSettingsLoaded {
+    fn default() -> Self {
+        Self {
+            bpm: 120,
+            time_signature: (4, 4),
+            key: Key::C,
+            scale: Scale::Major,
+            tuning_a4: 440.0,
+            snap: false,
+        }
+    }
+}
 
 fn load_strips(conn: &SqlConnection) -> SqlResult<Vec<Strip>> {
     let mut strips = Vec::new();
@@ -729,24 +827,68 @@ fn load_strips(conn: &SqlConnection) -> SqlResult<Vec<Strip>> {
         let mute: bool = row.get(19)?;
         let solo: bool = row.get(20)?;
         let output_str: String = row.get(21)?;
-        Ok((id, name, source_str, filter_type_str, filter_cutoff, filter_res,
-            lfo_enabled, lfo_rate, lfo_depth, lfo_shape_str, lfo_target_str,
-            attack, decay, sustain, release, polyphonic, has_track,
-            level, pan, mute, solo, output_str))
+        Ok((
+            id,
+            name,
+            source_str,
+            filter_type_str,
+            filter_cutoff,
+            filter_res,
+            lfo_enabled,
+            lfo_rate,
+            lfo_depth,
+            lfo_shape_str,
+            lfo_target_str,
+            attack,
+            decay,
+            sustain,
+            release,
+            polyphonic,
+            has_track,
+            level,
+            pan,
+            mute,
+            solo,
+            output_str,
+        ))
     })?;
 
     for result in rows {
-        let (id, name, source_str, filter_type_str, filter_cutoff, filter_res,
-             lfo_enabled, lfo_rate, lfo_depth, lfo_shape_str, lfo_target_str,
-             attack, decay, sustain, release, polyphonic, has_track,
-             level, pan, mute, solo, output_str) = result?;
+        let (
+            id,
+            name,
+            source_str,
+            filter_type_str,
+            filter_cutoff,
+            filter_res,
+            lfo_enabled,
+            lfo_rate,
+            lfo_depth,
+            lfo_shape_str,
+            lfo_target_str,
+            attack,
+            decay,
+            sustain,
+            release,
+            polyphonic,
+            has_track,
+            level,
+            pan,
+            mute,
+            solo,
+            output_str,
+        ) = result?;
 
         let source = parse_osc_type(&source_str);
         let filter = filter_type_str.map(|ft| {
             let filter_type = parse_filter_type(&ft);
             let mut config = FilterConfig::new(filter_type);
-            if let Some(c) = filter_cutoff { config.cutoff.value = c as f32; }
-            if let Some(r) = filter_res { config.resonance.value = r as f32; }
+            if let Some(c) = filter_cutoff {
+                config.cutoff.value = c as f32;
+            }
+            if let Some(r) = filter_res {
+                config.resonance.value = r as f32;
+            }
             config
         });
         let lfo_shape = match lfo_shape_str.as_str() {
@@ -776,7 +918,9 @@ fn load_strips(conn: &SqlConnection) -> SqlResult<Vec<Strip>> {
         let output_target = if output_str == "master" {
             OutputTarget::Master
         } else if let Some(n) = output_str.strip_prefix("bus:") {
-            n.parse::<u8>().map(OutputTarget::Bus).unwrap_or(OutputTarget::Master)
+            n.parse::<u8>()
+                .map(OutputTarget::Bus)
+                .unwrap_or(OutputTarget::Master)
         } else {
             OutputTarget::Master
         };
@@ -828,22 +972,30 @@ fn load_source_params(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult<(
          FROM strip_source_params WHERE strip_id = ?1",
     )?;
     for strip in strips {
-        let params: Vec<Param> = stmt.query_map([&strip.id], |row| {
-            let name: String = row.get(0)?;
-            let value: f64 = row.get(1)?;
-            let min: f64 = row.get(2)?;
-            let max: f64 = row.get(3)?;
-            let param_type: String = row.get(4)?;
-            Ok((name, value, min, max, param_type))
-        })?.filter_map(|r| r.ok())
-        .map(|(name, value, min, max, param_type)| {
-            let pv = match param_type.as_str() {
-                "int" => ParamValue::Int(value as i32),
-                "bool" => ParamValue::Bool(value != 0.0),
-                _ => ParamValue::Float(value as f32),
-            };
-            Param { name, value: pv, min: min as f32, max: max as f32 }
-        }).collect();
+        let params: Vec<Param> = stmt
+            .query_map([&strip.id], |row| {
+                let name: String = row.get(0)?;
+                let value: f64 = row.get(1)?;
+                let min: f64 = row.get(2)?;
+                let max: f64 = row.get(3)?;
+                let param_type: String = row.get(4)?;
+                Ok((name, value, min, max, param_type))
+            })?
+            .filter_map(|r| r.ok())
+            .map(|(name, value, min, max, param_type)| {
+                let pv = match param_type.as_str() {
+                    "int" => ParamValue::Int(value as i32),
+                    "bool" => ParamValue::Bool(value != 0.0),
+                    _ => ParamValue::Float(value as f32),
+                };
+                Param {
+                    name,
+                    value: pv,
+                    min: min as f32,
+                    max: max as f32,
+                }
+            })
+            .collect();
         if !params.is_empty() {
             strip.source_params = params;
         }
@@ -859,18 +1011,24 @@ fn load_effects(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult<()> {
         "SELECT param_name, param_value FROM strip_effect_params WHERE strip_id = ?1 AND effect_position = ?2",
     )?;
     for strip in strips {
-        let effects: Vec<(i32, String, bool)> = effect_stmt.query_map([&strip.id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?.filter_map(|r| r.ok()).collect();
+        let effects: Vec<(i32, String, bool)> = effect_stmt
+            .query_map([&strip.id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
 
         for (pos, type_str, enabled) in effects {
             let effect_type = parse_effect_type(&type_str);
             let mut slot = EffectSlot::new(effect_type);
             slot.enabled = enabled;
 
-            let params: Vec<(String, f64)> = param_stmt.query_map(rusqlite::params![strip.id, pos], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.filter_map(|r| r.ok()).collect();
+            let params: Vec<(String, f64)> = param_stmt
+                .query_map(rusqlite::params![strip.id, pos], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
 
             for (name, value) in params {
                 if let Some(p) = slot.params.iter_mut().find(|p| p.name == name) {
@@ -962,8 +1120,20 @@ fn load_modulations(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult<()>
             ))
         }) {
             for result in rows {
-                if let Ok((strip_id, target, mod_type, lfo_rate, lfo_depth,
-                           env_a, env_d, env_s, env_r, src_id, src_name)) = result {
+                if let Ok((
+                    strip_id,
+                    target,
+                    mod_type,
+                    lfo_rate,
+                    lfo_depth,
+                    env_a,
+                    env_d,
+                    env_s,
+                    env_r,
+                    src_id,
+                    src_name,
+                )) = result
+                {
                     let mod_source = match mod_type.as_str() {
                         "lfo" => Some(ModSource::Lfo(LfoConfig {
                             enabled: true,
@@ -978,7 +1148,9 @@ fn load_modulations(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult<()>
                             sustain: env_s.unwrap_or(0.7) as f32,
                             release: env_r.unwrap_or(0.3) as f32,
                         })),
-                        "strip_param" => src_id.zip(src_name).map(|(id, name)| ModSource::StripParam(id, name)),
+                        "strip_param" => {
+                            src_id.zip(src_name).map(|(id, name)| ModSource::StripParam(id, name))
+                        }
                         _ => None,
                     };
 
@@ -1006,8 +1178,14 @@ fn load_buses(conn: &SqlConnection) -> SqlResult<Vec<MixerBus>> {
         "SELECT id, name, level, pan, mute, solo FROM mixer_buses ORDER BY id",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
-            Ok((row.get::<_, u8>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?,
-                row.get::<_, f64>(3)?, row.get::<_, bool>(4)?, row.get::<_, bool>(5)?))
+            Ok((
+                row.get::<_, u8>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, bool>(4)?,
+                row.get::<_, bool>(5)?,
+            ))
         }) {
             for result in rows {
                 if let Ok((id, name, level, pan, mute, solo)) = result {
@@ -1037,9 +1215,9 @@ fn load_master(conn: &SqlConnection) -> (f32, bool) {
     }
 }
 
-fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, SessionState)> {
+fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, MusicalSettingsLoaded)> {
     let mut piano_roll = PianoRollState::new();
-    let mut session = SessionState::default();
+    let mut musical = MusicalSettingsLoaded::default();
 
     if let Ok(row) = conn.query_row(
         "SELECT bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping, key, scale, tuning_a4, snap
@@ -1054,12 +1232,12 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, SessionSt
             ))
         },
     ) {
-        session.bpm = row.0 as u16;
-        session.time_signature = (row.1, row.2);
-        session.key = parse_key(&row.7);
-        session.scale = parse_scale(&row.8);
-        session.tuning_a4 = row.9 as f32;
-        session.snap = row.10;
+        musical.bpm = row.0 as u16;
+        musical.time_signature = (row.1, row.2);
+        musical.key = parse_key(&row.7);
+        musical.scale = parse_scale(&row.8);
+        musical.tuning_a4 = row.9 as f32;
+        musical.snap = row.10;
         piano_roll.bpm = row.0 as f32;
         piano_roll.time_signature = (row.1, row.2);
         piano_roll.ticks_per_beat = row.3;
@@ -1096,20 +1274,27 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, SessionSt
         "SELECT track_strip_id, tick, duration, pitch, velocity FROM piano_roll_notes",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
-            Ok((row.get::<_, StripId>(0)?, row.get::<_, u32>(1)?, row.get::<_, u32>(2)?,
-                row.get::<_, u8>(3)?, row.get::<_, u8>(4)?))
+            Ok((
+                row.get::<_, StripId>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, u32>(2)?,
+                row.get::<_, u8>(3)?,
+                row.get::<_, u8>(4)?,
+            ))
         }) {
             for result in rows {
                 if let Ok((strip_id, tick, duration, pitch, velocity)) = result {
                     if let Some(track) = piano_roll.tracks.get_mut(&strip_id) {
-                        track.notes.push(super::piano_roll::Note { tick, duration, pitch, velocity });
+                        track
+                            .notes
+                            .push(super::piano_roll::Note { tick, duration, pitch, velocity });
                     }
                 }
             }
         }
     }
 
-    Ok((piano_roll, session))
+    Ok((piano_roll, musical))
 }
 
 fn load_sampler_configs(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult<()> {
@@ -1127,13 +1312,16 @@ fn load_sampler_configs(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult
             ))
         }) {
             for result in rows {
-                if let Ok((strip_id, buffer_id, loop_mode, pitch_tracking, next_slice_id)) = result {
+                if let Ok((strip_id, buffer_id, loop_mode, pitch_tracking, next_slice_id)) = result
+                {
                     if let Some(strip) = strips.iter_mut().find(|s| s.id == strip_id) {
                         if let Some(ref mut config) = strip.sampler_config {
-                            config.buffer_id = buffer_id.map(|id| id as super::sampler::BufferId);
+                            config.buffer_id =
+                                buffer_id.map(|id| id as super::sampler::BufferId);
                             config.loop_mode = loop_mode;
                             config.pitch_tracking = pitch_tracking;
-                            config.set_next_slice_id(next_slice_id as super::sampler::SliceId);
+                            config
+                                .set_next_slice_id(next_slice_id as super::sampler::SliceId);
                             // Clear default slices - we'll load them from the database
                             config.slices.clear();
                         }
@@ -1179,7 +1367,9 @@ fn load_sampler_configs(conn: &SqlConnection, strips: &mut [Strip]) -> SqlResult
 }
 
 fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::AutomationState> {
-    use super::automation::{AutomationLane, AutomationPoint, AutomationState, AutomationTarget, CurveType};
+    use super::automation::{
+        AutomationLane, AutomationPoint, AutomationState, AutomationTarget, CurveType,
+    };
 
     let mut state = AutomationState::new();
 
@@ -1201,7 +1391,17 @@ fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::Automat
             ))
         }) {
             for result in rows {
-                if let Ok((id, target_type, strip_id, effect_idx, param_idx, enabled, min_value, max_value)) = result {
+                if let Ok((
+                    id,
+                    target_type,
+                    strip_id,
+                    effect_idx,
+                    param_idx,
+                    enabled,
+                    min_value,
+                    max_value,
+                )) = result
+                {
                     let target = match target_type.as_str() {
                         "strip_level" => AutomationTarget::StripLevel(strip_id),
                         "strip_pan" => AutomationTarget::StripPan(strip_id),
@@ -1250,7 +1450,8 @@ fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::Automat
                     };
 
                     if let Some(lane) = state.lanes.iter_mut().find(|l| l.id == lane_id as u32) {
-                        lane.points.push(AutomationPoint::with_curve(tick as u32, value as f32, curve));
+                        lane.points
+                            .push(AutomationPoint::with_curve(tick as u32, value as f32, curve));
                     }
                 }
             }
@@ -1265,15 +1466,17 @@ fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::Automat
     Ok(state)
 }
 
-fn load_drum_sequencer(conn: &SqlConnection) -> SqlResult<super::drum_sequencer::DrumSequencerState> {
+fn load_drum_sequencer(
+    conn: &SqlConnection,
+) -> SqlResult<super::drum_sequencer::DrumSequencerState> {
     use super::drum_sequencer::{DrumPattern, DrumSequencerState};
 
     let mut seq = DrumSequencerState::new();
 
     // Load pads
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT pad_index, buffer_id, path, name, level FROM drum_pads",
-    ) {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT pad_index, buffer_id, path, name, level FROM drum_pads")
+    {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, usize>(0)?,
@@ -1400,7 +1603,9 @@ fn load_custom_synthdefs(conn: &SqlConnection) -> SqlResult<CustomSynthDefRegist
         }) {
             for result in rows {
                 if let Ok((synthdef_id, name, default_val, min_val, max_val)) = result {
-                    if let Some(synthdef) = registry.synthdefs.iter_mut().find(|s| s.id == synthdef_id) {
+                    if let Some(synthdef) =
+                        registry.synthdefs.iter_mut().find(|s| s.id == synthdef_id)
+                    {
                         synthdef.params.push(ParamSpec {
                             name,
                             default: default_val as f32,
@@ -1419,11 +1624,19 @@ fn load_custom_synthdefs(conn: &SqlConnection) -> SqlResult<CustomSynthDefRegist
 // --- Parse helpers ---
 
 fn parse_key(s: &str) -> Key {
-    Key::ALL.iter().find(|k| k.name() == s).copied().unwrap_or(Key::C)
+    Key::ALL
+        .iter()
+        .find(|k| k.name() == s)
+        .copied()
+        .unwrap_or(Key::C)
 }
 
 fn parse_scale(s: &str) -> Scale {
-    Scale::ALL.iter().find(|sc| sc.name() == s).copied().unwrap_or(Scale::Major)
+    Scale::ALL
+        .iter()
+        .find(|sc| sc.name() == s)
+        .copied()
+        .unwrap_or(Scale::Major)
 }
 
 fn parse_osc_type(s: &str) -> OscType {

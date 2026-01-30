@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use super::bus_allocator::BusAllocator;
 use super::osc_client::OscClient;
-use crate::state::{AutomationTarget, BufferId, CustomSynthDefRegistry, EffectType, FilterType, OscType, ParamValue, StripId, StripState};
+use crate::state::{AutomationTarget, BufferId, CustomSynthDefRegistry, EffectType, FilterType, OscType, ParamValue, SessionState, StripId, StripState};
 
 #[allow(dead_code)]
 pub type ModuleId = u32;
@@ -347,7 +347,7 @@ impl AudioEngine {
     /// 2. Optional filter synth
     /// 3. Effect synths in order
     /// 4. Output synth with level/pan/mute
-    pub fn rebuild_strip_routing(&mut self, state: &StripState) -> Result<(), String> {
+    pub fn rebuild_strip_routing(&mut self, state: &StripState, session: &SessionState) -> Result<(), String> {
         if !self.is_running {
             return Ok(());
         }
@@ -524,10 +524,11 @@ impl AudioEngine {
             {
                 let node_id = self.next_node_id;
                 self.next_node_id += 1;
-                let mute = state.effective_strip_mute(strip);
+                let any_solo = state.any_strip_solo();
+                let mute = if any_solo { !strip.solo } else { strip.mute || session.master_mute };
                 let params = vec![
                     ("in".to_string(), current_bus as f32),
-                    ("level".to_string(), strip.level * state.master_level),
+                    ("level".to_string(), strip.level * session.master_level),
                     ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
                     ("pan".to_string(), strip.pan),
                 ];
@@ -557,7 +558,7 @@ impl AudioEngine {
         self.next_voice_control_bus = self.bus_allocator.next_control_bus;
 
         // Allocate audio buses for each mixer bus through the bus allocator
-        for bus in &state.buses {
+        for bus in &session.buses {
             let bus_audio = self.bus_allocator.get_or_alloc_audio_bus(
                 u32::MAX - bus.id as u32,
                 "bus_out",
@@ -593,11 +594,11 @@ impl AudioEngine {
         }
 
         // Create bus output synths
-        for bus in &state.buses {
+        for bus in &session.buses {
             if let Some(&bus_audio) = self.bus_audio_buses.get(&bus.id) {
                 let node_id = self.next_node_id;
                 self.next_node_id += 1;
-                let mute = state.effective_bus_mute(bus);
+                let mute = session.effective_bus_mute(bus);
                 let params = vec![
                     ("in".to_string(), bus_audio as f32),
                     ("level".to_string(), bus.level),
@@ -632,13 +633,14 @@ impl AudioEngine {
     }
 
     /// Update all strip output mixer params (level, mute, pan) in real-time without rebuilding the graph
-    pub fn update_all_strip_mixer_params(&self, state: &StripState) -> Result<(), String> {
+    pub fn update_all_strip_mixer_params(&self, state: &StripState, session: &SessionState) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
         let client = self.client.as_ref().ok_or("Not connected")?;
+        let any_solo = state.any_strip_solo();
         for strip in &state.strips {
             if let Some(nodes) = self.node_map.get(&strip.id) {
-                let mute = state.effective_strip_mute(strip);
-                client.set_param(nodes.output, "level", strip.level * state.master_level)
+                let mute = strip.mute || session.master_mute || (any_solo && !strip.solo);
+                client.set_param(nodes.output, "level", strip.level * session.master_level)
                     .map_err(|e| e.to_string())?;
                 client.set_param(nodes.output, "mute", if mute { 1.0 } else { 0.0 })
                     .map_err(|e| e.to_string())?;
@@ -680,6 +682,7 @@ impl AudioEngine {
         velocity: f32,
         offset_secs: f64,
         state: &StripState,
+        session: &SessionState,
     ) -> Result<(), String> {
         let strip = state.strip(strip_id)
             .ok_or_else(|| format!("No strip with id {}", strip_id))?;
@@ -773,7 +776,7 @@ impl AudioEngine {
         self.next_node_id += 1;
         {
             let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String(Self::osc_synth_def(strip.source, &state.custom_synthdefs)),
+                rosc::OscType::String(Self::osc_synth_def(strip.source, &session.custom_synthdefs)),
                 rosc::OscType::Int(osc_node_id),
                 rosc::OscType::Int(1),
                 rosc::OscType::Int(group_id),
@@ -1201,7 +1204,7 @@ impl AudioEngine {
 
     /// Apply an automation value to a target parameter
     /// This updates the appropriate synth node in real-time
-    pub fn apply_automation(&self, target: &AutomationTarget, value: f32, state: &StripState) -> Result<(), String> {
+    pub fn apply_automation(&self, target: &AutomationTarget, value: f32, state: &StripState, session: &SessionState) -> Result<(), String> {
         if !self.is_running {
             return Ok(());
         }
@@ -1210,7 +1213,7 @@ impl AudioEngine {
         match target {
             AutomationTarget::StripLevel(strip_id) => {
                 if let Some(nodes) = self.node_map.get(strip_id) {
-                    let effective_level = value * state.master_level;
+                    let effective_level = value * session.master_level;
                     client.set_param(nodes.output, "level", effective_level)
                         .map_err(|e| e.to_string())?;
                 }

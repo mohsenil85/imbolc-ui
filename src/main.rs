@@ -70,9 +70,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
             // Global '.' to toggle master mute (works even in piano mode)
             if event.key == KeyCode::Char('.') {
-                state.strip.master_mute = !state.strip.master_mute;
+                state.session.master_mute = !state.session.master_mute;
                 if audio_engine.is_running() {
-                    let _ = audio_engine.update_all_strip_mixer_params(&state.strip);
+                    let _ = audio_engine.update_all_strip_mixer_params(&state.strip, &state.session);
                 }
                 continue;
             }
@@ -197,7 +197,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             } else {
                 0.0
             };
-            let mute = state.strip.master_mute;
+            let mute = state.session.master_mute;
             app_frame.set_master_peak(peak, mute);
         }
 
@@ -205,7 +205,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         if panes.active().id() == "piano_roll" {
             let track = panes.get_pane_mut::<PianoRollPane>("piano_roll")
                 .map(|p| p.current_track()).unwrap_or(0);
-            state.audio_in_waveform = state.strip.piano_roll
+            state.audio_in_waveform = state.session.piano_roll
                 .track_at(track)
                 .and_then(|t| state.strip.strip(t.module_id))
                 .filter(|s| s.source.is_audio_input())
@@ -216,7 +216,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
         // Render
         let mut frame = backend.begin_frame()?;
-        app_frame.render(&mut frame);
+        app_frame.render(&mut frame, &state.session);
         panes.render(&mut frame, &state);
         backend.end_frame(frame)?;
     }

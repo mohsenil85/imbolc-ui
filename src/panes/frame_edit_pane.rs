@@ -1,8 +1,7 @@
 use std::any::Any;
 
 use crate::state::music::{Key, Scale};
-use crate::state::AppState;
-use crate::ui::frame::SessionState;
+use crate::state::{AppState, MusicalSettings};
 use crate::ui::{Action, Color, Graphics, InputEvent, KeyCode, Keymap, NavAction, Pane, Rect, SessionAction, Style};
 use crate::ui::widgets::TextInput;
 
@@ -21,7 +20,7 @@ const FIELDS: [Field; 6] = [Field::Bpm, Field::TimeSig, Field::Tuning, Field::Ke
 
 pub struct FrameEditPane {
     keymap: Keymap,
-    session: SessionState,
+    settings: MusicalSettings,
     selected: usize,
     editing: bool,
     edit_input: TextInput,
@@ -37,17 +36,17 @@ impl FrameEditPane {
                 .bind_key(KeyCode::Right, "increase", "Increase value")
                 .bind_key(KeyCode::Enter, "confirm", "Confirm changes")
                 .bind_key(KeyCode::Escape, "cancel", "Cancel"),
-            session: SessionState::default(),
+            settings: MusicalSettings::default(),
             selected: 0,
             editing: false,
             edit_input: TextInput::new(""),
         }
     }
 
-    /// Set session state to edit (called before switching to this pane)
+    /// Set musical settings to edit (called before switching to this pane)
     #[allow(dead_code)]
-    pub fn set_session(&mut self, session: SessionState) {
-        self.session = session;
+    pub fn set_settings(&mut self, settings: MusicalSettings) {
+        self.settings = settings;
         self.selected = 0;
         self.editing = false;
     }
@@ -57,8 +56,8 @@ impl FrameEditPane {
     }
 
     fn cycle_key(&mut self, forward: bool) {
-        let idx = Key::ALL.iter().position(|k| *k == self.session.key).unwrap_or(0);
-        self.session.key = if forward {
+        let idx = Key::ALL.iter().position(|k| *k == self.settings.key).unwrap_or(0);
+        self.settings.key = if forward {
             Key::ALL[(idx + 1) % 12]
         } else {
             Key::ALL[(idx + 11) % 12]
@@ -66,9 +65,9 @@ impl FrameEditPane {
     }
 
     fn cycle_scale(&mut self, forward: bool) {
-        let idx = Scale::ALL.iter().position(|s| *s == self.session.scale).unwrap_or(0);
+        let idx = Scale::ALL.iter().position(|s| *s == self.settings.scale).unwrap_or(0);
         let len = Scale::ALL.len();
-        self.session.scale = if forward {
+        self.settings.scale = if forward {
             Scale::ALL[(idx + 1) % len]
         } else {
             Scale::ALL[(idx + len - 1) % len]
@@ -78,9 +77,9 @@ impl FrameEditPane {
     const TIME_SIGS: [(u8, u8); 5] = [(4, 4), (3, 4), (6, 8), (5, 4), (7, 8)];
 
     fn cycle_time_sig(&mut self, forward: bool) {
-        let idx = Self::TIME_SIGS.iter().position(|ts| *ts == self.session.time_signature).unwrap_or(0);
+        let idx = Self::TIME_SIGS.iter().position(|ts| *ts == self.settings.time_signature).unwrap_or(0);
         let len = Self::TIME_SIGS.len();
-        self.session.time_signature = if forward {
+        self.settings.time_signature = if forward {
             Self::TIME_SIGS[(idx + 1) % len]
         } else {
             Self::TIME_SIGS[(idx + len - 1) % len]
@@ -91,16 +90,16 @@ impl FrameEditPane {
         match self.current_field() {
             Field::Bpm => {
                 let delta: i16 = if increase { 1 } else { -1 };
-                self.session.bpm = (self.session.bpm as i16 + delta).clamp(20, 300) as u16;
+                self.settings.bpm = (self.settings.bpm as i16 + delta).clamp(20, 300) as u16;
             }
             Field::TimeSig => self.cycle_time_sig(increase),
             Field::Tuning => {
                 let delta: f32 = if increase { 1.0 } else { -1.0 };
-                self.session.tuning_a4 = (self.session.tuning_a4 + delta).clamp(400.0, 480.0);
+                self.settings.tuning_a4 = (self.settings.tuning_a4 + delta).clamp(400.0, 480.0);
             }
             Field::Key => self.cycle_key(increase),
             Field::Scale => self.cycle_scale(increase),
-            Field::Snap => self.session.snap = !self.session.snap,
+            Field::Snap => self.settings.snap = !self.settings.snap,
         }
     }
 
@@ -117,12 +116,12 @@ impl FrameEditPane {
 
     fn field_value(&self, field: Field) -> String {
         match field {
-            Field::Bpm => format!("{}", self.session.bpm),
-            Field::TimeSig => format!("{}/{}", self.session.time_signature.0, self.session.time_signature.1),
-            Field::Tuning => format!("{:.1} Hz", self.session.tuning_a4),
-            Field::Key => self.session.key.name().to_string(),
-            Field::Scale => self.session.scale.name().to_string(),
-            Field::Snap => if self.session.snap { "ON".into() } else { "OFF".into() },
+            Field::Bpm => format!("{}", self.settings.bpm),
+            Field::TimeSig => format!("{}/{}", self.settings.time_signature.0, self.settings.time_signature.1),
+            Field::Tuning => format!("{:.1} Hz", self.settings.tuning_a4),
+            Field::Key => self.settings.key.name().to_string(),
+            Field::Scale => self.settings.scale.name().to_string(),
+            Field::Snap => if self.settings.snap { "ON".into() } else { "OFF".into() },
         }
     }
 }
@@ -147,12 +146,12 @@ impl Pane for FrameEditPane {
                     match self.current_field() {
                         Field::Bpm => {
                             if let Ok(v) = text.parse::<u16>() {
-                                self.session.bpm = v.clamp(20, 300);
+                                self.settings.bpm = v.clamp(20, 300);
                             }
                         }
                         Field::Tuning => {
                             if let Ok(v) = text.parse::<f32>() {
-                                self.session.tuning_a4 = v.clamp(400.0, 480.0);
+                                self.settings.tuning_a4 = v.clamp(400.0, 480.0);
                             }
                         }
                         _ => {}
@@ -199,8 +198,8 @@ impl Pane for FrameEditPane {
                 let field = self.current_field();
                 if matches!(field, Field::Bpm | Field::Tuning) {
                     let val = match field {
-                        Field::Bpm => format!("{}", self.session.bpm),
-                        Field::Tuning => format!("{:.1}", self.session.tuning_a4),
+                        Field::Bpm => format!("{}", self.settings.bpm),
+                        Field::Tuning => format!("{:.1}", self.settings.tuning_a4),
                         _ => unreachable!(),
                     };
                     self.edit_input.set_value(&val);
@@ -208,7 +207,7 @@ impl Pane for FrameEditPane {
                     self.editing = true;
                     Action::None
                 } else {
-                    Action::Session(SessionAction::UpdateSession(self.session.clone()))
+                    Action::Session(SessionAction::UpdateSession(self.settings.clone()))
                 }
             }
             Some("cancel") => {

@@ -1,24 +1,13 @@
 use std::collections::VecDeque;
 
 use super::{Color, Graphics, Rect, Style};
-use crate::state::music::{Key, Scale};
+use crate::state::SessionState;
 
 const CONSOLE_LINES: u16 = 4;
 const CONSOLE_CAPACITY: usize = 100;
 
 /// Block characters for vertical meter: ▁▂▃▄▅▆▇█ (U+2581–U+2588)
 const BLOCK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-/// Musical session state displayed in the frame header
-#[derive(Debug, Clone, PartialEq)]
-pub struct SessionState {
-    pub key: Key,
-    pub scale: Scale,
-    pub bpm: u16,
-    pub tuning_a4: f32,
-    pub snap: bool,
-    pub time_signature: (u8, u8),
-}
 
 /// Captured view state for back/forward navigation
 #[derive(Debug, Clone)]
@@ -28,23 +17,9 @@ pub struct ViewState {
     pub edit_tab: u8,
 }
 
-impl Default for SessionState {
-    fn default() -> Self {
-        Self {
-            key: Key::C,
-            scale: Scale::Major,
-            bpm: 120,
-            tuning_a4: 440.0,
-            snap: false,
-            time_signature: (4, 4),
-        }
-    }
-}
-
 /// Frame wrapping the active pane with border, header bar, and message console
 pub struct Frame {
     messages: VecDeque<String>,
-    pub session: SessionState,
     pub project_name: String,
     pub master_mute: bool,
     /// Raw peak from audio engine (0.0–1.0+)
@@ -61,7 +36,6 @@ impl Frame {
     pub fn new() -> Self {
         Self {
             messages: VecDeque::with_capacity(CONSOLE_CAPACITY),
-            session: SessionState::default(),
             project_name: "default".to_string(),
             master_mute: false,
             master_peak: 0.0,
@@ -171,8 +145,9 @@ impl Frame {
         Rect::new(inner_x, inner_y, inner_w, inner_h)
     }
 
-    /// Render the frame (border, header, console) around pane content
-    pub fn render(&self, g: &mut dyn Graphics) {
+    /// Render the frame (border, header, console) around pane content.
+    /// Takes a reference to SessionState for displaying BPM, key, scale, etc.
+    pub fn render(&self, g: &mut dyn Graphics, session: &SessionState) {
         let (width, height) = g.size();
         if width < 10 || height < 10 {
             return;
@@ -184,12 +159,12 @@ impl Frame {
         g.draw_box(rect, None);
 
         // Top bar
-        let snap_text = if self.session.snap { "ON" } else { "OFF" };
-        let tuning_str = format!("A{:.0}", self.session.tuning_a4);
+        let snap_text = if session.snap { "ON" } else { "OFF" };
+        let tuning_str = format!("A{:.0}", session.tuning_a4);
         let header = format!(
             " TUIDAW - {}     Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
-            self.project_name, self.session.key.name(), self.session.scale.name(), self.session.bpm,
-            self.session.time_signature.0, self.session.time_signature.1,
+            self.project_name, session.key.name(), session.scale.name(), session.bpm,
+            session.time_signature.0, session.time_signature.1,
             tuning_str, snap_text,
         );
         g.set_style(Style::new().fg(Color::CYAN).bold());
