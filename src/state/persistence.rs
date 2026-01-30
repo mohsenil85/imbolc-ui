@@ -10,6 +10,55 @@ use super::session::{SessionState, MAX_BUSES};
 use super::instrument::*;
 use super::instrument_state::InstrumentState;
 
+// --- AutomationTarget serialization helpers ---
+
+fn serialize_automation_target(
+    target: &super::automation::AutomationTarget,
+) -> (&'static str, InstrumentId, Option<i32>, Option<i32>) {
+    match target {
+        super::automation::AutomationTarget::InstrumentLevel(id) => {
+            ("instrument_level", *id, None, None)
+        }
+        super::automation::AutomationTarget::InstrumentPan(id) => {
+            ("instrument_pan", *id, None, None)
+        }
+        super::automation::AutomationTarget::FilterCutoff(id) => {
+            ("filter_cutoff", *id, None, None)
+        }
+        super::automation::AutomationTarget::FilterResonance(id) => {
+            ("filter_resonance", *id, None, None)
+        }
+        super::automation::AutomationTarget::EffectParam(id, fx, param) => {
+            ("effect_param", *id, Some(*fx as i32), Some(*param as i32))
+        }
+        super::automation::AutomationTarget::SampleRate(id) => ("sample_rate", *id, None, None),
+        super::automation::AutomationTarget::SampleAmp(id) => ("sample_amp", *id, None, None),
+    }
+}
+
+fn deserialize_automation_target(
+    target_type: &str,
+    instrument_id: InstrumentId,
+    effect_idx: Option<i32>,
+    param_idx: Option<i32>,
+) -> Option<super::automation::AutomationTarget> {
+    use super::automation::AutomationTarget;
+    match target_type {
+        "instrument_level" => Some(AutomationTarget::InstrumentLevel(instrument_id)),
+        "instrument_pan" => Some(AutomationTarget::InstrumentPan(instrument_id)),
+        "filter_cutoff" => Some(AutomationTarget::FilterCutoff(instrument_id)),
+        "filter_resonance" => Some(AutomationTarget::FilterResonance(instrument_id)),
+        "effect_param" => {
+            let fx = effect_idx.unwrap_or(0) as usize;
+            let param = param_idx.unwrap_or(0) as usize;
+            Some(AutomationTarget::EffectParam(instrument_id, fx, param))
+        }
+        "sample_rate" => Some(AutomationTarget::SampleRate(instrument_id)),
+        "sample_amp" => Some(AutomationTarget::SampleAmp(instrument_id)),
+        _ => None,
+    }
+}
+
 /// Save to SQLite
 pub fn save_project(path: &Path, session: &SessionState, instruments: &InstrumentState) -> SqlResult<()> {
     let conn = SqlConnection::open(path)?;
@@ -26,10 +75,12 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 modified_at TEXT NOT NULL,
-                next_strip_id INTEGER NOT NULL
+                next_instrument_id INTEGER NOT NULL,
+                selected_instrument INTEGER,
+                selected_automation_lane INTEGER
             );
 
-            CREATE TABLE IF NOT EXISTS strips (
+            CREATE TABLE IF NOT EXISTS instruments (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 position INTEGER NOT NULL,
@@ -55,42 +106,42 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
                 output_target TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS strip_source_params (
-                strip_id INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS instrument_source_params (
+                instrument_id INTEGER NOT NULL,
                 param_name TEXT NOT NULL,
                 param_value REAL NOT NULL,
                 param_min REAL NOT NULL,
                 param_max REAL NOT NULL,
                 param_type TEXT NOT NULL,
-                PRIMARY KEY (strip_id, param_name)
+                PRIMARY KEY (instrument_id, param_name)
             );
 
-            CREATE TABLE IF NOT EXISTS strip_effects (
-                strip_id INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS instrument_effects (
+                instrument_id INTEGER NOT NULL,
                 position INTEGER NOT NULL,
                 effect_type TEXT NOT NULL,
                 enabled INTEGER NOT NULL,
-                PRIMARY KEY (strip_id, position)
+                PRIMARY KEY (instrument_id, position)
             );
 
-            CREATE TABLE IF NOT EXISTS strip_effect_params (
-                strip_id INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS instrument_effect_params (
+                instrument_id INTEGER NOT NULL,
                 effect_position INTEGER NOT NULL,
                 param_name TEXT NOT NULL,
                 param_value REAL NOT NULL,
-                PRIMARY KEY (strip_id, effect_position, param_name)
+                PRIMARY KEY (instrument_id, effect_position, param_name)
             );
 
-            CREATE TABLE IF NOT EXISTS strip_sends (
-                strip_id INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS instrument_sends (
+                instrument_id INTEGER NOT NULL,
                 bus_id INTEGER NOT NULL,
                 level REAL NOT NULL,
                 enabled INTEGER NOT NULL,
-                PRIMARY KEY (strip_id, bus_id)
+                PRIMARY KEY (instrument_id, bus_id)
             );
 
-            CREATE TABLE IF NOT EXISTS strip_modulations (
-                strip_id INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS instrument_modulations (
+                instrument_id INTEGER NOT NULL,
                 target_param TEXT NOT NULL,
                 mod_type TEXT NOT NULL,
                 lfo_rate REAL,
@@ -99,9 +150,9 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
                 env_decay REAL,
                 env_sustain REAL,
                 env_release REAL,
-                source_strip_id INTEGER,
+                source_instrument_id INTEGER,
                 source_param_name TEXT,
-                PRIMARY KEY (strip_id, target_param)
+                PRIMARY KEY (instrument_id, target_param)
             );
 
             CREATE TABLE IF NOT EXISTS mixer_buses (
@@ -120,14 +171,14 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
             );
 
             CREATE TABLE IF NOT EXISTS piano_roll_tracks (
-                strip_id INTEGER PRIMARY KEY,
+                instrument_id INTEGER PRIMARY KEY,
                 position INTEGER NOT NULL,
                 polyphonic INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS piano_roll_notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                track_strip_id INTEGER NOT NULL,
+                track_instrument_id INTEGER NOT NULL,
                 tick INTEGER NOT NULL,
                 duration INTEGER NOT NULL,
                 pitch INTEGER NOT NULL,
@@ -150,28 +201,29 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
             );
 
             CREATE TABLE IF NOT EXISTS sampler_configs (
-                strip_id INTEGER PRIMARY KEY,
+                instrument_id INTEGER PRIMARY KEY,
                 buffer_id INTEGER,
                 loop_mode INTEGER NOT NULL,
                 pitch_tracking INTEGER NOT NULL,
-                next_slice_id INTEGER NOT NULL
+                next_slice_id INTEGER NOT NULL,
+                selected_slice INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS sampler_slices (
-                strip_id INTEGER NOT NULL,
+                instrument_id INTEGER NOT NULL,
                 slice_id INTEGER NOT NULL,
                 position INTEGER NOT NULL,
                 start_pos REAL NOT NULL,
                 end_pos REAL NOT NULL,
                 name TEXT NOT NULL,
                 root_note INTEGER NOT NULL,
-                PRIMARY KEY (strip_id, slice_id)
+                PRIMARY KEY (instrument_id, slice_id)
             );
 
             CREATE TABLE IF NOT EXISTS automation_lanes (
                 id INTEGER PRIMARY KEY,
                 target_type TEXT NOT NULL,
-                target_strip_id INTEGER NOT NULL,
+                target_instrument_id INTEGER NOT NULL,
                 target_effect_idx INTEGER,
                 target_param_idx INTEGER,
                 enabled INTEGER NOT NULL,
@@ -206,32 +258,88 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
             );
 
             CREATE TABLE IF NOT EXISTS drum_pads (
-                strip_id INTEGER NOT NULL,
+                instrument_id INTEGER NOT NULL,
                 pad_index INTEGER NOT NULL,
                 buffer_id INTEGER,
                 path TEXT,
                 name TEXT NOT NULL DEFAULT '',
                 level REAL NOT NULL DEFAULT 0.8,
-                PRIMARY KEY (strip_id, pad_index)
+                PRIMARY KEY (instrument_id, pad_index)
             );
 
             CREATE TABLE IF NOT EXISTS drum_patterns (
-                strip_id INTEGER NOT NULL,
+                instrument_id INTEGER NOT NULL,
                 pattern_index INTEGER NOT NULL,
                 length INTEGER NOT NULL DEFAULT 16,
-                PRIMARY KEY (strip_id, pattern_index)
+                PRIMARY KEY (instrument_id, pattern_index)
             );
 
             CREATE TABLE IF NOT EXISTS drum_steps (
-                strip_id INTEGER NOT NULL,
+                instrument_id INTEGER NOT NULL,
                 pattern_index INTEGER NOT NULL,
                 pad_index INTEGER NOT NULL,
                 step_index INTEGER NOT NULL,
                 velocity INTEGER NOT NULL DEFAULT 100,
-                PRIMARY KEY (strip_id, pattern_index, pad_index, step_index)
+                PRIMARY KEY (instrument_id, pattern_index, pad_index, step_index)
+            );
+
+            CREATE TABLE IF NOT EXISTS chopper_states (
+                instrument_id INTEGER PRIMARY KEY,
+                buffer_id INTEGER,
+                path TEXT,
+                name TEXT NOT NULL,
+                selected_slice INTEGER NOT NULL,
+                next_slice_id INTEGER NOT NULL,
+                duration_secs REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS chopper_slices (
+                instrument_id INTEGER NOT NULL,
+                slice_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                start_pos REAL NOT NULL,
+                end_pos REAL NOT NULL,
+                name TEXT NOT NULL,
+                root_note INTEGER NOT NULL,
+                PRIMARY KEY (instrument_id, slice_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS midi_recording_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                live_input_instrument INTEGER,
+                note_passthrough INTEGER NOT NULL,
+                channel_filter INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS midi_cc_mappings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cc_number INTEGER NOT NULL,
+                channel INTEGER,
+                target_type TEXT NOT NULL,
+                target_instrument_id INTEGER NOT NULL,
+                target_effect_idx INTEGER,
+                target_param_idx INTEGER,
+                min_value REAL NOT NULL,
+                max_value REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS midi_pitch_bend_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_type TEXT NOT NULL,
+                target_instrument_id INTEGER NOT NULL,
+                target_effect_idx INTEGER,
+                target_param_idx INTEGER,
+                center_value REAL NOT NULL,
+                range REAL NOT NULL,
+                sensitivity REAL NOT NULL
             );
 
             -- Clear existing data
+            DELETE FROM midi_pitch_bend_configs;
+            DELETE FROM midi_cc_mappings;
+            DELETE FROM midi_recording_settings;
+            DELETE FROM chopper_slices;
+            DELETE FROM chopper_states;
             DELETE FROM drum_steps;
             DELETE FROM drum_patterns;
             DELETE FROM drum_pads;
@@ -244,12 +352,12 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
             DELETE FROM piano_roll_notes;
             DELETE FROM piano_roll_tracks;
             DELETE FROM musical_settings;
-            DELETE FROM strip_modulations;
-            DELETE FROM strip_sends;
-            DELETE FROM strip_effect_params;
-            DELETE FROM strip_effects;
-            DELETE FROM strip_source_params;
-            DELETE FROM strips;
+            DELETE FROM instrument_modulations;
+            DELETE FROM instrument_sends;
+            DELETE FROM instrument_effect_params;
+            DELETE FROM instrument_effects;
+            DELETE FROM instrument_source_params;
+            DELETE FROM instruments;
             DELETE FROM mixer_buses;
             DELETE FROM mixer_master;
             DELETE FROM session;
@@ -257,14 +365,18 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (2, datetime('now'))",
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (3, datetime('now'))",
         [],
     )?;
 
     conn.execute(
-        "INSERT INTO session (id, name, created_at, modified_at, next_strip_id)
-             VALUES (1, 'default', datetime('now'), datetime('now'), ?1)",
-        [&instruments.next_id],
+        "INSERT INTO session (id, name, created_at, modified_at, next_instrument_id, selected_instrument, selected_automation_lane)
+             VALUES (1, 'default', datetime('now'), datetime('now'), ?1, ?2, ?3)",
+        rusqlite::params![
+            &instruments.next_id,
+            instruments.selected.map(|s| s as i32),
+            session.automation.selected_lane.map(|s| s as i32),
+        ],
     )?;
 
     save_instruments(&conn, instruments)?;
@@ -278,6 +390,8 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     save_automation(&conn, session)?;
     save_custom_synthdefs(&conn, session)?;
     save_drum_sequencers(&conn, instruments)?;
+    save_chopper_states(&conn, instruments)?;
+    save_midi_recording(&conn, session)?;
 
     Ok(())
 }
@@ -286,10 +400,10 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
 pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let conn = SqlConnection::open(path)?;
 
-    let next_id: InstrumentId = conn.query_row(
-        "SELECT next_strip_id FROM session WHERE id = 1",
+    let (next_id, selected_instrument, selected_automation_lane): (InstrumentId, Option<i32>, Option<i32>) = conn.query_row(
+        "SELECT next_instrument_id, selected_instrument, selected_automation_lane FROM session WHERE id = 1",
         [],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
 
     let mut instruments = load_instruments(&conn)?;
@@ -301,9 +415,18 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let buses = load_buses(&conn)?;
     let (master_level, master_mute) = load_master(&conn);
     let (piano_roll, musical) = load_piano_roll(&conn)?;
-    let automation = load_automation(&conn)?;
+    let mut automation = load_automation(&conn)?;
     let custom_synthdefs = load_custom_synthdefs(&conn)?;
     load_drum_sequencers(&conn, &mut instruments)?;
+    load_chopper_states(&conn, &mut instruments)?;
+    let midi_recording = load_midi_recording(&conn)?;
+
+    // Restore selected_lane from DB, falling back to Some(0) if lanes exist
+    automation.selected_lane = match selected_automation_lane {
+        Some(idx) if (idx as usize) < automation.lanes.len() => Some(idx as usize),
+        _ if !automation.lanes.is_empty() => Some(0),
+        _ => None,
+    };
 
     let mut session = SessionState::new();
     session.buses = buses;
@@ -311,6 +434,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     session.master_mute = master_mute;
     session.piano_roll = piano_roll;
     session.automation = automation;
+    session.midi_recording = midi_recording;
     session.custom_synthdefs = custom_synthdefs;
     // Apply musical settings from load_piano_roll
     session.bpm = musical.bpm;
@@ -322,7 +446,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
 
     let instrument_state = InstrumentState {
         instruments,
-        selected: None,
+        selected: selected_instrument.map(|s| s as usize),
         next_id,
     };
 
@@ -333,25 +457,25 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
 
 fn save_drum_sequencers(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut pad_stmt = conn.prepare(
-        "INSERT INTO drum_pads (strip_id, pad_index, buffer_id, path, name, level)
+        "INSERT INTO drum_pads (instrument_id, pad_index, buffer_id, path, name, level)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     let mut pattern_stmt = conn.prepare(
-        "INSERT INTO drum_patterns (strip_id, pattern_index, length) VALUES (?1, ?2, ?3)",
+        "INSERT INTO drum_patterns (instrument_id, pattern_index, length) VALUES (?1, ?2, ?3)",
     )?;
     let mut step_stmt = conn.prepare(
-        "INSERT INTO drum_steps (strip_id, pattern_index, pad_index, step_index, velocity)
+        "INSERT INTO drum_steps (instrument_id, pattern_index, pad_index, step_index, velocity)
              VALUES (?1, ?2, ?3, ?4, ?5)",
     )?;
 
     for inst in &instruments.instruments {
         if let Some(seq) = &inst.drum_sequencer {
-            let sid = inst.id as i32;
+            let instrument_id = inst.id as i32;
 
             // Save pads
             for (i, pad) in seq.pads.iter().enumerate() {
                 pad_stmt.execute(rusqlite::params![
-                    sid,
+                    instrument_id,
                     i,
                     pad.buffer_id.map(|id| id as i32),
                     pad.path,
@@ -362,17 +486,59 @@ fn save_drum_sequencers(conn: &SqlConnection, instruments: &InstrumentState) -> 
 
             // Save patterns
             for (pi, pattern) in seq.patterns.iter().enumerate() {
-                pattern_stmt.execute(rusqlite::params![sid, pi, pattern.length])?;
+                pattern_stmt.execute(rusqlite::params![instrument_id, pi, pattern.length])?;
 
                 // Save only active steps
                 for (pad_idx, pad_steps) in pattern.steps.iter().enumerate() {
                     for (step_idx, step) in pad_steps.iter().enumerate() {
                         if step.active {
                             step_stmt.execute(rusqlite::params![
-                                sid, pi, pad_idx, step_idx, step.velocity as i32
+                                instrument_id, pi, pad_idx, step_idx, step.velocity as i32
                             ])?;
                         }
                     }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn save_chopper_states(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
+    let mut header_stmt = conn.prepare(
+        "INSERT INTO chopper_states (instrument_id, buffer_id, path, name, selected_slice, next_slice_id, duration_secs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+    let mut slice_stmt = conn.prepare(
+        "INSERT INTO chopper_slices (instrument_id, slice_id, position, start_pos, end_pos, name, root_note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+
+    for inst in &instruments.instruments {
+        if let Some(seq) = &inst.drum_sequencer {
+            if let Some(chopper) = &seq.chopper {
+                let instrument_id = inst.id as i32;
+
+                header_stmt.execute(rusqlite::params![
+                    instrument_id,
+                    chopper.buffer_id.map(|id| id as i32),
+                    chopper.path,
+                    chopper.name,
+                    chopper.selected_slice as i32,
+                    chopper.next_slice_id as i32,
+                    chopper.duration_secs as f64,
+                ])?;
+
+                for (pos, slice) in chopper.slices.iter().enumerate() {
+                    slice_stmt.execute(rusqlite::params![
+                        instrument_id,
+                        slice.id as i32,
+                        pos as i32,
+                        slice.start as f64,
+                        slice.end as f64,
+                        &slice.name,
+                        slice.root_note as i32,
+                    ])?;
                 }
             }
         }
@@ -415,7 +581,7 @@ fn save_custom_synthdefs(conn: &SqlConnection, session: &SessionState) -> SqlRes
 
 fn save_instruments(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO strips (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
+        "INSERT INTO instruments (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
              lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
              amp_attack, amp_decay, amp_sustain, amp_release, polyphonic, has_track,
              level, pan, mute, solo, output_target)
@@ -494,7 +660,7 @@ fn save_instruments(conn: &SqlConnection, instruments: &InstrumentState) -> SqlR
 
 fn save_source_params(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO strip_source_params (strip_id, param_name, param_value, param_min, param_max, param_type)
+        "INSERT INTO instrument_source_params (instrument_id, param_name, param_value, param_min, param_max, param_type)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     for inst in &instruments.instruments {
@@ -519,11 +685,11 @@ fn save_source_params(conn: &SqlConnection, instruments: &InstrumentState) -> Sq
 
 fn save_effects(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut effect_stmt = conn.prepare(
-        "INSERT INTO strip_effects (strip_id, position, effect_type, enabled)
+        "INSERT INTO instrument_effects (instrument_id, position, effect_type, enabled)
              VALUES (?1, ?2, ?3, ?4)",
     )?;
     let mut param_stmt = conn.prepare(
-        "INSERT INTO strip_effect_params (strip_id, effect_position, param_name, param_value)
+        "INSERT INTO instrument_effect_params (instrument_id, effect_position, param_name, param_value)
              VALUES (?1, ?2, ?3, ?4)",
     )?;
     for inst in &instruments.instruments {
@@ -561,7 +727,7 @@ fn save_effects(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResul
 
 fn save_sends(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO strip_sends (strip_id, bus_id, level, enabled)
+        "INSERT INTO instrument_sends (instrument_id, bus_id, level, enabled)
              VALUES (?1, ?2, ?3, ?4)",
     )?;
     for inst in &instruments.instruments {
@@ -579,9 +745,9 @@ fn save_sends(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<
 
 fn save_modulations(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO strip_modulations (strip_id, target_param, mod_type,
+        "INSERT INTO instrument_modulations (instrument_id, target_param, mod_type,
              lfo_rate, lfo_depth, env_attack, env_decay, env_sustain, env_release,
-             source_strip_id, source_param_name)
+             source_instrument_id, source_param_name)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )?;
 
@@ -623,11 +789,11 @@ fn save_mixer(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
 
 fn save_sampler_configs(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut config_stmt = conn.prepare(
-        "INSERT INTO sampler_configs (strip_id, buffer_id, loop_mode, pitch_tracking, next_slice_id)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO sampler_configs (instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, selected_slice)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     let mut slice_stmt = conn.prepare(
-        "INSERT INTO sampler_slices (strip_id, slice_id, position, start_pos, end_pos, name, root_note)
+        "INSERT INTO sampler_slices (instrument_id, slice_id, position, start_pos, end_pos, name, root_note)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
 
@@ -639,6 +805,7 @@ fn save_sampler_configs(conn: &SqlConnection, instruments: &InstrumentState) -> 
                 config.loop_mode,
                 config.pitch_tracking,
                 config.next_slice_id() as i32,
+                config.selected_slice as i32,
             ])?;
 
             for (pos, slice) in config.slices.iter().enumerate() {
@@ -659,7 +826,7 @@ fn save_sampler_configs(conn: &SqlConnection, instruments: &InstrumentState) -> 
 
 fn save_automation(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
     let mut lane_stmt = conn.prepare(
-        "INSERT INTO automation_lanes (id, target_type, target_strip_id, target_effect_idx, target_param_idx, enabled, min_value, max_value)
+        "INSERT INTO automation_lanes (id, target_type, target_instrument_id, target_effect_idx, target_param_idx, enabled, min_value, max_value)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
     let mut point_stmt = conn.prepare(
@@ -668,32 +835,13 @@ fn save_automation(conn: &SqlConnection, session: &SessionState) -> SqlResult<()
     )?;
 
     for lane in &session.automation.lanes {
-        let (target_type, strip_id, effect_idx, param_idx) = match &lane.target {
-            super::automation::AutomationTarget::InstrumentLevel(id) => {
-                ("strip_level", *id, None, None)
-            }
-            super::automation::AutomationTarget::InstrumentPan(id) => ("strip_pan", *id, None, None),
-            super::automation::AutomationTarget::FilterCutoff(id) => {
-                ("filter_cutoff", *id, None, None)
-            }
-            super::automation::AutomationTarget::FilterResonance(id) => {
-                ("filter_resonance", *id, None, None)
-            }
-            super::automation::AutomationTarget::EffectParam(id, fx, param) => {
-                ("effect_param", *id, Some(*fx as i32), Some(*param as i32))
-            }
-            super::automation::AutomationTarget::SampleRate(id) => {
-                ("sample_rate", *id, None, None)
-            }
-            super::automation::AutomationTarget::SampleAmp(id) => {
-                ("sample_amp", *id, None, None)
-            }
-        };
+        let (target_type, instrument_id, effect_idx, param_idx) =
+            serialize_automation_target(&lane.target);
 
         lane_stmt.execute(rusqlite::params![
             lane.id as i32,
             target_type,
-            strip_id,
+            instrument_id,
             effect_idx,
             param_idx,
             lane.enabled,
@@ -723,7 +871,7 @@ fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> SqlResult<()
     // Tracks
     {
         let mut stmt = conn.prepare(
-            "INSERT INTO piano_roll_tracks (strip_id, position, polyphonic)
+            "INSERT INTO piano_roll_tracks (instrument_id, position, polyphonic)
                  VALUES (?1, ?2, ?3)",
         )?;
         for (pos, &sid) in session.piano_roll.track_order.iter().enumerate() {
@@ -736,7 +884,7 @@ fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> SqlResult<()
     // Notes
     {
         let mut stmt = conn.prepare(
-            "INSERT INTO piano_roll_notes (track_strip_id, tick, duration, pitch, velocity)
+            "INSERT INTO piano_roll_notes (track_instrument_id, tick, duration, pitch, velocity)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
         for track in session.piano_roll.tracks.values() {
@@ -770,6 +918,62 @@ fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> SqlResult<()
             session.snap,
         ],
     )?;
+    Ok(())
+}
+
+fn save_midi_recording(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    let midi = &session.midi_recording;
+
+    // Settings
+    conn.execute(
+        "INSERT INTO midi_recording_settings (id, live_input_instrument, note_passthrough, channel_filter)
+             VALUES (1, ?1, ?2, ?3)",
+        rusqlite::params![
+            midi.live_input_instrument.map(|id| id as i32),
+            midi.note_passthrough,
+            midi.channel_filter.map(|c| c as i32),
+        ],
+    )?;
+
+    // CC mappings
+    let mut cc_stmt = conn.prepare(
+        "INSERT INTO midi_cc_mappings (cc_number, channel, target_type, target_instrument_id, target_effect_idx, target_param_idx, min_value, max_value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+    for mapping in &midi.cc_mappings {
+        let (target_type, instrument_id, effect_idx, param_idx) =
+            serialize_automation_target(&mapping.target);
+        cc_stmt.execute(rusqlite::params![
+            mapping.cc_number as i32,
+            mapping.channel.map(|c| c as i32),
+            target_type,
+            instrument_id,
+            effect_idx,
+            param_idx,
+            mapping.min_value as f64,
+            mapping.max_value as f64,
+        ])?;
+    }
+
+    // Pitch bend configs
+    let mut pb_stmt = conn.prepare(
+        "INSERT INTO midi_pitch_bend_configs (target_type, target_instrument_id, target_effect_idx, target_param_idx, center_value, range, sensitivity)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+    for config in &midi.pitch_bend_configs {
+        let (target_type, instrument_id, effect_idx, param_idx) =
+            serialize_automation_target(&config.target);
+        pb_stmt.execute(rusqlite::params![
+            target_type,
+            instrument_id,
+            effect_idx,
+            param_idx,
+            config.center_value as f64,
+            config.range as f64,
+            config.sensitivity as f64,
+        ])?;
+    }
+
     Ok(())
 }
 
@@ -809,7 +1013,7 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
          COALESCE(lfo_target, 'filter') as lfo_target,
          amp_attack, amp_decay, amp_sustain, amp_release, polyphonic, has_track,
          level, pan, mute, solo, output_target
-         FROM strips ORDER BY position",
+         FROM instruments ORDER BY position",
     )?;
     let rows = stmt.query_map([], |row| {
         let id: InstrumentId = row.get(0)?;
@@ -983,7 +1187,7 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
 fn load_source_params(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     let mut stmt = conn.prepare(
         "SELECT param_name, param_value, param_min, param_max, param_type
-         FROM strip_source_params WHERE strip_id = ?1",
+         FROM instrument_source_params WHERE instrument_id = ?1",
     )?;
     for inst in instruments {
         let params: Vec<Param> = stmt
@@ -1019,10 +1223,10 @@ fn load_source_params(conn: &SqlConnection, instruments: &mut [Instrument]) -> S
 
 fn load_effects(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     let mut effect_stmt = conn.prepare(
-        "SELECT position, effect_type, enabled FROM strip_effects WHERE strip_id = ?1 ORDER BY position",
+        "SELECT position, effect_type, enabled FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position",
     )?;
     let mut param_stmt = conn.prepare(
-        "SELECT param_name, param_value FROM strip_effect_params WHERE strip_id = ?1 AND effect_position = ?2",
+        "SELECT param_name, param_value FROM instrument_effect_params WHERE instrument_id = ?1 AND effect_position = ?2",
     )?;
     for inst in instruments {
         let effects: Vec<(i32, String, bool)> = effect_stmt
@@ -1058,18 +1262,18 @@ fn load_effects(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResu
 
 fn load_sends(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT strip_id, bus_id, level, enabled FROM strip_sends",
+        "SELECT instrument_id, bus_id, level, enabled FROM instrument_sends",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
-            let inst_id: InstrumentId = row.get(0)?;
+            let instrument_id: InstrumentId = row.get(0)?;
             let bus_id: u8 = row.get(1)?;
             let level: f64 = row.get(2)?;
             let enabled: bool = row.get(3)?;
-            Ok((inst_id, bus_id, level, enabled))
+            Ok((instrument_id, bus_id, level, enabled))
         }) {
             for result in rows {
-                if let Ok((inst_id, bus_id, level, enabled)) = result {
-                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                if let Ok((instrument_id, bus_id, level, enabled)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(send) = inst.sends.iter_mut().find(|s| s.bus_id == bus_id) {
                             send.level = level as f32;
                             send.enabled = enabled;
@@ -1102,7 +1306,7 @@ fn insert_mod_source(
             None::<i32>, None::<String>
         ]),
         ModSource::InstrumentParam(sid, name) => stmt.execute(rusqlite::params![
-            instrument_id, target, "strip_param",
+            instrument_id, target, "instrument_param",
             None::<f64>, None::<f64>,
             None::<f64>, None::<f64>, None::<f64>, None::<f64>,
             *sid, name
@@ -1113,10 +1317,10 @@ fn insert_mod_source(
 
 fn load_modulations(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT strip_id, target_param, mod_type, lfo_rate, lfo_depth,
+        "SELECT instrument_id, target_param, mod_type, lfo_rate, lfo_depth,
          env_attack, env_decay, env_sustain, env_release,
-         source_strip_id, source_param_name
-         FROM strip_modulations",
+         source_instrument_id, source_param_name
+         FROM instrument_modulations",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -1135,7 +1339,7 @@ fn load_modulations(conn: &SqlConnection, instruments: &mut [Instrument]) -> Sql
         }) {
             for result in rows {
                 if let Ok((
-                    inst_id,
+                    instrument_id,
                     target,
                     mod_type,
                     lfo_rate,
@@ -1162,14 +1366,14 @@ fn load_modulations(conn: &SqlConnection, instruments: &mut [Instrument]) -> Sql
                             sustain: env_s.unwrap_or(0.7) as f32,
                             release: env_r.unwrap_or(0.3) as f32,
                         })),
-                        "strip_param" => {
+                        "instrument_param" => {
                             src_id.zip(src_name).map(|(id, name)| ModSource::InstrumentParam(id, name))
                         }
                         _ => None,
                     };
 
                     if let Some(ms) = mod_source {
-                        if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                        if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                             if let Some(ref mut f) = inst.filter {
                                 match target.as_str() {
                                     "cutoff" => f.cutoff.mod_source = Some(ms),
@@ -1262,18 +1466,18 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, MusicalSe
 
     // Load tracks
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT strip_id, polyphonic FROM piano_roll_tracks ORDER BY position",
+        "SELECT instrument_id, polyphonic FROM piano_roll_tracks ORDER BY position",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((row.get::<_, InstrumentId>(0)?, row.get::<_, bool>(1)?))
         }) {
             for result in rows {
-                if let Ok((inst_id, polyphonic)) = result {
-                    piano_roll.track_order.push(inst_id);
+                if let Ok((instrument_id, polyphonic)) = result {
+                    piano_roll.track_order.push(instrument_id);
                     piano_roll.tracks.insert(
-                        inst_id,
+                        instrument_id,
                         super::piano_roll::Track {
-                            module_id: inst_id,
+                            module_id: instrument_id,
                             notes: Vec::new(),
                             polyphonic,
                         },
@@ -1285,7 +1489,7 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, MusicalSe
 
     // Load notes
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT track_strip_id, tick, duration, pitch, velocity FROM piano_roll_notes",
+        "SELECT track_instrument_id, tick, duration, pitch, velocity FROM piano_roll_notes",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -1297,8 +1501,8 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, MusicalSe
             ))
         }) {
             for result in rows {
-                if let Ok((inst_id, tick, duration, pitch, velocity)) = result {
-                    if let Some(track) = piano_roll.tracks.get_mut(&inst_id) {
+                if let Ok((instrument_id, tick, duration, pitch, velocity)) = result {
+                    if let Some(track) = piano_roll.tracks.get_mut(&instrument_id) {
                         track
                             .notes
                             .push(super::piano_roll::Note { tick, duration, pitch, velocity });
@@ -1314,7 +1518,8 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, MusicalSe
 fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     // Load sampler configs
     if let Ok(mut config_stmt) = conn.prepare(
-        "SELECT strip_id, buffer_id, loop_mode, pitch_tracking, next_slice_id FROM sampler_configs",
+        "SELECT instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, COALESCE(selected_slice, 0)
+         FROM sampler_configs",
     ) {
         if let Ok(rows) = config_stmt.query_map([], |row| {
             Ok((
@@ -1323,12 +1528,13 @@ fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) ->
                 row.get::<_, bool>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, i32>(4)?,
+                row.get::<_, i32>(5)?,
             ))
         }) {
             for result in rows {
-                if let Ok((inst_id, buffer_id, loop_mode, pitch_tracking, next_slice_id)) = result
+                if let Ok((instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, selected_slice)) = result
                 {
-                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(ref mut config) = inst.sampler_config {
                             config.buffer_id =
                                 buffer_id.map(|id| id as super::sampler::BufferId);
@@ -1336,6 +1542,7 @@ fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) ->
                             config.pitch_tracking = pitch_tracking;
                             config
                                 .set_next_slice_id(next_slice_id as super::sampler::SliceId);
+                            config.selected_slice = selected_slice as usize;
                             // Clear default slices - we'll load them from the database
                             config.slices.clear();
                         }
@@ -1347,7 +1554,7 @@ fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) ->
 
     // Load slices
     if let Ok(mut slice_stmt) = conn.prepare(
-        "SELECT strip_id, slice_id, start_pos, end_pos, name, root_note FROM sampler_slices ORDER BY strip_id, position",
+        "SELECT instrument_id, slice_id, start_pos, end_pos, name, root_note FROM sampler_slices ORDER BY instrument_id, position",
     ) {
         if let Ok(rows) = slice_stmt.query_map([], |row| {
             Ok((
@@ -1360,8 +1567,8 @@ fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) ->
             ))
         }) {
             for result in rows {
-                if let Ok((inst_id, slice_id, start, end, name, root_note)) = result {
-                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                if let Ok((instrument_id, slice_id, start, end, name, root_note)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(ref mut config) = inst.sampler_config {
                             config.slices.push(super::sampler::Slice {
                                 id: slice_id as super::sampler::SliceId,
@@ -1382,14 +1589,14 @@ fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) ->
 
 fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::AutomationState> {
     use super::automation::{
-        AutomationLane, AutomationPoint, AutomationState, AutomationTarget, CurveType,
+        AutomationLane, AutomationPoint, AutomationState, CurveType,
     };
 
     let mut state = AutomationState::new();
 
     // Load lanes
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT id, target_type, target_strip_id, target_effect_idx, target_param_idx, enabled, min_value, max_value
+        "SELECT id, target_type, target_instrument_id, target_effect_idx, target_param_idx, enabled, min_value, max_value
          FROM automation_lanes",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
@@ -1408,7 +1615,7 @@ fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::Automat
                 if let Ok((
                     id,
                     target_type,
-                    inst_id,
+                    instrument_id,
                     effect_idx,
                     param_idx,
                     enabled,
@@ -1416,26 +1623,15 @@ fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::Automat
                     max_value,
                 )) = result
                 {
-                    let target = match target_type.as_str() {
-                        "strip_level" => AutomationTarget::InstrumentLevel(inst_id),
-                        "strip_pan" => AutomationTarget::InstrumentPan(inst_id),
-                        "filter_cutoff" => AutomationTarget::FilterCutoff(inst_id),
-                        "filter_resonance" => AutomationTarget::FilterResonance(inst_id),
-                        "effect_param" => {
-                            let fx = effect_idx.unwrap_or(0) as usize;
-                            let param = param_idx.unwrap_or(0) as usize;
-                            AutomationTarget::EffectParam(inst_id, fx, param)
-                        }
-                        "sample_rate" | "sampler_rate" => AutomationTarget::SampleRate(inst_id),
-                        "sample_amp" | "sampler_amp" => AutomationTarget::SampleAmp(inst_id),
-                        _ => continue,
-                    };
-
-                    let mut lane = AutomationLane::new(id as u32, target);
-                    lane.enabled = enabled;
-                    lane.min_value = min_value as f32;
-                    lane.max_value = max_value as f32;
-                    state.lanes.push(lane);
+                    if let Some(target) =
+                        deserialize_automation_target(&target_type, instrument_id, effect_idx, param_idx)
+                    {
+                        let mut lane = AutomationLane::new(id as u32, target);
+                        lane.enabled = enabled;
+                        lane.min_value = min_value as f32;
+                        lane.max_value = max_value as f32;
+                        state.lanes.push(lane);
+                    }
                 }
             }
         }
@@ -1472,10 +1668,10 @@ fn load_automation(conn: &SqlConnection) -> SqlResult<super::automation::Automat
         }
     }
 
-    // Set selected lane if we have any
-    if !state.lanes.is_empty() {
-        state.selected_lane = Some(0);
-    }
+    // B1: Recalculate next_lane_id from loaded data
+    state.recalculate_next_lane_id();
+
+    // Note: selected_lane is set by the caller from the session table
 
     Ok(state)
 }
@@ -1485,7 +1681,7 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
 
     // Load pads per instrument
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT strip_id, pad_index, buffer_id, path, name, level FROM drum_pads",
+        "SELECT instrument_id, pad_index, buffer_id, path, name, level FROM drum_pads",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -1498,8 +1694,8 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
             ))
         }) {
             for row in rows {
-                if let Ok((inst_id, idx, buffer_id, path, name, level)) = row {
-                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                if let Ok((instrument_id, idx, buffer_id, path, name, level)) = row {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(seq) = &mut inst.drum_sequencer {
                             if let Some(pad) = seq.pads.get_mut(idx) {
                                 pad.buffer_id = buffer_id;
@@ -1529,7 +1725,7 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
 
     // Load patterns per instrument
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT strip_id, pattern_index, length FROM drum_patterns ORDER BY strip_id, pattern_index",
+        "SELECT instrument_id, pattern_index, length FROM drum_patterns ORDER BY instrument_id, pattern_index",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -1539,8 +1735,8 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
             ))
         }) {
             for row in rows {
-                if let Ok((inst_id, idx, length)) = row {
-                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                if let Ok((instrument_id, idx, length)) = row {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(seq) = &mut inst.drum_sequencer {
                             if let Some(pattern) = seq.patterns.get_mut(idx) {
                                 *pattern = DrumPattern::new(length);
@@ -1554,7 +1750,7 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
 
     // Load active steps per instrument
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT strip_id, pattern_index, pad_index, step_index, velocity FROM drum_steps",
+        "SELECT instrument_id, pattern_index, pad_index, step_index, velocity FROM drum_steps",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -1566,8 +1762,8 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
             ))
         }) {
             for row in rows {
-                if let Ok((inst_id, pi, pad_idx, step_idx, velocity)) = row {
-                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == inst_id) {
+                if let Ok((instrument_id, pi, pad_idx, step_idx, velocity)) = row {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(seq) = &mut inst.drum_sequencer {
                             if let Some(pattern) = seq.patterns.get_mut(pi) {
                                 if let Some(step) = pattern
@@ -1587,6 +1783,180 @@ fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) ->
     }
 
     Ok(())
+}
+
+fn load_chopper_states(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    use super::drum_sequencer::ChopperState;
+    use super::sampler::Slice;
+
+    // Load chopper headers
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT instrument_id, buffer_id, path, name, selected_slice, next_slice_id, duration_secs
+         FROM chopper_states",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, InstrumentId>(0)?,
+                row.get::<_, Option<i32>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, usize>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, f64>(6)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((instrument_id, buffer_id, path, name, selected_slice, next_slice_id, duration_secs)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        if let Some(seq) = &mut inst.drum_sequencer {
+                            seq.chopper = Some(ChopperState {
+                                buffer_id: buffer_id.map(|id| id as u32),
+                                path,
+                                name,
+                                slices: Vec::new(),
+                                selected_slice,
+                                next_slice_id,
+                                waveform_peaks: Vec::new(),
+                                duration_secs: duration_secs as f32,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Load chopper slices
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT instrument_id, slice_id, start_pos, end_pos, name, root_note
+         FROM chopper_slices ORDER BY instrument_id, position",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, InstrumentId>(0)?,
+                row.get::<_, i32>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i32>(5)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((instrument_id, slice_id, start, end, name, root_note)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        if let Some(seq) = &mut inst.drum_sequencer {
+                            if let Some(chopper) = &mut seq.chopper {
+                                chopper.slices.push(Slice {
+                                    id: slice_id as u32,
+                                    start: start as f32,
+                                    end: end as f32,
+                                    name,
+                                    root_note: root_note as u8,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn load_midi_recording(conn: &SqlConnection) -> SqlResult<super::midi_recording::MidiRecordingState> {
+    use super::midi_recording::{MidiCcMapping, MidiRecordingState, PitchBendConfig};
+
+    let mut state = MidiRecordingState::new();
+
+    // Load settings
+    if let Ok(row) = conn.query_row(
+        "SELECT live_input_instrument, note_passthrough, channel_filter
+         FROM midi_recording_settings WHERE id = 1",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, Option<i32>>(0)?,
+                row.get::<_, bool>(1)?,
+                row.get::<_, Option<i32>>(2)?,
+            ))
+        },
+    ) {
+        state.live_input_instrument = row.0.map(|id| id as InstrumentId);
+        state.note_passthrough = row.1;
+        state.channel_filter = row.2.map(|c| c as u8);
+    }
+
+    // Load CC mappings
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT cc_number, channel, target_type, target_instrument_id, target_effect_idx, target_param_idx, min_value, max_value
+         FROM midi_cc_mappings",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i32>(0)?,
+                row.get::<_, Option<i32>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, InstrumentId>(3)?,
+                row.get::<_, Option<i32>>(4)?,
+                row.get::<_, Option<i32>>(5)?,
+                row.get::<_, f64>(6)?,
+                row.get::<_, f64>(7)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((cc_number, channel, target_type, instrument_id, effect_idx, param_idx, min_value, max_value)) = result {
+                    if let Some(target) =
+                        deserialize_automation_target(&target_type, instrument_id, effect_idx, param_idx)
+                    {
+                        let mut mapping = MidiCcMapping::new(cc_number as u8, target);
+                        mapping.channel = channel.map(|c| c as u8);
+                        mapping.min_value = min_value as f32;
+                        mapping.max_value = max_value as f32;
+                        state.cc_mappings.push(mapping);
+                    }
+                }
+            }
+        }
+    }
+
+    // Load pitch bend configs
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT target_type, target_instrument_id, target_effect_idx, target_param_idx, center_value, range, sensitivity
+         FROM midi_pitch_bend_configs",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, InstrumentId>(1)?,
+                row.get::<_, Option<i32>>(2)?,
+                row.get::<_, Option<i32>>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, f64>(5)?,
+                row.get::<_, f64>(6)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((target_type, instrument_id, effect_idx, param_idx, center_value, range, sensitivity)) = result {
+                    if let Some(target) =
+                        deserialize_automation_target(&target_type, instrument_id, effect_idx, param_idx)
+                    {
+                        state.pitch_bend_configs.push(PitchBendConfig {
+                            target,
+                            center_value: center_value as f32,
+                            range: range as f32,
+                            sensitivity: sensitivity as f32,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Always start with recording off
+    state.record_mode = super::midi_recording::RecordMode::Off;
+
+    Ok(state)
 }
 
 fn load_custom_synthdefs(conn: &SqlConnection) -> SqlResult<CustomSynthDefRegistry> {

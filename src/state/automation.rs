@@ -246,6 +246,11 @@ impl AutomationState {
         }
     }
 
+    /// Recalculate next_lane_id from existing lanes (used after loading from DB)
+    pub fn recalculate_next_lane_id(&mut self) {
+        self.next_lane_id = self.lanes.iter().map(|l| l.id).max().map_or(0, |m| m + 1);
+    }
+
     /// Add a new automation lane for a target
     pub fn add_lane(&mut self, target: AutomationTarget) -> AutomationLaneId {
         // Check if lane already exists for this target
