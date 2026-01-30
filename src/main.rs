@@ -12,10 +12,10 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioEngine;
-use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane};
+use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
-    Action, Frame, InputSource, Keymap, PaneManager, RatatuiBackend, SessionAction, ViewState,
+    Action, Frame, InputSource, KeyCode, Keymap, PaneManager, RatatuiBackend, SessionAction, ViewState,
     keybindings,
 };
 
@@ -31,6 +31,13 @@ fn main() -> std::io::Result<()> {
 
 fn pane_keymap(keymaps: &mut std::collections::HashMap<String, Keymap>, id: &str) -> Keymap {
     keymaps.remove(id).unwrap_or_else(Keymap::new)
+}
+
+/// Two-digit instrument selection state machine
+enum InstrumentSelectMode {
+    Normal,
+    WaitingFirstDigit,
+    WaitingSecondDigit(u8),
 }
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
@@ -55,17 +62,54 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(SampleChopperPane::new(pane_keymap(&mut keymaps, "sample_chopper"), file_browser_km)));
     panes.add_pane(Box::new(FileBrowserPane::new(pane_keymap(&mut keymaps, "file_browser"))));
     panes.add_pane(Box::new(LogoPane::new(pane_keymap(&mut keymaps, "logo"))));
+    panes.add_pane(Box::new(TrackPane::new(pane_keymap(&mut keymaps, "track"))));
+    panes.add_pane(Box::new(WaveformPane::new(pane_keymap(&mut keymaps, "waveform"))));
 
     let mut audio_engine = AudioEngine::new();
     let mut app_frame = Frame::new();
     let mut last_frame_time = Instant::now();
     let mut active_notes: Vec<(u32, u8, u32)> = Vec::new();
+    let mut select_mode = InstrumentSelectMode::Normal;
 
     setup::auto_start_sc(&mut audio_engine, &state, &mut panes, &mut app_frame);
 
     loop {
         if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
             let exclusive = panes.active().wants_exclusive_input();
+
+            // Two-digit instrument selection state machine
+            if !exclusive {
+                match &select_mode {
+                    InstrumentSelectMode::WaitingFirstDigit => {
+                        if let KeyCode::Char(c) = event.key {
+                            if let Some(d) = c.to_digit(10) {
+                                select_mode = InstrumentSelectMode::WaitingSecondDigit(d as u8);
+                                continue;
+                            }
+                        }
+                        // Non-digit cancels
+                        select_mode = InstrumentSelectMode::Normal;
+                        // Fall through to normal handling
+                    }
+                    InstrumentSelectMode::WaitingSecondDigit(first) => {
+                        let first = *first;
+                        if let KeyCode::Char(c) = event.key {
+                            if let Some(d) = c.to_digit(10) {
+                                let combined = first * 10 + d as u8;
+                                // _00 selects instrument 10, _01 selects 1
+                                let target = if combined == 0 { 10 } else { combined };
+                                select_instrument(target as usize, &mut state, &mut panes);
+                                select_mode = InstrumentSelectMode::Normal;
+                                continue;
+                            }
+                        }
+                        // Non-digit cancels
+                        select_mode = InstrumentSelectMode::Normal;
+                        // Fall through to normal handling
+                    }
+                    InstrumentSelectMode::Normal => {}
+                }
+            }
 
             // Check global bindings (always_active ones work even in exclusive mode)
             if let Some(action) = global_bindings.lookup(&event, exclusive) {
@@ -76,6 +120,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     &mut audio_engine,
                     &mut app_frame,
                     &mut active_notes,
+                    &mut select_mode,
                 );
                 match handled {
                     GlobalResult::Quit => break,
@@ -136,7 +181,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         // Render
         let mut frame = backend.begin_frame()?;
         let area = frame.area();
-        app_frame.render_buf(area, frame.buffer_mut(), &state.session);
+        app_frame.render_buf(area, frame.buffer_mut(), &state);
         panes.render(area, frame.buffer_mut(), &state);
         backend.end_frame(frame)?;
     }
@@ -150,6 +195,55 @@ enum GlobalResult {
     NotHandled,
 }
 
+/// Select instrument by 1-based number (1=first, 10=tenth) and sync piano roll
+fn select_instrument(number: usize, state: &mut AppState, panes: &mut PaneManager) {
+    let idx = number.saturating_sub(1); // Convert 1-based to 0-based
+    if idx < state.instruments.instruments.len() {
+        state.instruments.selected = Some(idx);
+        sync_piano_roll_to_selection(state, panes);
+    }
+}
+
+/// Sync piano roll's current track to match the globally selected instrument,
+/// and re-route the active pane if on a F2-family pane (piano_roll/sequencer/waveform).
+fn sync_piano_roll_to_selection(state: &mut AppState, panes: &mut PaneManager) {
+    if let Some(selected_idx) = state.instruments.selected {
+        if let Some(inst) = state.instruments.instruments.get(selected_idx) {
+            let inst_id = inst.id;
+            // Find which track index corresponds to this instrument
+            if let Some(track_idx) = state.session.piano_roll.track_order.iter()
+                .position(|&id| id == inst_id)
+            {
+                if let Some(pr_pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                    pr_pane.set_current_track(track_idx);
+                }
+            }
+
+            // Sync mixer selection
+            let active = panes.active().id();
+            if active == "mixer" {
+                if let state::MixerSelection::Instrument(_) = state.session.mixer_selection {
+                    state.session.mixer_selection = state::MixerSelection::Instrument(selected_idx);
+                }
+            }
+
+            // Re-route if currently on a F2-family pane
+            if active == "piano_roll" || active == "sequencer" || active == "waveform" {
+                let target = if inst.source.is_kit() {
+                    "sequencer"
+                } else if inst.source.is_audio_input() || inst.source.is_bus_in() {
+                    "waveform"
+                } else {
+                    "piano_roll"
+                };
+                if active != target {
+                    panes.switch_to(target, state);
+                }
+            }
+        }
+    }
+}
+
 fn handle_global_action(
     action: &str,
     state: &mut AppState,
@@ -157,6 +251,7 @@ fn handle_global_action(
     audio_engine: &mut AudioEngine,
     app_frame: &mut Frame,
     active_notes: &mut Vec<(u32, u8, u32)>,
+    select_mode: &mut InstrumentSelectMode,
 ) -> GlobalResult {
     // Helper to capture current view state
     let capture_view = |panes: &mut PaneManager, state: &AppState| -> ViewState {
@@ -203,14 +298,21 @@ fn handle_global_action(
             switch_to_pane("instrument", panes, state, app_frame);
         }
         "switch:piano_roll_or_sequencer" => {
-            let target = if state.instruments.selected_instrument()
-                .map_or(false, |s| s.source.is_kit())
-            {
-                "sequencer"
+            let target = if let Some(inst) = state.instruments.selected_instrument() {
+                if inst.source.is_kit() {
+                    "sequencer"
+                } else if inst.source.is_audio_input() || inst.source.is_bus_in() {
+                    "waveform"
+                } else {
+                    "piano_roll"
+                }
             } else {
                 "piano_roll"
             };
             switch_to_pane(target, panes, state, app_frame);
+        }
+        "switch:track" => {
+            switch_to_pane("track", panes, state, app_frame);
         }
         "switch:mixer" => {
             switch_to_pane("mixer", panes, state, app_frame);
@@ -247,6 +349,8 @@ fn handle_global_action(
                     "sequencer" => "Step Sequencer",
                     "add" => "Add Instrument",
                     "instrument_edit" => "Edit Instrument",
+                    "track" => "Track",
+                    "waveform" => "Waveform",
                     _ => current_id,
                 };
                 if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {
@@ -254,6 +358,23 @@ fn handle_global_action(
                 }
                 panes.push_to("help", &*state);
             }
+        }
+        // Instrument selection by number (1-9 select instruments 1-9, 0 selects 10)
+        s if s.starts_with("select:") => {
+            if let Ok(n) = s[7..].parse::<usize>() {
+                select_instrument(n, state, panes);
+            }
+        }
+        "select_prev_instrument" => {
+            state.instruments.select_prev();
+            sync_piano_roll_to_selection(state, panes);
+        }
+        "select_next_instrument" => {
+            state.instruments.select_next();
+            sync_piano_roll_to_selection(state, panes);
+        }
+        "select_two_digit" => {
+            *select_mode = InstrumentSelectMode::WaitingFirstDigit;
         }
         _ => return GlobalResult::NotHandled,
     }

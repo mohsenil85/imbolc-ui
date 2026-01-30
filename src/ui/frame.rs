@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use super::{Color, Style};
-use crate::state::SessionState;
+use crate::state::AppState;
 
 const CONSOLE_LINES: u16 = 4;
 const CONSOLE_CAPACITY: usize = 100;
@@ -83,11 +83,12 @@ impl Frame {
     }
 
     /// Render the frame using ratatui buffer directly.
-    pub fn render_buf(&self, area: RatatuiRect, buf: &mut Buffer, session: &SessionState) {
+    pub fn render_buf(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         if area.width < 10 || area.height < 10 {
             return;
         }
 
+        let session = &state.session;
         let border_style = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
 
         // Outer border
@@ -96,12 +97,24 @@ impl Frame {
             .border_style(border_style);
         block.render(area, buf);
 
+        // Selected instrument indicator
+        let inst_indicator = if let Some(idx) = state.instruments.selected {
+            if let Some(inst) = state.instruments.instruments.get(idx) {
+                format!("[{}: {}]", idx + 1, inst.name)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         // Header line in the top border
         let snap_text = if session.snap { "ON" } else { "OFF" };
         let tuning_str = format!("A{:.0}", session.tuning_a4);
         let header = format!(
-            " ILEX - {}     Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
-            self.project_name, session.key.name(), session.scale.name(), session.bpm,
+            " ILEX - {}  {}  Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
+            self.project_name, inst_indicator,
+            session.key.name(), session.scale.name(), session.bpm,
             session.time_signature.0, session.time_signature.1,
             tuning_str, snap_text,
         );

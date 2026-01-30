@@ -612,7 +612,6 @@ pub struct Instrument {
     pub lfo: LfoConfig,
     pub amp_envelope: EnvConfig,
     pub polyphonic: bool,
-    pub has_track: bool,
     // Integrated mixer
     pub level: f32,
     pub pan: f32,
@@ -629,8 +628,6 @@ pub struct Instrument {
 impl Instrument {
     pub fn new(id: InstrumentId, source: SourceType) -> Self {
         let sends = (1..=MAX_BUSES as u8).map(MixerSend::new).collect();
-        // Audio input and kit instruments don't have piano roll tracks
-        let has_track = !source.is_audio_input() && !source.is_kit() && !source.is_bus_in();
         // Sample instruments get a sampler config
         let sampler_config = if source.is_sample() {
             Some(SamplerConfig::default())
@@ -653,7 +650,6 @@ impl Instrument {
             lfo: LfoConfig::default(),
             amp_envelope: EnvConfig::default(),
             polyphonic: true,
-            has_track,
             level: 0.8,
             pan: 0.0,
             mute: false,

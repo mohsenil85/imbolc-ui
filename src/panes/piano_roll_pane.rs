@@ -86,6 +86,11 @@ impl PianoRollPane {
         self.current_track = new_idx as usize;
     }
 
+    /// Set current track index directly (for external syncing from global instrument selection)
+    pub fn set_current_track(&mut self, idx: usize) {
+        self.current_track = idx;
+    }
+
     pub fn jump_to_end(&mut self) {
         // Jump to a reasonable far position (e.g., 16 bars worth)
         self.cursor_tick = 480 * 4 * 16; // 16 bars at 4/4
@@ -541,8 +546,6 @@ impl Pane for PianoRollPane {
             Some("loop") => Action::PianoRoll(PianoRollAction::ToggleLoop),
             Some("loop_start") => Action::PianoRoll(PianoRollAction::SetLoopStart),
             Some("loop_end") => Action::PianoRoll(PianoRollAction::SetLoopEnd),
-            Some("prev_track") => Action::PianoRoll(PianoRollAction::ChangeTrack(-1)),
-            Some("next_track") => Action::PianoRoll(PianoRollAction::ChangeTrack(1)),
             Some("octave_up") => {
                 self.cursor_pitch = (self.cursor_pitch as i16 + 12).min(127) as u8;
                 self.scroll_to_cursor();

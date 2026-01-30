@@ -5,14 +5,28 @@
     { "key": "Ctrl+s", "action": "save", "description": "Save session" },
     { "key": "Ctrl+l", "action": "load", "description": "Load session" },
     { "key": ".", "action": "master_mute", "description": "Toggle master mute", "always_active": true },
-    { "key": "1", "action": "switch:instrument", "description": "Instruments" },
-    { "key": "2", "action": "switch:piano_roll_or_sequencer", "description": "Piano roll / Sequencer" },
-    { "key": "3", "action": "switch:mixer", "description": "Mixer" },
-    { "key": "4", "action": "switch:server", "description": "Audio server" },
+    { "key": "F1", "action": "switch:instrument", "description": "Instruments" },
+    { "key": "F2", "action": "switch:piano_roll_or_sequencer", "description": "Piano roll / Sequencer / Waveform" },
+    { "key": "F3", "action": "switch:track", "description": "Track" },
+    { "key": "F4", "action": "switch:mixer", "description": "Mixer" },
+    { "key": "F5", "action": "switch:server", "description": "Audio server" },
     { "key": "F6", "action": "switch:logo", "description": "Logo" },
     { "key": "`", "action": "nav_back", "description": "Navigate back" },
     { "key": "~", "action": "nav_forward", "description": "Navigate forward" },
-    { "key": "?", "action": "help", "description": "Context help" }
+    { "key": "?", "action": "help", "description": "Context help" },
+    { "key": "<", "action": "select_prev_instrument", "description": "Previous instrument" },
+    { "key": ">", "action": "select_next_instrument", "description": "Next instrument" },
+    { "key": "1", "action": "select:1", "description": "Select instrument 1" },
+    { "key": "2", "action": "select:2", "description": "Select instrument 2" },
+    { "key": "3", "action": "select:3", "description": "Select instrument 3" },
+    { "key": "4", "action": "select:4", "description": "Select instrument 4" },
+    { "key": "5", "action": "select:5", "description": "Select instrument 5" },
+    { "key": "6", "action": "select:6", "description": "Select instrument 6" },
+    { "key": "7", "action": "select:7", "description": "Select instrument 7" },
+    { "key": "8", "action": "select:8", "description": "Select instrument 8" },
+    { "key": "9", "action": "select:9", "description": "Select instrument 9" },
+    { "key": "0", "action": "select:10", "description": "Select instrument 10" },
+    { "key": "_", "action": "select_two_digit", "description": "Two-digit instrument select" }
   ],
   "panes": {
     "instrument": [
@@ -60,8 +74,6 @@
       { "key": "l", "action": "loop", "description": "Toggle loop" },
       { "key": "[", "action": "loop_start", "description": "Set loop start" },
       { "key": "]", "action": "loop_end", "description": "Set loop end" },
-      { "key": "<", "action": "prev_track", "description": "Previous track" },
-      { "key": ">", "action": "next_track", "description": "Next track" },
       { "key": "PageUp", "action": "octave_up", "description": "Scroll up one octave" },
       { "key": "PageDown", "action": "octave_down", "description": "Scroll down one octave" },
       { "key": "Home", "action": "home", "description": "Jump to start" },
@@ -112,7 +124,6 @@
       { "key": "a", "action": "add_effect", "description": "Add effect" },
       { "key": "d", "action": "remove_effect", "description": "Remove effect" },
       { "key": "p", "action": "toggle_poly", "description": "Toggle polyphonic" },
-      { "key": "r", "action": "toggle_track", "description": "Toggle piano roll track" },
       { "key": "\\", "action": "zero_param", "description": "Set param to zero" },
       { "key": "|", "action": "zero_section", "description": "Zero all params in section" },
       { "key": "l", "action": "toggle_lfo", "description": "Toggle LFO on/off" },
@@ -209,6 +220,10 @@
       { "key": "=", "action": "assign_12", "description": "Assign to Pad 12" },
       { "key": "Shift+Left", "action": "nudge_start", "description": "Nudge slice start" },
       { "key": "Shift+Right", "action": "nudge_end", "description": "Nudge slice end" }
+    ],
+    "track": [
+    ],
+    "waveform": [
     ]
   }
 }

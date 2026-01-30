@@ -92,23 +92,6 @@ fn dispatch_instrument(
                     instrument.effects = edited.effects;
                     instrument.amp_envelope = edited.amp_envelope;
                     instrument.polyphonic = edited.polyphonic;
-
-                    // Handle track toggle
-                    if edited.has_track != instrument.has_track {
-                        instrument.has_track = edited.has_track;
-                    }
-                }
-                // Sync piano roll tracks
-                let instruments: Vec<(u32, bool)> = state.instruments.instruments.iter()
-                    .map(|s| (s.id, s.has_track))
-                    .collect();
-                let pr = &mut state.session.piano_roll;
-                for (instrument_id, has_track) in instruments {
-                    if has_track && !pr.tracks.contains_key(&instrument_id) {
-                        pr.add_track(instrument_id);
-                    } else if !has_track && pr.tracks.contains_key(&instrument_id) {
-                        pr.remove_track(instrument_id);
-                    }
                 }
             }
             if audio_engine.is_running() {
@@ -179,8 +162,7 @@ fn dispatch_instrument(
         InstrumentAction::AddEffect(_, _)
         | InstrumentAction::RemoveEffect(_, _)
         | InstrumentAction::MoveEffect(_, _, _)
-        | InstrumentAction::SetFilter(_, _)
-        | InstrumentAction::ToggleTrack(_) => {
+        | InstrumentAction::SetFilter(_, _) => {
             // Reserved for future direct dispatch (currently handled inside InstrumentEditPane)
         }
     }

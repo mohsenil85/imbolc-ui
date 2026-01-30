@@ -39,7 +39,7 @@ impl Pane for LogoPane {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(" Logo ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
+            .border_style(ratatui::style::Style::from(Style::new().fg(Color::new(100, 80, 60))));
         
         let inner = block.inner(area);
         block.render(area, buf);
@@ -51,9 +51,9 @@ impl Pane for LogoPane {
 
         let centered_rect = center_rect(inner, width, height);
 
-        let color1 = Color::CYAN;
-        let color2 = Color::PURPLE;
-        let color3 = Color::MAGENTA;
+        let color1 = Color::new(140, 50, 40);   // Red/Brown
+        let color2 = Color::new(180, 130, 50);  // Gold/Brown
+        let color3 = Color::new(50, 70, 30);    // Deep brownish green
 
         let text: Vec<Line> = lines.iter().enumerate()
             .map(|(y, l)| {
@@ -69,9 +69,8 @@ impl Pane for LogoPane {
                     let max_factor = 1.6;
                     let factor = (raw_factor / max_factor).clamp(0.0, 1.0);
 
-                    // Shift midpoint to 0.8 to give even more space to the first transition (Purple->Cyan)
-                    // and less to the second (Cyan->Pink)
-                    let midpoint = 0.8;
+                    // Equal space to both transitions
+                    let midpoint = 0.5;
 
                     let color = if factor < midpoint {
                         let f = factor / midpoint;

@@ -49,8 +49,6 @@ pub enum InstrumentAction {
     MoveEffect(InstrumentId, usize, i8),
     #[allow(dead_code)]
     SetFilter(InstrumentId, Option<FilterType>),
-    #[allow(dead_code)]
-    ToggleTrack(InstrumentId),
     PlayNote(u8, u8),
     SelectNext,
     SelectPrev,
@@ -86,6 +84,7 @@ pub enum PianoRollAction {
     ToggleLoop,
     SetLoopStart,
     SetLoopEnd,
+    #[allow(dead_code)]
     ChangeTrack(i8),
     #[allow(dead_code)]
     SetBpm(f32),

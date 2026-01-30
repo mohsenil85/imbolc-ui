@@ -58,10 +58,8 @@ impl AppState {
             }
         }
 
-        // Auto-add piano roll track if instrument has_track
-        if self.instruments.instrument(id).map_or(false, |s| s.has_track) {
-            self.session.piano_roll.add_track(id);
-        }
+        // Always add a piano roll track for every instrument
+        self.session.piano_roll.add_track(id);
 
         id
     }

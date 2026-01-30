@@ -98,7 +98,6 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
                 amp_sustain REAL NOT NULL,
                 amp_release REAL NOT NULL,
                 polyphonic INTEGER NOT NULL,
-                has_track INTEGER NOT NULL,
                 level REAL NOT NULL,
                 pan REAL NOT NULL,
                 mute INTEGER NOT NULL,
@@ -365,7 +364,7 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (3, datetime('now'))",
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (4, datetime('now'))",
         [],
     )?;
 
@@ -583,9 +582,9 @@ fn save_instruments(conn: &SqlConnection, instruments: &InstrumentState) -> SqlR
     let mut stmt = conn.prepare(
         "INSERT INTO instruments (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
              lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
-             amp_attack, amp_decay, amp_sustain, amp_release, polyphonic, has_track,
+             amp_attack, amp_decay, amp_sustain, amp_release, polyphonic,
              level, pan, mute, solo, output_target)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
     )?;
     for (pos, inst) in instruments.instruments.iter().enumerate() {
         let source_str = match inst.source {
@@ -647,7 +646,6 @@ fn save_instruments(conn: &SqlConnection, instruments: &InstrumentState) -> SqlR
             inst.amp_envelope.sustain as f64,
             inst.amp_envelope.release as f64,
             inst.polyphonic,
-            inst.has_track,
             inst.level as f64,
             inst.pan as f64,
             inst.mute,
@@ -1011,7 +1009,7 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
          COALESCE(lfo_depth, 0.5) as lfo_depth,
          COALESCE(lfo_shape, 'sine') as lfo_shape,
          COALESCE(lfo_target, 'filter') as lfo_target,
-         amp_attack, amp_decay, amp_sustain, amp_release, polyphonic, has_track,
+         amp_attack, amp_decay, amp_sustain, amp_release, polyphonic,
          level, pan, mute, solo, output_target
          FROM instruments ORDER BY position",
     )?;
@@ -1032,12 +1030,11 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
         let sustain: f64 = row.get(13)?;
         let release: f64 = row.get(14)?;
         let polyphonic: bool = row.get(15)?;
-        let has_track: bool = row.get(16)?;
-        let level: f64 = row.get(17)?;
-        let pan: f64 = row.get(18)?;
-        let mute: bool = row.get(19)?;
-        let solo: bool = row.get(20)?;
-        let output_str: String = row.get(21)?;
+        let level: f64 = row.get(16)?;
+        let pan: f64 = row.get(17)?;
+        let mute: bool = row.get(18)?;
+        let solo: bool = row.get(19)?;
+        let output_str: String = row.get(20)?;
         Ok((
             id,
             name,
@@ -1055,7 +1052,6 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
             sustain,
             release,
             polyphonic,
-            has_track,
             level,
             pan,
             mute,
@@ -1082,7 +1078,6 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
             sustain,
             release,
             polyphonic,
-            has_track,
             level,
             pan,
             mute,
@@ -1170,7 +1165,6 @@ fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument>> {
                 release: release as f32,
             },
             polyphonic,
-            has_track,
             level: level as f32,
             pan: pan as f32,
             mute,

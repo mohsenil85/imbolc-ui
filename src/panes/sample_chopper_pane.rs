@@ -310,6 +310,10 @@ impl Pane for SampleChopperPane {
         &self.keymap
     }
 
+    fn wants_exclusive_input(&self) -> bool {
+        true
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

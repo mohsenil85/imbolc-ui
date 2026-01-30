@@ -307,6 +307,10 @@ impl Pane for FrameEditPane {
         self.set_settings(state.session.musical_settings());
     }
 
+    fn wants_exclusive_input(&self) -> bool {
+        self.editing
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

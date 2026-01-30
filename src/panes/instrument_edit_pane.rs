@@ -34,7 +34,6 @@ pub struct InstrumentEditPane {
     lfo: LfoConfig,
     amp_envelope: EnvConfig,
     polyphonic: bool,
-    has_track: bool,
     selected_row: usize,
     editing: bool,
     edit_input: TextInput,
@@ -54,7 +53,6 @@ impl InstrumentEditPane {
             lfo: LfoConfig::default(),
             amp_envelope: EnvConfig::default(),
             polyphonic: true,
-            has_track: true,
             selected_row: 0,
             editing: false,
             edit_input: TextInput::new(""),
@@ -72,7 +70,6 @@ impl InstrumentEditPane {
         self.lfo = instrument.lfo.clone();
         self.amp_envelope = instrument.amp_envelope.clone();
         self.polyphonic = instrument.polyphonic;
-        self.has_track = instrument.has_track;
         self.selected_row = 0;
     }
 
@@ -121,7 +118,6 @@ impl InstrumentEditPane {
         instrument.lfo = self.lfo.clone();
         instrument.amp_envelope = self.amp_envelope.clone();
         instrument.polyphonic = self.polyphonic;
-        instrument.has_track = self.has_track;
     }
 
     /// Total number of selectable rows across all sections
@@ -581,10 +577,6 @@ impl Pane for InstrumentEditPane {
                 self.polyphonic = !self.polyphonic;
                 return self.emit_update();
             }
-            Some("toggle_track") => {
-                self.has_track = !self.has_track;
-                return self.emit_update();
-            }
             Some("zero_param") => {
                 self.zero_current_param();
                 return self.emit_update();
@@ -665,11 +657,6 @@ impl Pane for InstrumentEditPane {
         let poly_str = if self.polyphonic { " POLY " } else { " MONO " };
         Paragraph::new(Line::from(Span::styled(poly_str, poly_style)))
             .render(RatatuiRect::new(mode_x, rect.y, 6, 1), buf);
-
-        let trk_style = ratatui::style::Style::from(Style::new().fg(if self.has_track { Color::PINK } else { Color::DARK_GRAY }));
-        let trk_str = if self.has_track { " TRK " } else { " --- " };
-        Paragraph::new(Line::from(Span::styled(trk_str, trk_style)))
-            .render(RatatuiRect::new(mode_x + 7, rect.y, 5, 1), buf);
 
         // Piano mode indicator
         if self.piano.is_active() {

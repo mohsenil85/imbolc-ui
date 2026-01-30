@@ -22,10 +22,7 @@ impl InstrumentState {
         self.next_id += 1;
         let instrument = Instrument::new(id, source);
         self.instruments.push(instrument);
-
-        if self.selected.is_none() {
-            self.selected = Some(0);
-        }
+        self.selected = Some(self.instruments.len() - 1);
 
         id
     }
@@ -92,12 +89,6 @@ impl InstrumentState {
         self.instruments.iter().any(|s| s.solo)
     }
 
-    /// Instruments that have tracks (for piano roll)
-    #[allow(dead_code)]
-    pub fn instruments_with_tracks(&self) -> Vec<&Instrument> {
-        self.instruments.iter().filter(|s| s.has_track).collect()
-    }
-
     pub fn selected_drum_sequencer(&self) -> Option<&DrumSequencerState> {
         self.selected_instrument().and_then(|s| s.drum_sequencer.as_ref())
     }
@@ -135,7 +126,7 @@ mod tests {
         assert_eq!(state.instruments.len(), 2);
         assert_eq!(state.instruments[0].id, id1);
         assert_eq!(state.instruments[1].id, id2);
-        assert_eq!(state.selected, Some(0));
+        assert_eq!(state.selected, Some(1)); // selects newly added
     }
 
     #[test]
@@ -181,18 +172,18 @@ mod tests {
         state.add_instrument(SourceType::Sin);
         state.add_instrument(SourceType::Sqr);
 
-        assert_eq!(state.selected, Some(0));
-        state.select_next();
-        assert_eq!(state.selected, Some(1));
-        state.select_next();
-        assert_eq!(state.selected, Some(2));
-        state.select_next();
-        assert_eq!(state.selected, Some(2)); // stay at end
+        assert_eq!(state.selected, Some(2)); // selects last added
         state.select_prev();
         assert_eq!(state.selected, Some(1));
         state.select_prev();
         assert_eq!(state.selected, Some(0));
         state.select_prev();
         assert_eq!(state.selected, Some(0)); // stay at start
+        state.select_next();
+        assert_eq!(state.selected, Some(1));
+        state.select_next();
+        assert_eq!(state.selected, Some(2));
+        state.select_next();
+        assert_eq!(state.selected, Some(2)); // stay at end
     }
 }
