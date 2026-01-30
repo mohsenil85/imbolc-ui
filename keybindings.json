@@ -9,6 +9,7 @@
     { "key": "2", "action": "switch:piano_roll_or_sequencer", "description": "Piano roll / Sequencer" },
     { "key": "3", "action": "switch:mixer", "description": "Mixer" },
     { "key": "4", "action": "switch:server", "description": "Audio server" },
+    { "key": "F6", "action": "switch:logo", "description": "Logo" },
     { "key": "`", "action": "nav_back", "description": "Navigate back" },
     { "key": "~", "action": "nav_forward", "description": "Navigate forward" },
     { "key": "?", "action": "help", "description": "Context help" }
@@ -174,6 +175,9 @@
       { "key": "~", "action": "home", "description": "Go to home directory" },
       { "key": "Home", "action": "goto_top", "description": "Go to top" },
       { "key": "End", "action": "goto_bottom", "description": "Go to bottom" }
+    ],
+    "logo": [
+      { "key": "q", "action": "quit", "description": "Quit" }
     ],
     "sample_chopper": [
       { "key": "h", "action": "move_left", "description": "Move cursor left" },

@@ -12,7 +12,7 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioEngine;
-use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane};
+use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane};
 use state::AppState;
 use ui::{
     Action, Frame, InputSource, Keymap, PaneManager, RatatuiBackend, SessionAction, ViewState,
@@ -54,6 +54,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(FrameEditPane::new(pane_keymap(&mut keymaps, "frame_edit"))));
     panes.add_pane(Box::new(SampleChopperPane::new(pane_keymap(&mut keymaps, "sample_chopper"), file_browser_km)));
     panes.add_pane(Box::new(FileBrowserPane::new(pane_keymap(&mut keymaps, "file_browser"))));
+    panes.add_pane(Box::new(LogoPane::new(pane_keymap(&mut keymaps, "logo"))));
 
     let mut audio_engine = AudioEngine::new();
     let mut app_frame = Frame::new();
@@ -216,6 +217,9 @@ fn handle_global_action(
         }
         "switch:server" => {
             switch_to_pane("server", panes, state, app_frame);
+        }
+        "switch:logo" => {
+            switch_to_pane("logo", panes, state, app_frame);
         }
         "nav_back" => {
             if let Some(back) = app_frame.back_view.take() {

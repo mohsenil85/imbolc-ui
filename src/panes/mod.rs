@@ -10,6 +10,7 @@ mod server_pane;
 mod instrument_edit_pane;
 mod instrument_pane;
 mod sample_chopper_pane;
+mod logo_pane;
 
 pub use add_pane::AddPane;
 pub use file_browser_pane::FileBrowserPane;
@@ -23,3 +24,4 @@ pub use server_pane::ServerPane;
 pub use instrument_edit_pane::InstrumentEditPane;
 pub use instrument_pane::InstrumentPane;
 pub use sample_chopper_pane::SampleChopperPane;
+pub use logo_pane::LogoPane;
