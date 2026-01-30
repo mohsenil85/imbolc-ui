@@ -66,6 +66,7 @@ pub struct DrumSequencerState {
     pub current_step: usize,
     pub next_buffer_id: BufferId,
     pub step_accumulator: f32,
+    pub last_played_step: Option<usize>,
 }
 
 impl DrumSequencerState {
@@ -80,6 +81,7 @@ impl DrumSequencerState {
             current_step: 0,
             next_buffer_id: 10000,
             step_accumulator: 0.0,
+            last_played_step: None,
         }
     }
 

@@ -117,6 +117,7 @@ pub fn tick_drum_sequencer(
             None => continue,
         };
         if !seq.playing {
+            seq.last_played_step = None;
             continue;
         }
 
@@ -129,7 +130,9 @@ pub fn tick_drum_sequencer(
         while seq.step_accumulator >= 1.0 {
             seq.step_accumulator -= 1.0;
             seq.current_step = (seq.current_step + 1) % pattern_length;
+        }
 
+        if seq.last_played_step != Some(seq.current_step) {
             if audio_engine.is_running() && !instrument.mute {
                 let current_step = seq.current_step;
                 let current_pattern = seq.current_pattern;
@@ -151,6 +154,7 @@ pub fn tick_drum_sequencer(
                     }
                 }
             }
+            seq.last_played_step = Some(seq.current_step);
         }
     }
 }
