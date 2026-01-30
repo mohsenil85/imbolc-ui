@@ -557,7 +557,7 @@ impl Pane for PianoRollPane {
         let current_instrument_id = piano_roll.track_at(self.current_track).map(|t| t.module_id);
         let is_audio_in = current_instrument_id
             .and_then(|id| state.instruments.instrument(id))
-            .map(|s| s.source.is_audio_input())
+            .map(|s| s.source.is_audio_input() || s.source.is_bus_in())
             .unwrap_or(false);
 
         if is_audio_in {

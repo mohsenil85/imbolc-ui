@@ -152,6 +152,7 @@ impl AddPane {
                     // Color based on type
                     let color = match osc {
                         OscType::AudioIn => Color::AUDIO_IN_COLOR,
+                        OscType::BusIn => Color::BUS_IN_COLOR,
                         OscType::Sample => Color::SAMPLE_COLOR,
                         OscType::Custom(_) => Color::CUSTOM_COLOR,
                         _ => Color::OSC_COLOR,

@@ -2052,6 +2052,7 @@ fn parse_osc_type(s: &str) -> OscType {
         "audio_in" => OscType::AudioIn,
         "sample" | "sampler" => OscType::Sample,
         "kit" | "drum" => OscType::Kit,
+        "bus_in" => OscType::BusIn,
         other if other.starts_with("custom:") => {
             if let Ok(id) = other[7..].parse::<u32>() {
                 OscType::Custom(id)

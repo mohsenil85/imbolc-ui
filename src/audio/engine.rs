@@ -377,6 +377,15 @@ impl AudioEngine {
         self.bus_audio_buses.clear();
         self.bus_allocator.reset();
 
+        // Allocate audio buses for each mixer bus first (needed by BusIn instruments)
+        for bus in &session.buses {
+            let bus_audio = self.bus_allocator.get_or_alloc_audio_bus(
+                u32::MAX - bus.id as u32,
+                "bus_out",
+            );
+            self.bus_audio_buses.insert(bus.id, bus_audio);
+        }
+
         // For each instrument, create a linear chain of synths
         // We don't create static source synths for polyphonic instruments (voices are spawned dynamically)
         // But we still need the output synth for summing voice output
@@ -413,6 +422,46 @@ impl AudioEngine {
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(
                     "tuidaw_audio_in",
+                    node_id,
+                    GROUP_SOURCES,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                source_node = Some(node_id);
+            } else if instrument.source.is_bus_in() {
+                // BusIn instruments read from an internal mixer bus
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+
+                // Look up which bus to read from
+                let bus_id = instrument.source_params.iter()
+                    .find(|p| p.name == "bus")
+                    .map(|p| match &p.value {
+                        crate::state::param::ParamValue::Int(v) => *v as u8,
+                        _ => 1,
+                    })
+                    .unwrap_or(1);
+
+                let bus_audio_bus = self.bus_audio_buses.get(&bus_id).copied().unwrap_or(16);
+
+                let gain = instrument.source_params.iter()
+                    .find(|p| p.name == "gain")
+                    .map(|p| match &p.value {
+                        crate::state::param::ParamValue::Float(v) => *v,
+                        _ => 1.0,
+                    })
+                    .unwrap_or(1.0);
+
+                let params: Vec<(String, f32)> = vec![
+                    ("out".to_string(), source_out_bus as f32),
+                    ("in".to_string(), bus_audio_bus as f32),
+                    ("gain".to_string(), gain),
+                    ("strip_id".to_string(), instrument.id as f32),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "tuidaw_bus_in",
                     node_id,
                     GROUP_SOURCES,
                     &params,
@@ -557,15 +606,6 @@ impl AudioEngine {
         self.next_voice_audio_bus = self.bus_allocator.next_audio_bus;
         self.next_voice_control_bus = self.bus_allocator.next_control_bus;
 
-        // Allocate audio buses for each mixer bus through the bus allocator
-        for bus in &session.buses {
-            let bus_audio = self.bus_allocator.get_or_alloc_audio_bus(
-                u32::MAX - bus.id as u32,
-                "bus_out",
-            );
-            self.bus_audio_buses.insert(bus.id, bus_audio);
-        }
-
         // Create send synths
         for (instrument_idx, instrument) in state.instruments.iter().enumerate() {
             // Get the instrument's source_out bus (where voices sum into)
@@ -657,7 +697,20 @@ impl AudioEngine {
         if !self.is_running { return Ok(()); }
         let client = self.client.as_ref().ok_or("Not connected")?;
 
-        // Set on persistent source node (AudioIn instruments)
+        // BusIn "bus" param: translate bus_id (1-8) to SC audio bus number
+        if param == "bus" {
+            let bus_id = value as u8;
+            if let Some(&audio_bus) = self.bus_audio_buses.get(&bus_id) {
+                if let Some(nodes) = self.node_map.get(&instrument_id) {
+                    if let Some(source_node) = nodes.source {
+                        let _ = client.set_param(source_node, "in", audio_bus as f32);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // Set on persistent source node (AudioIn/BusIn instruments)
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(source_node) = nodes.source {
                 let _ = client.set_param(source_node, param, value);
@@ -687,8 +740,8 @@ impl AudioEngine {
         let instrument = state.instrument(instrument_id)
             .ok_or_else(|| format!("No instrument with id {}", instrument_id))?;
 
-        // AudioIn instruments don't use voice spawning - they have a persistent synth
-        if instrument.source.is_audio_input() {
+        // AudioIn and BusIn instruments don't use voice spawning - they have persistent synths
+        if instrument.source.is_audio_input() || instrument.source.is_bus_in() {
             return Ok(());
         }
 

@@ -12,6 +12,7 @@ pub enum OscType {
     Sqr,
     Tri,
     AudioIn,
+    BusIn,
     Sample,
     Kit,
     Custom(CustomSynthDefId),
@@ -25,6 +26,7 @@ impl OscType {
             OscType::Sqr => "Square",
             OscType::Tri => "Triangle",
             OscType::AudioIn => "Audio In",
+            OscType::BusIn => "Bus In",
             OscType::Sample => "Sample",
             OscType::Kit => "Kit",
             OscType::Custom(_) => "Custom",
@@ -49,6 +51,7 @@ impl OscType {
             OscType::Sqr => "sqr",
             OscType::Tri => "tri",
             OscType::AudioIn => "audio_in",
+            OscType::BusIn => "bus_in",
             OscType::Sample => "sample",
             OscType::Kit => "kit",
             OscType::Custom(_) => "custom",
@@ -74,6 +77,7 @@ impl OscType {
             OscType::Sqr => "tuidaw_sqr",
             OscType::Tri => "tuidaw_tri",
             OscType::AudioIn => "tuidaw_audio_in",
+            OscType::BusIn => "tuidaw_bus_in",
             OscType::Sample => "tuidaw_sampler",
             OscType::Kit => "tuidaw_sampler_oneshot",
             OscType::Custom(_) => "tuidaw_saw", // Fallback, use synth_def_name_with_registry instead
@@ -117,6 +121,20 @@ impl OscType {
                     value: ParamValue::Float(440.0),
                     min: 20.0,
                     max: 2000.0,
+                },
+            ],
+            OscType::BusIn => vec![
+                Param {
+                    name: "bus".to_string(),
+                    value: ParamValue::Int(1),
+                    min: 1.0,
+                    max: 8.0,
+                },
+                Param {
+                    name: "gain".to_string(),
+                    value: ParamValue::Float(1.0),
+                    min: 0.0,
+                    max: 4.0,
                 },
             ],
             OscType::Sample => vec![
@@ -192,6 +210,10 @@ impl OscType {
         matches!(self, OscType::Kit)
     }
 
+    pub fn is_bus_in(&self) -> bool {
+        matches!(self, OscType::BusIn)
+    }
+
     #[allow(dead_code)]
     pub fn is_custom(&self) -> bool {
         matches!(self, OscType::Custom(_))
@@ -207,7 +229,7 @@ impl OscType {
 
     /// Built-in oscillator types (excluding custom)
     pub fn all() -> Vec<OscType> {
-        vec![OscType::Saw, OscType::Sin, OscType::Sqr, OscType::Tri, OscType::AudioIn, OscType::Sample, OscType::Kit]
+        vec![OscType::Saw, OscType::Sin, OscType::Sqr, OscType::Tri, OscType::AudioIn, OscType::BusIn, OscType::Sample, OscType::Kit]
     }
 
     /// All oscillator types including custom ones from registry
@@ -608,7 +630,7 @@ impl Instrument {
     pub fn new(id: InstrumentId, source: OscType) -> Self {
         let sends = (1..=MAX_BUSES as u8).map(MixerSend::new).collect();
         // Audio input and kit instruments don't have piano roll tracks
-        let has_track = !source.is_audio_input() && !source.is_kit();
+        let has_track = !source.is_audio_input() && !source.is_kit() && !source.is_bus_in();
         // Sample instruments get a sampler config
         let sampler_config = if source.is_sample() {
             Some(SamplerConfig::default())

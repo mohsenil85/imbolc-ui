@@ -66,6 +66,15 @@ SynthDef(\tuidaw_audio_in, { |out=1024, channel=0, gain=1, test_tone=0, test_fre
 }).writeDefFile(dir);
 
 // ============================================================================
+// Bus Input - Read audio from an internal mixer bus
+// ============================================================================
+SynthDef(\tuidaw_bus_in, { |out=1024, in=1024, gain=1, strip_id=0|
+    var sig = In.ar(in, 2) * gain;
+    SendPeakRMS.kr(sig, 10, 3, "/audio_in_level", strip_id);
+    Out.ar(out, sig);
+}).writeDefFile(dir);
+
+// ============================================================================
 // Sampler - Plays from buffer with variable rate (for scratching)
 // ============================================================================
 SynthDef(\tuidaw_sampler, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
