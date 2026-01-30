@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
@@ -7,9 +5,6 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use super::{Color, Style};
 use crate::state::AppState;
-
-const CONSOLE_LINES: u16 = 4;
-const CONSOLE_CAPACITY: usize = 100;
 
 /// Block characters for vertical meter: ▁▂▃▄▅▆▇█ (U+2581–U+2588)
 const BLOCK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -22,9 +17,8 @@ pub struct ViewState {
     pub edit_tab: u8,
 }
 
-/// Frame wrapping the active pane with border, header bar, and message console
+/// Frame wrapping the active pane with border and header bar
 pub struct Frame {
-    messages: VecDeque<String>,
     pub project_name: String,
     pub master_mute: bool,
     /// Raw peak from audio engine (0.0–1.0+)
@@ -40,7 +34,6 @@ pub struct Frame {
 impl Frame {
     pub fn new() -> Self {
         Self {
-            messages: VecDeque::with_capacity(CONSOLE_CAPACITY),
             project_name: "default".to_string(),
             master_mute: false,
             master_peak: 0.0,
@@ -60,14 +53,6 @@ impl Frame {
         self.master_mute = mute;
         // Fast attack, slow decay
         self.peak_display = peak.max(self.peak_display * 0.85);
-    }
-
-    /// Push a message to the console ring buffer
-    pub fn push_message(&mut self, msg: String) {
-        if self.messages.len() >= CONSOLE_CAPACITY {
-            self.messages.pop_front();
-        }
-        self.messages.push_back(msg);
     }
 
     /// Get meter color for a given row position (0=bottom, height-1=top)
@@ -130,46 +115,9 @@ impl Frame {
             }
         }
 
-        // Console separator line
-        let sep_y = area.y + area.height.saturating_sub(CONSOLE_LINES + 2);
-        if let Some(cell) = buf.cell_mut((area.x, sep_y)) {
-            cell.set_char('├').set_style(border_style);
-        }
-        for x in (area.x + 1)..(area.x + area.width.saturating_sub(1)) {
-            if let Some(cell) = buf.cell_mut((x, sep_y)) {
-                cell.set_char('─').set_style(border_style);
-            }
-        }
-        if let Some(cell) = buf.cell_mut((area.x + area.width.saturating_sub(1), sep_y)) {
-            cell.set_char('┤').set_style(border_style);
-        }
-
         // Master meter (direct buffer writes)
-        self.render_master_meter_buf(buf, area.width, area.height, sep_y);
-
-        // Console messages
-        let console_y = sep_y + 1;
-        let msg_count = self.messages.len();
-        let skip = msg_count.saturating_sub(CONSOLE_LINES as usize);
-        let max_width = (area.width - 4) as usize;
-
-        let prompt_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        let msg_style = ratatui::style::Style::from(Style::new().fg(Color::SKY_BLUE));
-
-        for (i, msg) in self.messages.iter().skip(skip).enumerate() {
-            if i >= CONSOLE_LINES as usize {
-                break;
-            }
-            let y = console_y + i as u16;
-            let truncated: String = msg.chars().take(max_width).collect();
-            let line = Line::from(vec![
-                Span::styled("> ", prompt_style),
-                Span::styled(truncated, msg_style),
-            ]);
-            Paragraph::new(line).render(
-                RatatuiRect::new(area.x + 2, y, area.width.saturating_sub(4), 1), buf,
-            );
-        }
+        let meter_bottom_y = area.y + area.height.saturating_sub(2);
+        self.render_master_meter_buf(buf, area.width, area.height, meter_bottom_y);
     }
 
     /// Render vertical master meter on the right side (buffer version)

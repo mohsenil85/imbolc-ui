@@ -136,7 +136,16 @@ impl AudioEngine {
         self.is_compiling
     }
 
+    #[allow(dead_code)]
     pub fn start_server(&mut self) -> Result<(), String> {
+        self.start_server_with_devices(None, None)
+    }
+
+    pub fn start_server_with_devices(
+        &mut self,
+        input_device: Option<&str>,
+        output_device: Option<&str>,
+    ) -> Result<(), String> {
         if self.scsynth_process.is_some() {
             return Err("Server already running".to_string());
         }
@@ -150,10 +159,32 @@ impl AudioEngine {
             "/usr/bin/scsynth",
         ];
 
+        // Build args: base port + optional device flags
+        let mut args: Vec<String> = vec!["-u".to_string(), "57110".to_string()];
+
+        match (input_device, output_device) {
+            (Some(inp), Some(out)) if inp != out => {
+                args.push("-H".to_string());
+                args.push(inp.to_string());
+                args.push(out.to_string());
+            }
+            (Some(dev), None) | (None, Some(dev)) => {
+                args.push("-H".to_string());
+                args.push(dev.to_string());
+            }
+            (Some(dev), Some(_)) => {
+                // Same device for both
+                args.push("-H".to_string());
+                args.push(dev.to_string());
+            }
+            (None, None) => {}
+        }
+
         let mut child = None;
+        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         for path in &scsynth_paths {
             match Command::new(path)
-                .args(["-u", "57110"])
+                .args(&arg_refs)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()

@@ -522,7 +522,13 @@ fn dispatch_server(
             }
         }
         ServerAction::Start => {
-            let result = audio_engine.start_server();
+            let (input_dev, output_dev) = panes.get_pane_mut::<ServerPane>("server")
+                .map(|s| (s.selected_input_device(), s.selected_output_device()))
+                .unwrap_or((None, None));
+            let result = audio_engine.start_server_with_devices(
+                input_dev.as_deref(),
+                output_dev.as_deref(),
+            );
             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
                 match result {
                     Ok(()) => {

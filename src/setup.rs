@@ -1,29 +1,31 @@
+use crate::audio::devices;
 use crate::audio::{self, AudioEngine};
 use crate::panes::ServerPane;
 use crate::state::AppState;
-use crate::ui::{Frame, PaneManager};
+use crate::ui::PaneManager;
 
 /// Auto-start SuperCollider server, connect, and load synthdefs.
 pub fn auto_start_sc(
     audio_engine: &mut AudioEngine,
     state: &AppState,
     panes: &mut PaneManager,
-    app_frame: &mut Frame,
 ) {
-    app_frame.push_message("SC: starting server...".to_string());
-    match audio_engine.start_server() {
+    // Load saved device preferences
+    let config = devices::load_device_config();
+
+    match audio_engine.start_server_with_devices(
+        config.input_device.as_deref(),
+        config.output_device.as_deref(),
+    ) {
         Ok(()) => {
-            app_frame.push_message("SC: server started on port 57110".to_string());
             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
                 server.set_status(audio::ServerStatus::Running, "Server started");
                 server.set_server_running(true);
             }
             match audio_engine.connect("127.0.0.1:57110") {
                 Ok(()) => {
-                    app_frame.push_message("SC: connected".to_string());
                     let synthdef_dir = std::path::Path::new("synthdefs");
                     if let Err(e) = audio_engine.load_synthdefs(synthdef_dir) {
-                        app_frame.push_message(format!("SC: synthdef warning: {}", e));
                         if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
                             server.set_status(
                                 audio::ServerStatus::Connected,
@@ -31,7 +33,6 @@ pub fn auto_start_sc(
                             );
                         }
                     } else {
-                        app_frame.push_message("SC: synthdefs loaded".to_string());
                         if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
                             server.set_status(audio::ServerStatus::Connected, "Connected + synthdefs loaded");
                         }
@@ -42,15 +43,14 @@ pub fn auto_start_sc(
                     }
                 }
                 Err(e) => {
-                    app_frame.push_message(format!("SC: connect failed: {}", e));
                     if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
-                        server.set_status(audio::ServerStatus::Running, "Server running (connect failed)");
+                        server.set_status(audio::ServerStatus::Running, &format!("Server running (connect failed: {})", e));
                     }
                 }
             }
         }
-        Err(e) => {
-            app_frame.push_message(format!("SC: start failed: {}", e));
+        Err(_e) => {
+            // Server start failed — status remains Stopped
         }
     }
 }

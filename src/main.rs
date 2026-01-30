@@ -71,7 +71,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut active_notes: Vec<(u32, u8, u32)> = Vec::new();
     let mut select_mode = InstrumentSelectMode::Normal;
 
-    setup::auto_start_sc(&mut audio_engine, &state, &mut panes, &mut app_frame);
+    setup::auto_start_sc(&mut audio_engine, &state, &mut panes);
 
     loop {
         if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
