@@ -590,6 +590,65 @@ Proposed widgets:
 
 ---
 
+### Audio I/O Management Pane
+
+**Sources:** User request
+
+Pane for selecting and configuring audio hardware devices — choose DAC, set headphones as output, configure input devices, sample rate, and block size.
+
+**Feasibility:** Works on both macOS and Linux. SuperCollider's `scsynth` accepts `-H <device_name>` to select hardware. Currently launched with only `-u 57110` (port), defaulting to system device.
+
+**Device enumeration options:**
+1. **scsynth -H ?** — prints available devices to stdout. Parse output. No new deps.
+2. **cpal crate** — cross-platform device enumeration. More control, but adds a dependency.
+
+**Core features:**
+- List available output devices (DAC, headphones, HDMI, etc.)
+- List available input devices (built-in mic, audio interface, etc.)
+- Select active output and input device
+- Configure sample rate (44100, 48000, 96000)
+- Configure block size (64, 128, 256, 512, 1024)
+- Show device capabilities (supported sample rates, channel counts)
+- Persist device preferences in SQLite
+- Restart scsynth with new device settings on change
+
+**Implementation notes:**
+- Pass `-H <device>`, `-S <sample_rate>`, `-Z <block_size>`, `-i <num_inputs>`, `-o <num_outputs>` to scsynth on startup
+- Device change requires server restart — warn user, stop playback
+- Store preferences in a `device_config` SQLite table
+- Enumerate devices at pane open time (run `scsynth -H ?` or use cpal)
+- Assign a number key for navigation (e.g., `6`)
+
+**Pane layout:**
+
+```
++-------------------- Audio I/O -------------------------------------------+
+|                                                                           |
+|  Output Device                                                            |
+|  > Built-in Output (MacBook Pro Speakers)                                 |
+|    External Headphones                                                    |
+|    Scarlett 2i2 USB                                                       |
+|                                                                           |
+|  Input Device                                                             |
+|  > Built-in Microphone                                                    |
+|    Scarlett 2i2 USB                                                       |
+|                                                                           |
+|  Sample Rate     48000 Hz                                                 |
+|  Block Size      128                                                      |
+|  Output Channels 2                                                        |
+|  Input Channels  2                                                        |
+|                                                                           |
+|  Server: Running (restart required to apply changes)                      |
+|                                                                           |
++--------------------------------------------------------------------------+
+```
+
+**Key bindings:** j/k or Up/Down: navigate, Enter: select device, Left/Right: adjust sample rate/block size, r: restart server with new settings, Escape: back.
+
+**Files:** New `src/panes/audio_io_pane.rs`, `src/panes/mod.rs`, `src/main.rs`, `src/audio/engine.rs` (add device args to `start_server()`), `src/state/persistence.rs` (device prefs table), `src/ui/pane.rs` (new action variants)
+
+---
+
 ## Long-term
 
 ### Custom synths + VST support
