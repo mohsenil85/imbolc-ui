@@ -132,7 +132,7 @@ pub fn spawn_voice(
     // Create synth in the sources group via a timestamped bundle
     let time = super::osc_client::osc_time_from_now(offset_secs);
     let mut args: Vec<rosc::OscType> = vec![
-        rosc::OscType::String("tuidaw_midi".into()),
+        rosc::OscType::String("ilex_midi".into()),
         rosc::OscType::Int(node_id),
         rosc::OscType::Int(1),              // addToTail
         rosc::OscType::Int(GROUP_SOURCES),
@@ -175,9 +175,9 @@ pub fn release_voice(
 }
 ```
 
-#### 5. Update `tuidaw_midi` synthdef for voice-per-note
+#### 5. Update `ilex_midi` synthdef for voice-per-note
 
-The current `tuidaw_midi` is a persistent node that writes to control
+The current `ilex_midi` is a persistent node that writes to control
 buses whenever its params change. For voice-per-note, we need it to:
 
 1. Write to control buses on creation (the downstream oscillators read
@@ -186,7 +186,7 @@ buses whenever its params change. For voice-per-note, we need it to:
 3. Free itself after release (using `doneAction: 2`)
 
 ```supercollider
-SynthDef(\tuidaw_midi, {
+SynthDef(\ilex_midi, {
     |freq_out=0, gate_out=0, vel_out=0, note=60, vel=0.8, gate=1|
     var freq = note.midicps;
     var env = EnvGen.kr(
@@ -335,7 +335,7 @@ still monophonic in effect (oscillator follows latest note) but voices
 can overlap their release tails. Good enough for many use cases.
 
 **C. Skip the MIDI node entirely for polyphonic playback.**
-Instead of spawning a `tuidaw_midi` synth that writes to control buses,
+Instead of spawning a `ilex_midi` synth that writes to control buses,
 have the playback engine directly set `freq`/`gate`/`vel` on the
 downstream oscillator nodes. This sidesteps the bus contention entirely
 but only works for piano roll playback (not for real-time MIDI input
@@ -369,7 +369,7 @@ refactor — it requires the engine to understand the module graph as a
    playback (do with step 3)
 3. **Add `spawn_voice` / `release_voice`** — restores playback with
    monophonic `ReplaceOut.kr`
-4. **Update `tuidaw_midi` synthdef** — `gate=1` default, `doneAction:
+4. **Update `ilex_midi` synthdef** — `gate=1` default, `doneAction:
    2`, `ReplaceOut.kr`
 5. **Update main.rs playback** — swap `send_note_on_bundled` →
    `spawn_voice`

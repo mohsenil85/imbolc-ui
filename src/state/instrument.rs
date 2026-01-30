@@ -72,15 +72,15 @@ impl SourceType {
     /// Get the SuperCollider synthdef name (static for built-ins)
     pub fn synth_def_name(&self) -> &'static str {
         match self {
-            SourceType::Saw => "tuidaw_saw",
-            SourceType::Sin => "tuidaw_sin",
-            SourceType::Sqr => "tuidaw_sqr",
-            SourceType::Tri => "tuidaw_tri",
-            SourceType::AudioIn => "tuidaw_audio_in",
-            SourceType::BusIn => "tuidaw_bus_in",
-            SourceType::Sample => "tuidaw_sampler",
-            SourceType::Kit => "tuidaw_sampler_oneshot",
-            SourceType::Custom(_) => "tuidaw_saw", // Fallback, use synth_def_name_with_registry instead
+            SourceType::Saw => "ilex_saw",
+            SourceType::Sin => "ilex_sin",
+            SourceType::Sqr => "ilex_sqr",
+            SourceType::Tri => "ilex_tri",
+            SourceType::AudioIn => "ilex_audio_in",
+            SourceType::BusIn => "ilex_bus_in",
+            SourceType::Sample => "ilex_sampler",
+            SourceType::Kit => "ilex_sampler_oneshot",
+            SourceType::Custom(_) => "ilex_saw", // Fallback, use synth_def_name_with_registry instead
         }
     }
 
@@ -90,7 +90,7 @@ impl SourceType {
             SourceType::Custom(id) => registry
                 .get(*id)
                 .map(|s| s.synthdef_name.clone())
-                .unwrap_or_else(|| "tuidaw_saw".to_string()),
+                .unwrap_or_else(|| "ilex_saw".to_string()),
             _ => self.synth_def_name().to_string(),
         }
     }
@@ -261,9 +261,9 @@ impl FilterType {
 
     pub fn synth_def_name(&self) -> &'static str {
         match self {
-            FilterType::Lpf => "tuidaw_lpf",
-            FilterType::Hpf => "tuidaw_hpf",
-            FilterType::Bpf => "tuidaw_bpf",
+            FilterType::Lpf => "ilex_lpf",
+            FilterType::Hpf => "ilex_hpf",
+            FilterType::Bpf => "ilex_bpf",
         }
     }
 
@@ -291,9 +291,9 @@ impl EffectType {
 
     pub fn synth_def_name(&self) -> &'static str {
         match self {
-            EffectType::Delay => "tuidaw_delay",
-            EffectType::Reverb => "tuidaw_reverb",
-            EffectType::Gate => "tuidaw_gate",
+            EffectType::Delay => "ilex_delay",
+            EffectType::Reverb => "ilex_reverb",
+            EffectType::Gate => "ilex_gate",
         }
     }
 
@@ -451,14 +451,14 @@ impl LfoShape {
 //   FilterResonance- Add res_mod_in to filter SynthDefs
 //   Amplitude      - Add amp_mod_in to oscillator SynthDefs, multiply with amp
 //   Pitch          - Add freq_mod_in to oscillators, multiply freq by 2^(mod) for semitones
-//   Pan            - Add pan_mod_in to tuidaw_output, add to pan and clip
-//   PulseWidth     - Add width_mod_in to tuidaw_sqr only, add to pulse width
-//   SampleRate     - Add rate_mod_in to tuidaw_sampler, multiply with rate
-//   DelayTime      - Add time_mod_in to tuidaw_delay
-//   DelayFeedback  - Add feedback_mod_in to tuidaw_delay
-//   ReverbMix      - Add mix_mod_in to tuidaw_reverb
-//   GateRate       - Add rate_mod_in to tuidaw_gate (meta-modulation!)
-//   SendLevel      - Add level_mod_in to tuidaw_send
+//   Pan            - Add pan_mod_in to ilex_output, add to pan and clip
+//   PulseWidth     - Add width_mod_in to ilex_sqr only, add to pulse width
+//   SampleRate     - Add rate_mod_in to ilex_sampler, multiply with rate
+//   DelayTime      - Add time_mod_in to ilex_delay
+//   DelayFeedback  - Add feedback_mod_in to ilex_delay
+//   ReverbMix      - Add mix_mod_in to ilex_reverb
+//   GateRate       - Add rate_mod_in to ilex_gate (meta-modulation!)
+//   SendLevel      - Add level_mod_in to ilex_send
 //   Detune         - Add detune_mod_in to oscillators, slight pitch offset
 //   Attack         - Add attack_mod_in to oscillators (unusual but possible)
 //   Release        - Add release_mod_in to oscillators

@@ -30,8 +30,8 @@ Avoid assigning tasks that modify the same files (e.g., two tasks both editing m
 ### 2. Create Worktrees
 
 ```bash
-mkdir -p ../tuidaw-worktrees
-git worktree add ../tuidaw-worktrees/task-N -b task-N
+mkdir -p ../ilex-worktrees
+git worktree add ../ilex-worktrees/task-N -b task-N
 ```
 
 Create all worktrees upfront before spawning agents.
@@ -46,7 +46,7 @@ Task(
   model: "sonnet",
   run_in_background: true,
   prompt: """
-    You are working in a git worktree at: /path/to/tuidaw-worktrees/task-N
+    You are working in a git worktree at: /path/to/ilex-worktrees/task-N
 
     This is an isolated copy on branch task-N. You can freely edit files.
 
@@ -83,7 +83,7 @@ Refs: TASKS.md#task-N
 Co-Authored-By: Claude Sonnet <noreply@anthropic.com>"
 
 # Cleanup
-git worktree remove ../tuidaw-worktrees/task-N
+git worktree remove ../ilex-worktrees/task-N
 git branch -d task-N
 ```
 
@@ -116,7 +116,7 @@ Opus:
 
 4. When task-1 completes:
    - git merge task-1 --no-ff
-   - git worktree remove ../tuidaw-worktrees/task-1
+   - git worktree remove ../ilex-worktrees/task-1
    - git branch -d task-1
    - Update status: task-1 ✓ Merged
 
@@ -184,7 +184,7 @@ As each worker completes, immediately merge and spawn a new task.
    ```bash
    # Create N worktrees
    for task in 1 2 3; do
-     git worktree add ../tuidaw-worktrees/task-$task -b task-$task
+     git worktree add ../ilex-worktrees/task-$task -b task-$task
    done
    ```
 

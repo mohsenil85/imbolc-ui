@@ -174,11 +174,11 @@ Audio engine: `AudioEngine::free_sample()`, `AudioEngine::get_sc_bufnum()`, `Aud
 No CLI argument handling. `main()` calls `run()` immediately. Add `clap`:
 
 ```
-tuidaw                    # launch with default session
-tuidaw <file.tuidaw>      # open specific session file
-tuidaw --new              # start fresh (no auto-load)
-tuidaw --help             # usage info
-tuidaw --version          # version string
+ilex                    # launch with default session
+ilex <file.ilex>      # open specific session file
+ilex --new              # start fresh (no auto-load)
+ilex --help             # usage info
+ilex --version          # version string
 ```
 
 **Files:** `Cargo.toml` (add `clap`), `src/main.rs` or new `src/cli.rs`
@@ -209,7 +209,7 @@ Important to do before any persistence format changes.
 No structured logging. Debug output goes through `Frame::push_message()` or `eprintln!` (lost in TUI).
 
 1. Add `log` + `env_logger` (or `tracing`)
-2. File-based logging to `~/.config/tuidaw/tuidaw.log`
+2. File-based logging to `~/.config/ilex/ilex.log`
 3. Replace `eprintln!` with `log::error!`, `log::warn!`, etc.
 4. Keep `Frame::push_message()` for user-visible messages
 5. Default to `warn`, `debug` with `--verbose` flag

@@ -274,7 +274,7 @@ impl AudioEngine {
             let node_id = self.next_node_id;
             self.next_node_id += 1;
             let args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("tuidaw_meter".to_string()),
+                rosc::OscType::String("ilex_meter".to_string()),
                 rosc::OscType::Int(node_id),
                 rosc::OscType::Int(3), // addAfter
                 rosc::OscType::Int(GROUP_OUTPUT),
@@ -421,7 +421,7 @@ impl AudioEngine {
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(
-                    "tuidaw_audio_in",
+                    "ilex_audio_in",
                     node_id,
                     GROUP_SOURCES,
                     &params,
@@ -461,7 +461,7 @@ impl AudioEngine {
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(
-                    "tuidaw_bus_in",
+                    "ilex_bus_in",
                     node_id,
                     GROUP_SOURCES,
                     &params,
@@ -486,7 +486,7 @@ impl AudioEngine {
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(
-                    "tuidaw_lfo",
+                    "ilex_lfo",
                     lfo_node_id,
                     GROUP_SOURCES, // LFO in sources group so it runs before processing
                     &params,
@@ -584,7 +584,7 @@ impl AudioEngine {
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(
-                    "tuidaw_output",
+                    "ilex_output",
                     node_id,
                     GROUP_OUTPUT,
                     &params,
@@ -625,7 +625,7 @@ impl AudioEngine {
                     ];
                     if let Some(ref client) = self.client {
                         client
-                            .create_synth_in_group("tuidaw_send", node_id, GROUP_OUTPUT, &params)
+                            .create_synth_in_group("ilex_send", node_id, GROUP_OUTPUT, &params)
                             .map_err(|e| e.to_string())?;
                     }
                     self.send_node_map.insert((instrument_idx, send.bus_id), node_id);
@@ -647,7 +647,7 @@ impl AudioEngine {
                 ];
                 if let Some(ref client) = self.client {
                     client
-                        .create_synth_in_group("tuidaw_bus_out", node_id, GROUP_OUTPUT, &params)
+                        .create_synth_in_group("ilex_bus_out", node_id, GROUP_OUTPUT, &params)
                         .map_err(|e| e.to_string())?;
                 }
                 self.bus_node_map.insert(bus.id, node_id);
@@ -800,7 +800,7 @@ impl AudioEngine {
         self.next_node_id += 1;
         {
             let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("tuidaw_midi".to_string()),
+                rosc::OscType::String("ilex_midi".to_string()),
                 rosc::OscType::Int(midi_node_id),
                 rosc::OscType::Int(1), // addToTail
                 rosc::OscType::Int(group_id),
@@ -963,7 +963,7 @@ impl AudioEngine {
         self.next_node_id += 1;
         {
             let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("tuidaw_midi".to_string()),
+                rosc::OscType::String("ilex_midi".to_string()),
                 rosc::OscType::Int(midi_node_id),
                 rosc::OscType::Int(1), // addToTail
                 rosc::OscType::Int(group_id),
@@ -992,7 +992,7 @@ impl AudioEngine {
         self.next_node_id += 1;
         {
             let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("tuidaw_sampler".to_string()),
+                rosc::OscType::String("ilex_sampler".to_string()),
                 rosc::OscType::Int(sampler_node_id),
                 rosc::OscType::Int(1),
                 rosc::OscType::Int(group_id),
@@ -1151,7 +1151,7 @@ impl AudioEngine {
             .send_message(
                 "/s_new",
                 vec![
-                    rosc::OscType::String("tuidaw_sampler_oneshot".to_string()),
+                    rosc::OscType::String("ilex_sampler_oneshot".to_string()),
                     rosc::OscType::Int(node_id),
                     rosc::OscType::Int(0), // addToHead
                     rosc::OscType::Int(GROUP_SOURCES),

@@ -7,7 +7,7 @@ use std::time::Duration;
 fn binary_path() -> String {
     // Use the debug build
     format!(
-        "{}/target/debug/tuidaw",
+        "{}/target/debug/ilex",
         std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string())
     )
 }

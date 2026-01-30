@@ -12,7 +12,7 @@ pub struct TmuxHarness {
 impl TmuxHarness {
     pub fn new(test_name: &str) -> Self {
         let session_name = format!(
-            "tuidaw-{}-{}",
+            "ilex-{}-{}",
             test_name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

@@ -14,7 +14,7 @@ Insights from building TUI DAW across iterations (Clojure → Java → potential
 - **Uppercase for destructive/toggle actions**: `M` for mute, `S` for solo, lowercase for navigation. Clear visual distinction.
 
 ### Persistence
-- **SQLite from day 1**: Atomic saves, single-file sharing (`.tuidaw`), queryable for search/presets, schema migrations built-in. JSON files seem simpler but cause pain later.
+- **SQLite from day 1**: Atomic saves, single-file sharing (`.ilex`), queryable for search/presets, schema migrations built-in. JSON files seem simpler but cause pain later.
 
 ### Terminal UI
 - **Abstract the terminal library immediately**: Don't let `TextGraphics`/`KeyStroke` (or Go's tcell types) leak everywhere. Create `Graphics`, `InputEvent` interfaces from the start.

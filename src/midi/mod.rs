@@ -59,7 +59,7 @@ pub struct MidiInputManager {
 
 impl MidiInputManager {
     pub fn new() -> Self {
-        let midi_in = MidiInput::new("tuidaw").ok();
+        let midi_in = MidiInput::new("ilex").ok();
         Self {
             midi_in,
             connection: None,
@@ -105,7 +105,7 @@ impl MidiInputManager {
         self.disconnect();
 
         // Need to recreate MidiInput after taking ownership for connection
-        let midi_in = MidiInput::new("tuidaw").map_err(|e| e.to_string())?;
+        let midi_in = MidiInput::new("ilex").map_err(|e| e.to_string())?;
         let ports = midi_in.ports();
 
         if port_index >= ports.len() {
@@ -122,7 +122,7 @@ impl MidiInputManager {
         let connection = midi_in
             .connect(
                 port,
-                "tuidaw-input",
+                "ilex-input",
                 move |_timestamp, message, _| {
                     if let Some(event) = parse_midi_message(message) {
                         let _ = tx.send(event);
@@ -136,7 +136,7 @@ impl MidiInputManager {
         self.connected_port_name = Some(port_name);
 
         // Recreate MidiInput for future port listing
-        self.midi_in = MidiInput::new("tuidaw").ok();
+        self.midi_in = MidiInput::new("ilex").ok();
 
         Ok(())
     }

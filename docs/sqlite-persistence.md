@@ -2,8 +2,8 @@
 
 ## File Format
 
-- Extension: `.tuidaw` or `.sqlite`
-- Default path: `~/.config/tuidaw/default.sqlite`
+- Extension: `.ilex` or `.sqlite`
+- Default path: `~/.config/ilex/default.sqlite`
 - Can be inspected with any SQLite tool (`sqlite3`, DB Browser, etc.)
 
 ## Dev Strategy

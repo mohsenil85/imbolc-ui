@@ -16,7 +16,7 @@ Each target follows the same pattern:
 Add a `*_mod_in` parameter that accepts a control bus:
 
 ```supercollider
-SynthDef(\tuidaw_example, { |out=1024, some_param=0.5, some_param_mod_in=(-1)|
+SynthDef(\ilex_example, { |out=1024, some_param=0.5, some_param_mod_in=(-1)|
     // Read from bus if connected, otherwise 0
     var mod = Select.kr(some_param_mod_in >= 0, [0, In.kr(some_param_mod_in)]);
     // Apply modulation (additive, multiplicative, or scaled)
@@ -49,7 +49,7 @@ Run `synthdefs/compile.scd` in SuperCollider to regenerate `.scsyndef` files.
 ### Tier 1: Easy (Additive Modulation)
 
 #### FilterResonance
-- **SynthDef**: `tuidaw_lpf`, `tuidaw_hpf`, `tuidaw_bpf`
+- **SynthDef**: `ilex_lpf`, `ilex_hpf`, `ilex_bpf`
 - **Parameter**: Add `res_mod_in=(-1)`
 - **Modulation**: `resonance + mod` (clamp 0-1)
 - **Notes**: Already similar structure to cutoff_mod_in
@@ -61,7 +61,7 @@ var finalRes = (resonance + resMod).clip(0, 1);
 ```
 
 #### Pan
-- **SynthDef**: `tuidaw_output`
+- **SynthDef**: `ilex_output`
 - **Parameter**: Add `pan_mod_in=(-1)`
 - **Modulation**: `pan + mod` (clamp -1 to 1)
 
@@ -72,7 +72,7 @@ var panned = Balance2.ar(sig[0], sig[1], finalPan);
 ```
 
 #### DelayFeedback
-- **SynthDef**: `tuidaw_delay`
+- **SynthDef**: `ilex_delay`
 - **Parameter**: Add `feedback_mod_in=(-1)`
 - **Modulation**: `feedback + mod` (clamp 0-1)
 
@@ -83,7 +83,7 @@ var delayed = CombL.ar(sig, 2.0, time, finalFb * 4);
 ```
 
 #### ReverbMix
-- **SynthDef**: `tuidaw_reverb`
+- **SynthDef**: `ilex_reverb`
 - **Parameter**: Add `mix_mod_in=(-1)`
 - **Modulation**: `mix + mod` (clamp 0-1)
 
@@ -94,7 +94,7 @@ var wet = FreeVerb2.ar(sig[0], sig[1], finalMix, room, damp);
 ```
 
 #### SendLevel
-- **SynthDef**: `tuidaw_send`
+- **SynthDef**: `ilex_send`
 - **Parameter**: Add `level_mod_in=(-1)`
 - **Modulation**: `level + mod` (clamp 0-1)
 
@@ -109,7 +109,7 @@ Out.ar(out, sig * finalLevel);
 ### Tier 2: Medium (Multiplicative Modulation)
 
 #### Amplitude
-- **SynthDef**: `tuidaw_saw`, `tuidaw_sin`, `tuidaw_sqr`, `tuidaw_tri`, `tuidaw_sampler`
+- **SynthDef**: `ilex_saw`, `ilex_sin`, `ilex_sqr`, `ilex_tri`, `ilex_sampler`
 - **Parameter**: Add `amp_mod_in=(-1)`
 - **Modulation**: `amp * (1 + mod)` - LFO depth controls tremolo intensity
 
@@ -120,7 +120,7 @@ var sig = Saw.ar(freqSig) * finalAmp * velSig;
 ```
 
 #### GateRate
-- **SynthDef**: `tuidaw_gate`
+- **SynthDef**: `ilex_gate`
 - **Parameter**: Add `rate_mod_in=(-1)`
 - **Modulation**: `rate * (1 + mod)` - meta-modulation!
 
@@ -132,7 +132,7 @@ var sine = SinOsc.kr(finalRate).range(1 - depth, 1);
 ```
 
 #### SampleRate (Scratching!)
-- **SynthDef**: `tuidaw_sampler`
+- **SynthDef**: `ilex_sampler`
 - **Parameter**: Add `rate_mod_in=(-1)`
 - **Modulation**: `rate * (1 + mod)` - enables vinyl scratching effect
 
@@ -174,7 +174,7 @@ var finalFreq = freqSig * detuneRatio;
 **Note**: Could combine with Pitch using a scaling factor, but separate targets give more control.
 
 #### DelayTime
-- **SynthDef**: `tuidaw_delay`
+- **SynthDef**: `ilex_delay`
 - **Parameter**: Add `time_mod_in=(-1)`
 - **Modulation**: `time * (1 + mod)` with clamp
 
@@ -206,7 +206,7 @@ var env = EnvGen.kr(Env.adsr(finalAttack, decay, sustain, finalRelease), gateSig
 **Note**: These only affect NEW notes, not currently playing ones. The envelope is set at note-on.
 
 #### PulseWidth
-- **SynthDef**: `tuidaw_sqr` only
+- **SynthDef**: `ilex_sqr` only
 - **Parameter**: Add `width_mod_in=(-1)`
 - **Modulation**: `0.5 + mod` (clamp 0.01-0.99)
 

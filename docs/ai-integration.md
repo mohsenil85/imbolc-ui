@@ -202,7 +202,7 @@ Always return valid JSON with "actions" array and "explanation" string.
 ### Java Classes
 
 ```
-com.tuidaw.ai/
+com.ilex.ai/
 ├── AIClient.java        # HTTP client for Haiku API
 ├── AIContext.java       # Builds context from rack state
 ├── ActionParser.java    # Parses JSON response to Action objects
@@ -244,7 +244,7 @@ public class AIClient {
 ## Configuration
 
 ```properties
-# tuidaw.properties
+# ilex.properties
 ai.enabled=true
 ai.api_key=sk-ant-...
 ai.model=claude-3-haiku-20240307

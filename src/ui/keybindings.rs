@@ -144,7 +144,7 @@ pub fn load_keybindings() -> (GlobalBindings, HashMap<String, Keymap>) {
 }
 
 fn user_keybindings_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("tuidaw").join("keybindings.json"))
+    dirs::config_dir().map(|d| d.join("ilex").join("keybindings.json"))
 }
 
 /// Merge user config into the base config.

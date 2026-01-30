@@ -17,7 +17,7 @@ Add support for user-defined SuperCollider SynthDefs as instrument sources. User
 │  2. File browser opens → user picks .scd file                 │
 │  3. Parse .scd to extract synthdef name + params              │
 │  4. Compile via sclang → generates .scsyndef                  │
-│  5. Copy to ~/.config/tuidaw/synthdefs/                       │
+│  5. Copy to ~/.config/ilex/synthdefs/                       │
 │  6. Register in CustomSynthDefRegistry                        │
 │  7. Available as source type for new strips                   │
 └──────────────────────────────────────────────────────────────┘
@@ -88,12 +88,12 @@ impl OscType {
     // Change return type to handle dynamic strings
     pub fn synth_def_name(&self, registry: &CustomSynthDefRegistry) -> String {
         match self {
-            OscType::Saw => "tuidaw_saw".to_string(),
+            OscType::Saw => "ilex_saw".to_string(),
             // ... other built-ins
             OscType::Custom(id) => {
                 registry.get(*id)
                     .map(|s| s.synthdef_name.clone())
-                    .unwrap_or_else(|| "tuidaw_saw".to_string())
+                    .unwrap_or_else(|| "ilex_saw".to_string())
             }
         }
     }
@@ -572,7 +572,7 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 
 ## Overview
 
-A full-featured code editor pane for writing and editing SuperCollider SynthDefs directly in tuidaw. Features:
+A full-featured code editor pane for writing and editing SuperCollider SynthDefs directly in ilex. Features:
 - Tree-sitter syntax highlighting for SCLang
 - Readline/Emacs-style keybindings
 - Live compilation and error feedback
@@ -850,7 +850,7 @@ impl Pane for SclangEditorPane {
 impl SclangEditorPane {
     fn compile(&mut self) -> Action {
         // Save to temp file
-        let temp_path = std::env::temp_dir().join("tuidaw_compile.scd");
+        let temp_path = std::env::temp_dir().join("ilex_compile.scd");
         std::fs::write(&temp_path, self.buffer.content()).ok();
 
         // Run sclang

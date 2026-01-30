@@ -1,6 +1,6 @@
 # Architecture
 
-Detailed architecture reference for the tuidaw codebase. See [CLAUDE.md](../CLAUDE.md) for quick reference.
+Detailed architecture reference for the ilex codebase. See [CLAUDE.md](../CLAUDE.md) for quick reference.
 
 ## State Ownership
 

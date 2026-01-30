@@ -100,7 +100,7 @@ impl Frame {
         let snap_text = if session.snap { "ON" } else { "OFF" };
         let tuning_str = format!("A{:.0}", session.tuning_a4);
         let header = format!(
-            " TUIDAW - {}     Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
+            " ILEX - {}     Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
             self.project_name, session.key.name(), session.scale.name(), session.bpm,
             session.time_signature.0, session.time_signature.1,
             tuning_str, snap_text,

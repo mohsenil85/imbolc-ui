@@ -13,7 +13,7 @@ pub fn default_rack_path() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         PathBuf::from(home)
             .join(".config")
-            .join("tuidaw")
+            .join("ilex")
             .join("default.sqlite")
     } else {
         PathBuf::from("default.sqlite")
@@ -1108,7 +1108,7 @@ fn config_synthdefs_dir() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         PathBuf::from(home)
             .join(".config")
-            .join("tuidaw")
+            .join("ilex")
             .join("synthdefs")
     } else {
         PathBuf::from("synthdefs")
@@ -1175,7 +1175,7 @@ fn compile_and_load_synthdef(
     );
 
     // Write temp compile script
-    let temp_script = std::env::temp_dir().join("tuidaw_compile_custom.scd");
+    let temp_script = std::env::temp_dir().join("ilex_compile_custom.scd");
     std::fs::write(&temp_script, &compile_script)
         .map_err(|e| format!("Failed to write compile script: {}", e))?;
 

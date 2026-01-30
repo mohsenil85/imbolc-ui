@@ -7,7 +7,7 @@ High-level design for the TUI DAW rewritten in Rust. Incorporates lessons from v
 A terminal-based modular synthesizer and DAW that feels immediate and hackable:
 - **Instant startup** - No JVM warmup, ready in milliseconds
 - **Single binary** - One file to distribute, no runtime dependencies
-- **Shareable sessions** - `.tuidaw` SQLite files you can send to a friend
+- **Shareable sessions** - `.ilex` SQLite files you can send to a friend
 - **MIDI-first** - Plug in a keyboard and play
 
 ## Architecture Overview
@@ -173,7 +173,7 @@ Dispatch returns `(new_state, effects)`. Effects are executed by the main loop, 
 
 ### 6. SQLite from Day 1
 
-Single `.tuidaw` file for everything:
+Single `.ilex` file for everything:
 - Modules, patches, mixer state
 - Sequencer tracks and steps
 - Presets (portable, content-addressable)
@@ -265,7 +265,7 @@ The audio layer wraps SuperCollider (scsynth) with DAW-level semantics. SC provi
 - Peak hold / RMS as needed
 
 ### Hard Constraints
-- SC is not a timeline engine - tuidaw owns all timeline semantics
+- SC is not a timeline engine - ilex owns all timeline semantics
 - Timing correctness requires timestamped bundles + lookahead
 - Seek/loop require "rebuild to known state" strategies
 - scsynth will crash sometimes - must handle reconnect + state rebuild
@@ -273,7 +273,7 @@ The audio layer wraps SuperCollider (scsynth) with DAW-level semantics. SC provi
 ## Crate Structure
 
 ```
-tuidaw/
+ilex/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs
@@ -407,7 +407,7 @@ Based on lessons learned:
 1. Track/step state
 2. Sequencer view rendering
 3. Step editing
-4. Transport: tuidaw owns the clock (app is master, SC follows)
+4. Transport: ilex owns the clock (app is master, SC follows)
 5. Playback with lookahead scheduling
 6. Seeking: rebuild-to-known-state on position change
 7. Loop handling with deterministic state re-init

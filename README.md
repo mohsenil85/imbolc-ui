@@ -1,4 +1,4 @@
-# tuidaw
+# ilex
 
 ![ilex](ilex.png)
 
@@ -13,7 +13,7 @@ Uses [ratatui](https://github.com/ratatui/ratatui) for the TUI and [SuperCollide
 - **Mixer** — Channel strips with level, pan, mute, and solo. Output modules auto-assign to mixer channels.
 - **Real-time synthesis** — All audio runs through SuperCollider. OSC bundles with NTP timetags for sample-accurate scheduling.
 - **Custom SynthDefs** — Import your own `.scd` instruments. Parameters are auto-discovered and editable in the rack.
-- **Persistence** — Sessions saved as SQLite databases (`.tuidaw` files). Modules, parameters, connections all preserved.
+- **Persistence** — Sessions saved as SQLite databases (`.ilex` files). Modules, parameters, connections all preserved.
 - **Keyboard-driven** — Every action is a keypress. No mouse needed. Vim-style navigation throughout.
 
 ## Prerequisites
@@ -146,7 +146,7 @@ SuperCollider runs as an external process (`scsynth`). The DAW communicates enti
 
 ## Persistence
 
-Sessions are stored as SQLite databases at `~/.config/tuidaw/rack.tuidaw`.
+Sessions are stored as SQLite databases at `~/.config/ilex/rack.ilex`.
 
 Currently persisted:
 - Modules with all parameters
@@ -156,7 +156,7 @@ Currently persisted:
 ## Testing
 
 ```bash
-cargo test --bin tuidaw    # unit tests
+cargo test --bin ilex    # unit tests
 cargo test                 # all tests
 ```
 

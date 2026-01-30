@@ -3,7 +3,7 @@
     "cclsp": {
       "command": "cclsp",
       "env": {
-        "CCLSP_CONFIG_PATH": "/Users/log/Projects/tuidaw/cclsp.json"
+        "CCLSP_CONFIG_PATH": "/Users/log/Projects/ilex/cclsp.json"
       }
     }
   }

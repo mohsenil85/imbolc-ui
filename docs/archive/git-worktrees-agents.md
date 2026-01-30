@@ -19,12 +19,12 @@ Each agent works in its own git worktree:
 ## Workflow
 
 ```
-main repo: /Users/log/Projects/tuidaw/
+main repo: /Users/log/Projects/ilex/
            ├── src/
            ├── docs/
            └── ...
 
-worktree:  /Users/log/Projects/tuidaw-worktrees/
+worktree:  /Users/log/Projects/ilex-worktrees/
            ├── task-48/     ← Agent 1 works here
            │   ├── src/
            │   └── ...
@@ -42,12 +42,12 @@ worktree:  /Users/log/Projects/tuidaw-worktrees/
 
 ```bash
 # Create worktree directory
-mkdir -p ../tuidaw-worktrees
+mkdir -p ../ilex-worktrees
 
 # Create worktree for a task
-git worktree add ../tuidaw-worktrees/task-48 -b task-48
-git worktree add ../tuidaw-worktrees/task-50 -b task-50
-git worktree add ../tuidaw-worktrees/task-51 -b task-51
+git worktree add ../ilex-worktrees/task-48 -b task-48
+git worktree add ../ilex-worktrees/task-50 -b task-50
+git worktree add ../ilex-worktrees/task-51 -b task-51
 ```
 
 ### Agent Prompt Template
@@ -55,7 +55,7 @@ git worktree add ../tuidaw-worktrees/task-51 -b task-51
 When spawning an agent:
 
 ```
-You are working in a git worktree at: /Users/log/Projects/tuidaw-worktrees/task-48
+You are working in a git worktree at: /Users/log/Projects/ilex-worktrees/task-48
 
 This is an isolated copy of the repository. You can freely edit files
 without affecting other parallel agents.
@@ -73,7 +73,7 @@ After agents complete:
 
 ```bash
 # Switch to main
-cd /Users/log/Projects/tuidaw
+cd /Users/log/Projects/ilex
 git checkout main
 
 # Merge each task branch
@@ -84,9 +84,9 @@ git merge task-51 --no-ff -m "feat: Task 51 - MixerViewDispatcher"
 # Handle any conflicts interactively
 
 # Cleanup worktrees
-git worktree remove ../tuidaw-worktrees/task-48
-git worktree remove ../tuidaw-worktrees/task-50
-git worktree remove ../tuidaw-worktrees/task-51
+git worktree remove ../ilex-worktrees/task-48
+git worktree remove ../ilex-worktrees/task-50
+git worktree remove ../ilex-worktrees/task-51
 
 # Delete branches
 git branch -d task-48 task-50 task-51
@@ -109,7 +109,7 @@ def run_parallel_tasks(tasks):
     # Create worktrees
     for task in tasks:
         branch = f"task-{task.id}"
-        path = f"../tuidaw-worktrees/{branch}"
+        path = f"../ilex-worktrees/{branch}"
         exec(f"git worktree add {path} -b {branch}")
         worktrees.append((task, path, branch))
 
@@ -164,13 +164,13 @@ Maintain a pool of pre-created worktrees:
 ```bash
 # Pre-create pool
 for i in {1..5}; do
-    git worktree add ../tuidaw-worktrees/pool-$i -b pool-$i
+    git worktree add ../ilex-worktrees/pool-$i -b pool-$i
 done
 
 # Agent claims a worktree from pool
 # Agent releases worktree when done (reset to main)
-git -C ../tuidaw-worktrees/pool-1 checkout main
-git -C ../tuidaw-worktrees/pool-1 reset --hard origin/main
+git -C ../ilex-worktrees/pool-1 checkout main
+git -C ../ilex-worktrees/pool-1 reset --hard origin/main
 ```
 
 This avoids create/remove overhead for each task.

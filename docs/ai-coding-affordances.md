@@ -128,7 +128,7 @@ A note in CLAUDE.md (done):
 ```markdown
 ## Build & Test
 cargo build              # compile
-cargo test --bin tuidaw  # unit tests (55 tests)
+cargo test --bin ilex  # unit tests (55 tests)
 ```
 
 For even faster feedback, `cargo check` skips codegen and only runs

@@ -1,6 +1,6 @@
 # Keybindings Philosophy
 
-tuidaw tries to use a "normie" keybinding scheme. The inspiration is
+ilex tries to use a "normie" keybinding scheme. The inspiration is
 Dwarf Fortress or those 80's tui's that you used to see at the airport
 where an experienced operator can fly through the menus at the speed
 of thought. Numbers keys are used for navigation, ? to view help.

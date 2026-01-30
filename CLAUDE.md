@@ -97,15 +97,15 @@ Most main panes use `Rect::centered(width, height, box_width, 29)` — height 29
 
 ```bash
 cargo build                 # compile
-cargo test --bin tuidaw     # unit tests (~41 tests)
+cargo test --bin ilex     # unit tests (~41 tests)
 cargo test                  # all tests including e2e
 ```
 
 ## Persistence
 
-- Format: SQLite database (`.tuidaw` / `.sqlite`)
+- Format: SQLite database (`.ilex` / `.sqlite`)
 - Save/load: `StripState::save()` / `StripState::load()` in `src/state/persistence.rs`
-- Default path: `~/.config/tuidaw/default.sqlite`
+- Default path: `~/.config/ilex/default.sqlite`
 - Persists: strips, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs
 
 ## LSP Integration (CCLSP)
