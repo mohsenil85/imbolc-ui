@@ -185,6 +185,12 @@ pub trait Pane {
         false
     }
 
+    /// Toggle piano/pad keyboard mode. Returns true if this pane supports it.
+    fn toggle_piano_mode(&mut self, _state: &AppState) -> bool { false }
+
+    /// Force-exit piano/pad keyboard mode. Returns true if it was active.
+    fn exit_piano_mode(&mut self) -> bool { false }
+
     /// Return self as Any for downcasting (required for type-specific access)
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }

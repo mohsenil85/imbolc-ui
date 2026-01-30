@@ -26,7 +26,9 @@
     { "key": "8", "action": "select:8", "description": "Select instrument 8" },
     { "key": "9", "action": "select:9", "description": "Select instrument 9" },
     { "key": "0", "action": "select:10", "description": "Select instrument 10" },
-    { "key": "_", "action": "select_two_digit", "description": "Two-digit instrument select" }
+    { "key": "_", "action": "select_two_digit", "description": "Two-digit instrument select" },
+    { "key": "/", "action": "toggle_piano_mode", "description": "Toggle piano keyboard", "always_active": true },
+    { "key": "Escape", "action": "exit_piano_mode", "description": "Exit piano mode", "always_active": true }
   ],
   "panes": {
     "instrument": [
@@ -39,8 +41,7 @@
       { "key": "d", "action": "delete", "description": "Delete instrument" },
       { "key": "Enter", "action": "edit", "description": "Edit instrument" },
       { "key": "w", "action": "save", "description": "Save" },
-      { "key": "o", "action": "load", "description": "Load" },
-      { "key": "/", "action": "piano_mode", "description": "Toggle piano keyboard mode" }
+      { "key": "o", "action": "load", "description": "Load" }
     ],
     "mixer": [
       { "key": "Left", "action": "prev", "description": "Previous channel" },
@@ -67,7 +68,6 @@
       { "key": "Left", "action": "left", "description": "Cursor left (earlier)" },
       { "key": "Right", "action": "right", "description": "Cursor later (later)" },
       { "key": "Enter", "action": "toggle_note", "description": "Place/remove note" },
-      { "key": "Tab", "action": "piano_mode", "description": "Toggle piano keyboard mode" },
       { "key": "+", "action": "vel_up", "description": "Increase velocity" },
       { "key": "-", "action": "vel_down", "description": "Decrease velocity" },
       { "key": "Space", "action": "play_stop", "description": "Play / Stop" },
@@ -110,7 +110,6 @@
     ],
     "instrument_edit": [
       { "key": "Escape", "action": "done", "description": "Done editing" },
-      { "key": "/", "action": "piano_mode", "description": "Toggle piano keyboard" },
       { "key": "Down", "action": "next", "description": "Next item" },
       { "key": "Up", "action": "prev", "description": "Previous item" },
       { "key": "Tab", "action": "next_section", "description": "Next section" },

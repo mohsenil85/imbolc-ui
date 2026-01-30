@@ -77,10 +77,6 @@ impl Pane for InstrumentPane {
         // Pad keyboard mode: letter keys trigger drum pads
         if self.pad_keyboard.is_active() {
             match event.key {
-                KeyCode::Char('/') | KeyCode::Escape => {
-                    self.pad_keyboard.handle_escape();
-                    return Action::None;
-                }
                 KeyCode::Up => {
                     return Action::Instrument(InstrumentAction::SelectPrev);
                 }
@@ -100,10 +96,6 @@ impl Pane for InstrumentPane {
         // Piano mode: letter keys play notes
         if self.piano.is_active() {
             match event.key {
-                KeyCode::Char('/') => {
-                    self.piano.handle_escape();
-                    return Action::None;
-                }
                 KeyCode::Char('[') => {
                     self.piano.octave_down();
                     return Action::None;
@@ -152,17 +144,6 @@ impl Pane for InstrumentPane {
             }
             Some("save") => Action::Session(SessionAction::Save),
             Some("load") => Action::Session(SessionAction::Load),
-            Some("piano_mode") => {
-                // Activate pad keyboard for drum machines, piano for everything else
-                if state.instruments.selected_instrument()
-                    .map_or(false, |s| s.source.is_kit())
-                {
-                    self.pad_keyboard.activate();
-                } else {
-                    self.piano.activate();
-                }
-                Action::None
-            }
             _ => Action::None,
         }
     }
@@ -294,9 +275,9 @@ impl Pane for InstrumentPane {
         // Help text
         let help_y = rect.y + rect.height - 2;
         let help_text = if self.pad_keyboard.is_active() {
-            "R T Y U / F G H J / V B N M: trigger pads | /: exit pad mode"
+            "R T Y U / F G H J / V B N M: trigger pads | /: cycle | Esc: exit"
         } else if self.piano.is_active() {
-            "Play keys | [/]: octave | ↑/↓: select instrument | /: cycle layout/exit"
+            "Play keys | [/]: octave | \u{2191}/\u{2193}: select instrument | /: cycle | Esc: exit"
         } else {
             "a: add | d: delete | Enter: edit | /: piano | w: save | o: load"
         };
@@ -312,6 +293,33 @@ impl Pane for InstrumentPane {
 
     fn wants_exclusive_input(&self) -> bool {
         self.piano.is_active() || self.pad_keyboard.is_active()
+    }
+
+    fn toggle_piano_mode(&mut self, state: &AppState) -> bool {
+        if self.pad_keyboard.is_active() {
+            self.pad_keyboard.handle_escape();
+        } else if self.piano.is_active() {
+            self.piano.handle_escape();
+        } else if state.instruments.selected_instrument()
+            .map_or(false, |s| s.source.is_kit())
+        {
+            self.pad_keyboard.activate();
+        } else {
+            self.piano.activate();
+        }
+        true
+    }
+
+    fn exit_piano_mode(&mut self) -> bool {
+        if self.piano.is_active() {
+            self.piano.deactivate();
+            true
+        } else if self.pad_keyboard.is_active() {
+            self.pad_keyboard.deactivate();
+            true
+        } else {
+            false
+        }
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

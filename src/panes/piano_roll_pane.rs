@@ -458,7 +458,7 @@ impl PianoRollPane {
                 }
             }
         } else {
-            let hint_str = "Tab=piano";
+            let hint_str = "/=piano";
             let hint_x = rect.x + rect.width - hint_str.len() as u16 - 2;
             Paragraph::new(Line::from(Span::styled(
                 hint_str,
@@ -483,10 +483,6 @@ impl Pane for PianoRollPane {
         // Piano mode: letter keys play notes, minimal other keys work
         if self.piano.is_active() {
             match event.key {
-                KeyCode::Tab => {
-                    self.piano.handle_escape();
-                    return Action::None;
-                }
                 KeyCode::Char('[') => {
                     if self.piano.octave_down() {
                         self.center_view_on_piano_octave();
@@ -580,10 +576,6 @@ impl Pane for PianoRollPane {
             }
             Some("time_sig") => Action::PianoRoll(PianoRollAction::CycleTimeSig),
             Some("toggle_poly") => Action::PianoRoll(PianoRollAction::TogglePolyMode),
-            Some("piano_mode") => {
-                self.piano.activate();
-                Action::None
-            }
             _ => Action::None,
         }
     }
@@ -608,6 +600,24 @@ impl Pane for PianoRollPane {
 
     fn wants_exclusive_input(&self) -> bool {
         self.piano.is_active()
+    }
+
+    fn toggle_piano_mode(&mut self, _state: &AppState) -> bool {
+        if self.piano.is_active() {
+            self.piano.handle_escape();
+        } else {
+            self.piano.activate();
+        }
+        true
+    }
+
+    fn exit_piano_mode(&mut self) -> bool {
+        if self.piano.is_active() {
+            self.piano.deactivate();
+            true
+        } else {
+            false
+        }
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

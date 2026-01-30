@@ -389,10 +389,6 @@ impl Pane for InstrumentEditPane {
         // Piano mode
         if self.piano.is_active() {
             match event.key {
-                KeyCode::Char('/') => {
-                    self.piano.handle_escape();
-                    return Action::None;
-                }
                 KeyCode::Char('[') => {
                     self.piano.octave_down();
                     return Action::None;
@@ -416,9 +412,6 @@ impl Pane for InstrumentEditPane {
                 }
                 KeyCode::Right => {
                     self.adjust_value(true, false);
-                    return self.emit_update();
-                }
-                KeyCode::Escape => {
                     return self.emit_update();
                 }
                 KeyCode::Char('\\') => {
@@ -497,9 +490,6 @@ impl Pane for InstrumentEditPane {
         match self.keymap.lookup(&event) {
             Some("done") => {
                 return self.emit_update();
-            }
-            Some("piano_mode") => {
-                self.piano.activate();
             }
             Some("next") => {
                 let total = self.total_rows();
@@ -887,7 +877,7 @@ impl Pane for InstrumentEditPane {
         // Help text
         let help_y = rect.y + rect.height - 2;
         let help_text = if self.piano.is_active() {
-            "Play keys | [/]: octave | \u{2190}/\u{2192}: adjust | \\: zero | /: cycle/exit"
+            "Play keys | [/]: octave | \u{2190}/\u{2192}: adjust | \\: zero | /: cycle | Esc: exit"
         } else {
             "\u{2191}/\u{2193}: move | Tab/S-Tab: section | \u{2190}/\u{2192}: adjust | \\: zero | /: piano | Esc: done"
         };
@@ -903,6 +893,24 @@ impl Pane for InstrumentEditPane {
 
     fn wants_exclusive_input(&self) -> bool {
         self.editing || self.piano.is_active()
+    }
+
+    fn toggle_piano_mode(&mut self, _state: &AppState) -> bool {
+        if self.piano.is_active() {
+            self.piano.handle_escape();
+        } else {
+            self.piano.activate();
+        }
+        true
+    }
+
+    fn exit_piano_mode(&mut self) -> bool {
+        if self.piano.is_active() {
+            self.piano.deactivate();
+            true
+        } else {
+            false
+        }
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

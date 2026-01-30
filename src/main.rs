@@ -376,6 +376,18 @@ fn handle_global_action(
         "select_two_digit" => {
             *select_mode = InstrumentSelectMode::WaitingFirstDigit;
         }
+        "toggle_piano_mode" => {
+            if panes.active_mut().toggle_piano_mode(state) {
+                return GlobalResult::Handled;
+            }
+            return GlobalResult::NotHandled;
+        }
+        "exit_piano_mode" => {
+            if panes.active_mut().exit_piano_mode() {
+                return GlobalResult::Handled;
+            }
+            return GlobalResult::NotHandled;
+        }
         _ => return GlobalResult::NotHandled,
     }
     GlobalResult::Handled
