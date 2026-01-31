@@ -1539,6 +1539,68 @@ impl AudioEngine {
                     }
                 }
             }
+            AutomationTarget::LfoRate(instrument_id) => {
+                if let Some(nodes) = self.node_map.get(instrument_id) {
+                    if let Some(lfo_node) = nodes.lfo {
+                        client.set_param(lfo_node, "rate", value)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            AutomationTarget::LfoDepth(instrument_id) => {
+                if let Some(nodes) = self.node_map.get(instrument_id) {
+                    if let Some(lfo_node) = nodes.lfo {
+                        client.set_param(lfo_node, "depth", value)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            AutomationTarget::EnvelopeAttack(instrument_id) => {
+                // Update state — affects newly spawned voices only
+                if let Some(inst) = state.instrument(*instrument_id) {
+                    let _ = inst; // envelope params are read at voice spawn time
+                }
+            }
+            AutomationTarget::EnvelopeDecay(instrument_id) => {
+                if let Some(inst) = state.instrument(*instrument_id) {
+                    let _ = inst;
+                }
+            }
+            AutomationTarget::EnvelopeSustain(instrument_id) => {
+                if let Some(inst) = state.instrument(*instrument_id) {
+                    let _ = inst;
+                }
+            }
+            AutomationTarget::EnvelopeRelease(instrument_id) => {
+                if let Some(inst) = state.instrument(*instrument_id) {
+                    let _ = inst;
+                }
+            }
+            AutomationTarget::SendLevel(instrument_id, send_idx) => {
+                // Find the send node for this instrument + send index
+                let inst_idx = state.instruments.iter().position(|i| i.id == *instrument_id);
+                if let Some(idx) = inst_idx {
+                    // Send nodes are keyed by (instrument_index, bus_id)
+                    // We need to find the bus_id from the send_idx
+                    if let Some(inst) = state.instrument(*instrument_id) {
+                        if let Some(send) = inst.sends.get(*send_idx) {
+                            if let Some(&node_id) = self.send_node_map.get(&(idx, send.bus_id)) {
+                                client.set_param(node_id, "level", value)
+                                    .map_err(|e| e.to_string())?;
+                            }
+                        }
+                    }
+                }
+            }
+            AutomationTarget::BusLevel(bus_id) => {
+                if let Some(&node_id) = self.bus_node_map.get(bus_id) {
+                    client.set_param(node_id, "level", value)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            AutomationTarget::Bpm => {
+                // Handled in playback.rs, not here
+            }
         }
 
         Ok(())

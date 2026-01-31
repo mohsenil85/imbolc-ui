@@ -1,4 +1,5 @@
 mod add_pane;
+mod automation_pane;
 mod file_browser_pane;
 mod frame_edit_pane;
 mod help_pane;
@@ -15,6 +16,7 @@ mod track_pane;
 mod waveform_pane;
 
 pub use add_pane::AddPane;
+pub use automation_pane::AutomationPane;
 pub use file_browser_pane::FileBrowserPane;
 pub use frame_edit_pane::FrameEditPane;
 pub use help_pane::HelpPane;

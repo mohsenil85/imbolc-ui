@@ -76,7 +76,7 @@ User input -> Pane::handle_input -> Action -> dispatch -> mutate state / send OS
 
 ## Audio engine details
 
-- Scheduling runs in Rust (see `playback.rs`). The main loop advances a tick-based clock (~16 ms) and sends note events as OSC bundles with future NTP timetags for sample-accurate playback.
+- Scheduling runs in Rust (see `playback.rs`). The main loop polls input every 2 ms and renders at ~60 fps. Note events are sent as OSC bundles with future NTP timetags for sample-accurate playback.
 - BusAllocator deterministically assigns audio/control buses and resets on project load or engine restart.
 - SynthDefs live in `synthdefs/` and are loaded into scsynth at startup. Execution order is enforced via groups:
   - 100: Sources
@@ -111,7 +111,7 @@ Projects are stored as SQLite databases. The database captures the project model
 
 ## Known limitations
 
-- UI and input are on the main thread; heavy rendering could jitter scheduling (OSC bundles mitigate this).
+- UI and input are on the main thread; input polling (2 ms) is decoupled from rendering (~60 fps) to keep live-play latency low, but heavy dispatch work could still jitter scheduling (OSC bundles mitigate this).
 - Voice stealing is FIFO; smarter strategies are not implemented.
 - Parameter smoothing is limited; rapid changes can cause zippering.
 - LFO target wiring beyond filter cutoff is still in progress.

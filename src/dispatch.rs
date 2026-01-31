@@ -7,7 +7,8 @@ use crate::scd_parser;
 use crate::state::drum_sequencer::{ChopperState, DrumPattern};
 use crate::state::sampler::Slice;
 use crate::state::{AppState, CustomSynthDef, MixerSelection, ParamSpec};
-use crate::ui::{Action, ChopperAction, Frame, InstrumentAction, MixerAction, PaneManager, PianoRollAction, SequencerAction, ServerAction, SessionAction};
+use crate::state::automation::AutomationTarget;
+use crate::ui::{Action, AutomationAction, ChopperAction, Frame, InstrumentAction, MixerAction, PaneManager, PianoRollAction, SequencerAction, ServerAction, SessionAction};
 
 /// Default path for save file
 pub fn default_rack_path() -> PathBuf {
@@ -50,6 +51,7 @@ pub fn dispatch_action(
         Action::Session(a) => dispatch_session(a, state, panes, audio_engine, app_frame),
         Action::Sequencer(a) => dispatch_sequencer(a, state, panes, audio_engine),
         Action::Chopper(a) => dispatch_chopper(a, state, panes, audio_engine),
+        Action::Automation(a) => dispatch_automation(a, state, audio_engine),
         Action::None => {}
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => {}
@@ -249,10 +251,17 @@ fn dispatch_mixer(
         }
         MixerAction::AdjustLevel(delta) => {
             let mut bus_update: Option<(u8, f32, bool, f32)> = None;
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
             match state.session.mixer_selection {
                 MixerSelection::Instrument(idx) => {
                     if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
                         instrument.level = (instrument.level + delta).clamp(0.0, 1.0);
+                        if state.automation_recording && state.session.piano_roll.playing {
+                            record_target = Some((
+                                AutomationTarget::InstrumentLevel(instrument.id),
+                                instrument.level,
+                            ));
+                        }
                     }
                 }
                 MixerSelection::Bus(id) => {
@@ -262,6 +271,12 @@ fn dispatch_mixer(
                     if let Some(bus) = state.session.bus(id) {
                         let mute = state.session.effective_bus_mute(bus);
                         bus_update = Some((id, bus.level, mute, bus.pan));
+                        if state.automation_recording && state.session.piano_roll.playing {
+                            record_target = Some((
+                                AutomationTarget::BusLevel(id),
+                                bus.level,
+                            ));
+                        }
                     }
                 }
                 MixerSelection::Master => {
@@ -273,6 +288,10 @@ fn dispatch_mixer(
                     let _ = audio_engine.set_bus_mixer_params(bus_id, level, mute, pan);
                 }
                 let _ = audio_engine.update_all_instrument_mixer_params(&state.instruments, &state.session);
+            }
+            // Record automation point
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
             }
         }
         MixerAction::ToggleMute => {
@@ -341,12 +360,22 @@ fn dispatch_mixer(
         MixerAction::AdjustSend(bus_id, delta) => {
             let bus_id = *bus_id;
             let delta = *delta;
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
             if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
                 if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
-                    if let Some(send) = instrument.sends.iter_mut().find(|s| s.bus_id == bus_id) {
+                    if let Some((send_idx, send)) = instrument.sends.iter_mut().enumerate().find(|(_, s)| s.bus_id == bus_id) {
                         send.level = (send.level + delta).clamp(0.0, 1.0);
+                        if state.automation_recording && state.session.piano_roll.playing {
+                            record_target = Some((
+                                AutomationTarget::SendLevel(instrument.id, send_idx),
+                                send.level,
+                            ));
+                        }
                     }
                 }
+            }
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
             }
         }
         MixerAction::ToggleSend(bus_id) => {
@@ -1186,6 +1215,79 @@ fn dispatch_sequencer(
     }
 }
 
+fn dispatch_automation(
+    action: &AutomationAction,
+    state: &mut AppState,
+    audio_engine: &mut AudioEngine,
+) {
+    match action {
+        AutomationAction::AddLane(target) => {
+            state.session.automation.add_lane(target.clone());
+        }
+        AutomationAction::RemoveLane(id) => {
+            state.session.automation.remove_lane(*id);
+        }
+        AutomationAction::ToggleLaneEnabled(id) => {
+            if let Some(lane) = state.session.automation.lane_mut(*id) {
+                lane.enabled = !lane.enabled;
+            }
+        }
+        AutomationAction::AddPoint(lane_id, tick, value) => {
+            if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
+                lane.add_point(*tick, *value);
+            }
+        }
+        AutomationAction::RemovePoint(lane_id, tick) => {
+            if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
+                lane.remove_point(*tick);
+            }
+        }
+        AutomationAction::MovePoint(lane_id, old_tick, new_tick, new_value) => {
+            if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
+                lane.remove_point(*old_tick);
+                lane.add_point(*new_tick, *new_value);
+            }
+        }
+        AutomationAction::SetCurveType(lane_id, tick, curve) => {
+            if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
+                if let Some(point) = lane.point_at_mut(*tick) {
+                    point.curve = *curve;
+                }
+            }
+        }
+        AutomationAction::SelectLane(delta) => {
+            if *delta > 0 {
+                state.session.automation.select_next();
+            } else {
+                state.session.automation.select_prev();
+            }
+        }
+        AutomationAction::ClearLane(id) => {
+            if let Some(lane) = state.session.automation.lane_mut(*id) {
+                lane.points.clear();
+            }
+        }
+        AutomationAction::ToggleRecording => {
+            state.automation_recording = !state.automation_recording;
+        }
+        AutomationAction::RecordValue(target, value) => {
+            // Find or create lane for this target
+            let lane_id = state.session.automation.add_lane(target.clone());
+            let playhead = state.session.piano_roll.playhead;
+            if let Some(lane) = state.session.automation.lane_mut(lane_id) {
+                lane.add_point(playhead, *value);
+            }
+            // Apply immediately for audio feedback
+            if audio_engine.is_running() {
+                // Map normalized value to actual range
+                let (min, max) = target.default_range();
+                let actual_value = min + value * (max - min);
+                let _ = audio_engine.apply_automation(target, actual_value, &state.instruments, &state.session);
+            }
+        }
+    }
+}
+
 fn dispatch_chopper(
     action: &ChopperAction,
     state: &mut AppState,
@@ -1555,4 +1657,31 @@ fn compile_and_load_synthdef(
     }
 
     Ok(())
+}
+
+/// Minimum value change threshold for recording (0.5%)
+const RECORD_VALUE_THRESHOLD: f32 = 0.005;
+/// Minimum tick delta between recorded points (1/10th beat)
+const RECORD_MIN_TICK_DELTA: u32 = 48;
+
+/// Record an automation point with thinning
+fn record_automation_point(state: &mut AppState, target: AutomationTarget, value: f32) {
+    let playhead = state.session.piano_roll.playhead;
+    let lane_id = state.session.automation.add_lane(target);
+
+    if let Some(lane) = state.session.automation.lane_mut(lane_id) {
+        // Point thinning: skip if value changed less than threshold and tick delta is small
+        if let Some(last) = lane.points.last() {
+            let value_delta = (value - last.value).abs();
+            let tick_delta = if playhead > last.tick {
+                playhead - last.tick
+            } else {
+                last.tick - playhead
+            };
+            if value_delta < RECORD_VALUE_THRESHOLD && tick_delta < RECORD_MIN_TICK_DELTA {
+                return;
+            }
+        }
+        lane.add_point(playhead, value);
+    }
 }

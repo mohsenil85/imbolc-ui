@@ -6,6 +6,7 @@ use ratatui::layout::Rect as RatatuiRect;
 
 use super::{InputEvent, Keymap, MouseEvent};
 use crate::state::{AppState, EffectType, FilterType, InstrumentId, MixerSelection, MusicalSettings, SourceType};
+use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
 
 /// Drum sequencer actions
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +136,22 @@ pub enum ServerAction {
     RecordInput,
 }
 
+/// Automation actions
+#[derive(Debug, Clone, PartialEq)]
+pub enum AutomationAction {
+    AddLane(AutomationTarget),
+    RemoveLane(AutomationLaneId),
+    ToggleLaneEnabled(AutomationLaneId),
+    AddPoint(AutomationLaneId, u32, f32),          // lane, tick, value
+    RemovePoint(AutomationLaneId, u32),             // lane, tick
+    MovePoint(AutomationLaneId, u32, u32, f32),     // lane, old_tick, new_tick, new_value
+    SetCurveType(AutomationLaneId, u32, CurveType), // lane, tick, curve
+    SelectLane(i8),                                  // +1/-1
+    ClearLane(AutomationLaneId),
+    ToggleRecording,
+    RecordValue(AutomationTarget, f32),
+}
+
 /// Session/file actions
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionAction {
@@ -160,6 +177,7 @@ pub enum Action {
     Session(SessionAction),
     Sequencer(SequencerAction),
     Chopper(ChopperAction),
+    Automation(AutomationAction),
     /// Pane signals: pop piano_mode/pad_mode layer
     ExitPerformanceMode,
     /// Push a named layer onto the layer stack

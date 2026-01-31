@@ -153,7 +153,7 @@ impl MidiRecordingState {
 
     /// Find pitch bend config for an instrument
     pub fn find_pitch_bend_config(&self, instrument_id: InstrumentId) -> Option<&PitchBendConfig> {
-        self.pitch_bend_configs.iter().find(|c| c.target.instrument_id() == instrument_id)
+        self.pitch_bend_configs.iter().find(|c| c.target.instrument_id() == Some(instrument_id))
     }
 
     /// Arm for recording

@@ -39,7 +39,16 @@ pub struct PianoRollPane {
     // Piano keyboard mode
     piano: PianoKeyboard,
     recording: bool,            // True when recording notes from piano keyboard
+    // Automation overlay
+    automation_overlay_visible: bool,
+    automation_overlay_lane_idx: Option<usize>, // index into automation.lanes for overlay display
 }
+
+/// Block characters for value graph (8 levels, bottom to top)
+const AUTOMATION_BLOCKS: [char; 8] = [
+    '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}',
+    '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}',
+];
 
 impl PianoRollPane {
     pub fn new(keymap: Keymap) -> Self {
@@ -55,6 +64,8 @@ impl PianoRollPane {
             default_velocity: 100,
             piano: PianoKeyboard::new(),
             recording: false,
+            automation_overlay_visible: false,
+            automation_overlay_lane_idx: None,
         }
     }
 
@@ -142,6 +153,121 @@ impl PianoRollPane {
         self.view_bottom_pitch = base_pitch.saturating_sub(visible_rows / 2);
         // Also move cursor to the base note of this octave
         self.cursor_pitch = base_pitch;
+    }
+
+    /// Render the automation overlay strip at the bottom of the note grid
+    fn render_automation_overlay(
+        &self,
+        buf: &mut Buffer,
+        overlay_area: RatatuiRect,
+        grid_x: u16,
+        grid_width: u16,
+        state: &AppState,
+    ) {
+        let automation = &state.session.automation;
+        let inst_id = state.instruments.selected_instrument().map(|i| i.id);
+
+        // Find the lane to display
+        let lane = if let Some(idx) = self.automation_overlay_lane_idx {
+            automation.lanes.get(idx)
+        } else {
+            // Default: show first lane for current instrument
+            inst_id.and_then(|id| {
+                automation.lanes.iter().find(|l| l.target.instrument_id() == Some(id))
+            })
+        };
+
+        let overlay_height = overlay_area.height;
+        if overlay_height == 0 { return; }
+
+        // Separator line
+        let sep_style = ratatui::style::Style::from(Style::new().fg(Color::new(50, 40, 60)));
+        for x in overlay_area.x..overlay_area.x + overlay_area.width {
+            if let Some(cell) = buf.cell_mut((x, overlay_area.y)) {
+                cell.set_char('─').set_style(sep_style);
+            }
+        }
+
+        // Lane name on left edge
+        let lane_name = lane
+            .map(|l| l.target.short_name())
+            .unwrap_or("—");
+        let label_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN));
+        for (i, ch) in lane_name.chars().enumerate() {
+            let x = overlay_area.x + i as u16;
+            if x >= grid_x { break; }
+            let y = overlay_area.y + 1;
+            if y < overlay_area.y + overlay_height {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_char(ch).set_style(label_style);
+                }
+            }
+        }
+
+        // REC indicator
+        if state.automation_recording {
+            let rec_str = "REC";
+            let rec_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
+            for (i, ch) in rec_str.chars().enumerate() {
+                let x = overlay_area.x + i as u16;
+                let y = overlay_area.y + 2.min(overlay_height - 1);
+                if x < grid_x && y < overlay_area.y + overlay_height {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_char(ch).set_style(rec_style);
+                    }
+                }
+            }
+        }
+
+        let Some(lane) = lane else { return; };
+        if lane.points.is_empty() { return; }
+
+        let tpc = self.ticks_per_cell();
+        let graph_rows = overlay_height.saturating_sub(1); // Minus separator row
+        if graph_rows == 0 { return; }
+
+        let curve_color = if lane.enabled { Color::CYAN } else { Color::DARK_GRAY };
+
+        for col in 0..grid_width {
+            let tick = self.view_start_tick + col as u32 * tpc;
+            if let Some(raw_value) = lane.value_at(tick) {
+                // Normalize to 0-1
+                let normalized = if lane.max_value > lane.min_value {
+                    ((raw_value - lane.min_value) / (lane.max_value - lane.min_value)).clamp(0.0, 1.0)
+                } else {
+                    0.5
+                };
+                // Map to block character index (0-7)
+                let block_idx = (normalized * 7.0) as usize;
+                let block_char = AUTOMATION_BLOCKS[block_idx.min(7)];
+
+                // Render at the bottom row(s) of the overlay
+                let x = grid_x + col;
+                let y = overlay_area.y + 1; // First row below separator
+                if y < overlay_area.y + overlay_height && x < overlay_area.x + overlay_area.width {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_char(block_char).set_style(
+                            ratatui::style::Style::from(Style::new().fg(curve_color)),
+                        );
+                    }
+                }
+
+                // For taller overlays, fill upward with full blocks
+                if graph_rows > 1 {
+                    let filled_rows = ((normalized * (graph_rows - 1) as f32) as u16).min(graph_rows - 1);
+                    for r in 1..filled_rows {
+                        let y = overlay_area.y + graph_rows - r;
+                        if y > overlay_area.y && y < overlay_area.y + overlay_height && x < overlay_area.x + overlay_area.width {
+                            if let Some(cell) = buf.cell_mut((x, y)) {
+                                cell.set_char('▁').set_style(
+                                    ratatui::style::Style::from(Style::new().fg(curve_color)),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Render notes grid (buffer version)
@@ -486,6 +612,32 @@ impl Pane for PianoRollPane {
             }
             "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
             "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode),
+            "toggle_automation" => {
+                self.automation_overlay_visible = !self.automation_overlay_visible;
+                Action::None
+            }
+            "automation_lane_prev" => {
+                if self.automation_overlay_visible {
+                    match self.automation_overlay_lane_idx {
+                        Some(idx) if idx > 0 => {
+                            self.automation_overlay_lane_idx = Some(idx - 1);
+                        }
+                        _ => {}
+                    }
+                }
+                Action::None
+            }
+            "automation_lane_next" => {
+                if self.automation_overlay_visible {
+                    let next = match self.automation_overlay_lane_idx {
+                        Some(idx) => idx + 1,
+                        None => 1,
+                    };
+                    // Will be clamped during render based on actual lane count
+                    self.automation_overlay_lane_idx = Some(next);
+                }
+                Action::None
+            }
             _ => Action::None,
         }
     }
@@ -574,6 +726,24 @@ impl Pane for PianoRollPane {
 
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         self.render_notes_buf(buf, area, &state.session.piano_roll);
+
+        // Automation overlay
+        if self.automation_overlay_visible {
+            let rect = center_rect(area, 97, 29);
+            let key_col_width: u16 = 5;
+            let header_height: u16 = 2;
+            let footer_height: u16 = 2;
+            let grid_x = rect.x + key_col_width;
+            let grid_width = rect.width.saturating_sub(key_col_width + 1);
+            let grid_height = rect.height.saturating_sub(header_height + footer_height + 1);
+
+            // Overlay occupies the bottom 4 rows of the grid area
+            let overlay_rows = 4u16.min(grid_height / 2);
+            let overlay_y = rect.y + header_height + grid_height - overlay_rows;
+            let overlay_area = RatatuiRect::new(rect.x, overlay_y, rect.width, overlay_rows);
+
+            self.render_automation_overlay(buf, overlay_area, grid_x, grid_width, state);
+        }
     }
 
     fn keymap(&self) -> &Keymap {

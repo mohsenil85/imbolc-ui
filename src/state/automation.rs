@@ -69,19 +69,46 @@ pub enum AutomationTarget {
     SampleRate(InstrumentId),
     /// Sample amplitude
     SampleAmp(InstrumentId),
+    /// LFO rate (0.1–32.0 Hz)
+    LfoRate(InstrumentId),
+    /// LFO depth (0.0–1.0)
+    LfoDepth(InstrumentId),
+    /// Envelope attack time (0.001–2.0 s)
+    EnvelopeAttack(InstrumentId),
+    /// Envelope decay time (0.001–2.0 s)
+    EnvelopeDecay(InstrumentId),
+    /// Envelope sustain level (0.0–1.0)
+    EnvelopeSustain(InstrumentId),
+    /// Envelope release time (0.001–5.0 s)
+    EnvelopeRelease(InstrumentId),
+    /// Send level (instrument_id, send_index, 0.0–1.0)
+    SendLevel(InstrumentId, usize),
+    /// Bus output level (bus 1-8, 0.0–1.0)
+    BusLevel(u8),
+    /// Global BPM (30.0–300.0)
+    Bpm,
 }
 
 impl AutomationTarget {
-    /// Get the instrument ID associated with this target
-    pub fn instrument_id(&self) -> InstrumentId {
+    /// Get the instrument ID associated with this target (None for global targets)
+    pub fn instrument_id(&self) -> Option<InstrumentId> {
         match self {
-            AutomationTarget::InstrumentLevel(id) => *id,
-            AutomationTarget::InstrumentPan(id) => *id,
-            AutomationTarget::FilterCutoff(id) => *id,
-            AutomationTarget::FilterResonance(id) => *id,
-            AutomationTarget::EffectParam(id, _, _) => *id,
-            AutomationTarget::SampleRate(id) => *id,
-            AutomationTarget::SampleAmp(id) => *id,
+            AutomationTarget::InstrumentLevel(id) => Some(*id),
+            AutomationTarget::InstrumentPan(id) => Some(*id),
+            AutomationTarget::FilterCutoff(id) => Some(*id),
+            AutomationTarget::FilterResonance(id) => Some(*id),
+            AutomationTarget::EffectParam(id, _, _) => Some(*id),
+            AutomationTarget::SampleRate(id) => Some(*id),
+            AutomationTarget::SampleAmp(id) => Some(*id),
+            AutomationTarget::LfoRate(id) => Some(*id),
+            AutomationTarget::LfoDepth(id) => Some(*id),
+            AutomationTarget::EnvelopeAttack(id) => Some(*id),
+            AutomationTarget::EnvelopeDecay(id) => Some(*id),
+            AutomationTarget::EnvelopeSustain(id) => Some(*id),
+            AutomationTarget::EnvelopeRelease(id) => Some(*id),
+            AutomationTarget::SendLevel(id, _) => Some(*id),
+            AutomationTarget::BusLevel(_) => None,
+            AutomationTarget::Bpm => None,
         }
     }
 
@@ -97,7 +124,54 @@ impl AutomationTarget {
             }
             AutomationTarget::SampleRate(_) => "Sample Rate".to_string(),
             AutomationTarget::SampleAmp(_) => "Sample Amp".to_string(),
+            AutomationTarget::LfoRate(_) => "LFO Rate".to_string(),
+            AutomationTarget::LfoDepth(_) => "LFO Depth".to_string(),
+            AutomationTarget::EnvelopeAttack(_) => "Env Attack".to_string(),
+            AutomationTarget::EnvelopeDecay(_) => "Env Decay".to_string(),
+            AutomationTarget::EnvelopeSustain(_) => "Env Sustain".to_string(),
+            AutomationTarget::EnvelopeRelease(_) => "Env Release".to_string(),
+            AutomationTarget::SendLevel(_, idx) => format!("Send {}", idx + 1),
+            AutomationTarget::BusLevel(bus) => format!("Bus {} Level", bus),
+            AutomationTarget::Bpm => "BPM".to_string(),
         }
+    }
+
+    /// Get a short name for compact display
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            AutomationTarget::InstrumentLevel(_) => "Level",
+            AutomationTarget::InstrumentPan(_) => "Pan",
+            AutomationTarget::FilterCutoff(_) => "FltCt",
+            AutomationTarget::FilterResonance(_) => "FltRs",
+            AutomationTarget::EffectParam(_, _, _) => "FX",
+            AutomationTarget::SampleRate(_) => "SRate",
+            AutomationTarget::SampleAmp(_) => "SAmp",
+            AutomationTarget::LfoRate(_) => "LfoRt",
+            AutomationTarget::LfoDepth(_) => "LfoDp",
+            AutomationTarget::EnvelopeAttack(_) => "EnvA",
+            AutomationTarget::EnvelopeDecay(_) => "EnvD",
+            AutomationTarget::EnvelopeSustain(_) => "EnvS",
+            AutomationTarget::EnvelopeRelease(_) => "EnvR",
+            AutomationTarget::SendLevel(_, _) => "Send",
+            AutomationTarget::BusLevel(_) => "BusLv",
+            AutomationTarget::Bpm => "BPM",
+        }
+    }
+
+    /// Get all possible automation targets for an instrument
+    pub fn targets_for_instrument(id: InstrumentId) -> Vec<AutomationTarget> {
+        vec![
+            AutomationTarget::InstrumentLevel(id),
+            AutomationTarget::InstrumentPan(id),
+            AutomationTarget::FilterCutoff(id),
+            AutomationTarget::FilterResonance(id),
+            AutomationTarget::LfoRate(id),
+            AutomationTarget::LfoDepth(id),
+            AutomationTarget::EnvelopeAttack(id),
+            AutomationTarget::EnvelopeDecay(id),
+            AutomationTarget::EnvelopeSustain(id),
+            AutomationTarget::EnvelopeRelease(id),
+        ]
     }
 
     /// Get the default min/max range for this target type
@@ -108,8 +182,17 @@ impl AutomationTarget {
             AutomationTarget::FilterCutoff(_) => (20.0, 20000.0),
             AutomationTarget::FilterResonance(_) => (0.0, 1.0),
             AutomationTarget::EffectParam(_, _, _) => (0.0, 1.0),
-            AutomationTarget::SampleRate(_) => (-2.0, 2.0), // Allows reverse playback
+            AutomationTarget::SampleRate(_) => (-2.0, 2.0),
             AutomationTarget::SampleAmp(_) => (0.0, 1.0),
+            AutomationTarget::LfoRate(_) => (0.1, 32.0),
+            AutomationTarget::LfoDepth(_) => (0.0, 1.0),
+            AutomationTarget::EnvelopeAttack(_) => (0.001, 2.0),
+            AutomationTarget::EnvelopeDecay(_) => (0.001, 2.0),
+            AutomationTarget::EnvelopeSustain(_) => (0.0, 1.0),
+            AutomationTarget::EnvelopeRelease(_) => (0.001, 5.0),
+            AutomationTarget::SendLevel(_, _) => (0.0, 1.0),
+            AutomationTarget::BusLevel(_) => (0.0, 1.0),
+            AutomationTarget::Bpm => (30.0, 300.0),
         }
     }
 }
@@ -307,7 +390,7 @@ impl AutomationState {
 
     /// Get all lanes for a specific instrument
     pub fn lanes_for_instrument(&self, instrument_id: InstrumentId) -> Vec<&AutomationLane> {
-        self.lanes.iter().filter(|l| l.target.instrument_id() == instrument_id).collect()
+        self.lanes.iter().filter(|l| l.target.instrument_id() == Some(instrument_id)).collect()
     }
 
     /// Selected lane
@@ -348,7 +431,7 @@ impl AutomationState {
 
     /// Remove all lanes for an instrument (when instrument is deleted)
     pub fn remove_lanes_for_instrument(&mut self, instrument_id: InstrumentId) {
-        self.lanes.retain(|l| l.target.instrument_id() != instrument_id);
+        self.lanes.retain(|l| l.target.instrument_id() != Some(instrument_id));
         // Adjust selection
         if let Some(sel) = self.selected_lane {
             if sel >= self.lanes.len() {
@@ -433,6 +516,38 @@ mod tests {
 
         assert!((val_at_0 - 20.0).abs() < 1.0);
         assert!((val_at_100 - 20000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_new_target_instrument_id() {
+        assert_eq!(AutomationTarget::LfoRate(5).instrument_id(), Some(5));
+        assert_eq!(AutomationTarget::SendLevel(3, 0).instrument_id(), Some(3));
+        assert_eq!(AutomationTarget::BusLevel(1).instrument_id(), None);
+        assert_eq!(AutomationTarget::Bpm.instrument_id(), None);
+    }
+
+    #[test]
+    fn test_new_target_ranges() {
+        let (min, max) = AutomationTarget::LfoRate(0).default_range();
+        assert!((min - 0.1).abs() < 0.01);
+        assert!((max - 32.0).abs() < 0.01);
+
+        let (min, max) = AutomationTarget::Bpm.default_range();
+        assert!((min - 30.0).abs() < 0.01);
+        assert!((max - 300.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_global_targets_not_removed_by_instrument_cleanup() {
+        let mut state = AutomationState::new();
+        state.add_lane(AutomationTarget::InstrumentLevel(1));
+        state.add_lane(AutomationTarget::Bpm);
+        state.add_lane(AutomationTarget::BusLevel(2));
+
+        state.remove_lanes_for_instrument(1);
+        assert_eq!(state.lanes.len(), 2);
+        assert!(matches!(state.lanes[0].target, AutomationTarget::Bpm));
+        assert!(matches!(state.lanes[1].target, AutomationTarget::BusLevel(2)));
     }
 
     #[test]

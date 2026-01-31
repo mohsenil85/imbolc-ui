@@ -34,6 +34,15 @@ fn serialize_automation_target(
         }
         super::automation::AutomationTarget::SampleRate(id) => ("sample_rate", *id, None, None),
         super::automation::AutomationTarget::SampleAmp(id) => ("sample_amp", *id, None, None),
+        super::automation::AutomationTarget::LfoRate(id) => ("lfo_rate", *id, None, None),
+        super::automation::AutomationTarget::LfoDepth(id) => ("lfo_depth", *id, None, None),
+        super::automation::AutomationTarget::EnvelopeAttack(id) => ("envelope_attack", *id, None, None),
+        super::automation::AutomationTarget::EnvelopeDecay(id) => ("envelope_decay", *id, None, None),
+        super::automation::AutomationTarget::EnvelopeSustain(id) => ("envelope_sustain", *id, None, None),
+        super::automation::AutomationTarget::EnvelopeRelease(id) => ("envelope_release", *id, None, None),
+        super::automation::AutomationTarget::SendLevel(id, idx) => ("send_level", *id, Some(*idx as i32), None),
+        super::automation::AutomationTarget::BusLevel(bus) => ("bus_level", 0, Some(*bus as i32), None),
+        super::automation::AutomationTarget::Bpm => ("bpm", 0, None, None),
     }
 }
 
@@ -56,6 +65,21 @@ fn deserialize_automation_target(
         }
         "sample_rate" => Some(AutomationTarget::SampleRate(instrument_id)),
         "sample_amp" => Some(AutomationTarget::SampleAmp(instrument_id)),
+        "lfo_rate" => Some(AutomationTarget::LfoRate(instrument_id)),
+        "lfo_depth" => Some(AutomationTarget::LfoDepth(instrument_id)),
+        "envelope_attack" => Some(AutomationTarget::EnvelopeAttack(instrument_id)),
+        "envelope_decay" => Some(AutomationTarget::EnvelopeDecay(instrument_id)),
+        "envelope_sustain" => Some(AutomationTarget::EnvelopeSustain(instrument_id)),
+        "envelope_release" => Some(AutomationTarget::EnvelopeRelease(instrument_id)),
+        "send_level" => {
+            let idx = effect_idx.unwrap_or(0) as usize;
+            Some(AutomationTarget::SendLevel(instrument_id, idx))
+        }
+        "bus_level" => {
+            let bus = effect_idx.unwrap_or(1) as u8;
+            Some(AutomationTarget::BusLevel(bus))
+        }
+        "bpm" => Some(AutomationTarget::Bpm),
         _ => None,
     }
 }

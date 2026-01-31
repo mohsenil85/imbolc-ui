@@ -12,6 +12,7 @@ bindings = [
   { key = "F4", action = "switch:mixer", description = "Mixer" },
   { key = "F5", action = "switch:server", description = "Audio server" },
   { key = "F6", action = "switch:logo", description = "Logo" },
+  { key = "F7", action = "switch:automation", description = "Automation" },
   { key = "Ctrl+f", action = "switch:frame_edit", description = "Frame edit" },
   { key = "`", action = "nav_back", description = "Back / Forward" },
   { key = "~", action = "nav_forward", description = "Forward" },
@@ -92,6 +93,9 @@ bindings = [
   { key = "m", action = "toggle_poly", description = "Toggle poly/mono mode" },
   { key = "Shift+Right", action = "grow_duration", description = "Grow note duration" },
   { key = "Shift+Left", action = "shrink_duration", description = "Shrink note duration" },
+  { key = "A", action = "toggle_automation", description = "Toggle automation overlay" },
+  { key = "Ctrl+Up", action = "automation_lane_prev", description = "Previous automation lane" },
+  { key = "Ctrl+Down", action = "automation_lane_next", description = "Next automation lane" },
 ]
 
 [layers.sequencer]
@@ -255,6 +259,28 @@ bindings = [
   { key = "=", action = "assign_12", description = "Assign to Pad 12" },
   { key = "Shift+Left", action = "nudge_start", description = "Nudge slice start" },
   { key = "Shift+Right", action = "nudge_end", description = "Nudge slice end" },
+]
+
+[layers.automation]
+bindings = [
+  { key = "Tab", action = "switch_focus", description = "Switch focus (lane list / timeline)" },
+  { key = "Up", action = "up", description = "Up (select lane / increase value)" },
+  { key = "Down", action = "down", description = "Down (select lane / decrease value)" },
+  { key = "Left", action = "left", description = "Move cursor left" },
+  { key = "Right", action = "right", description = "Move cursor right" },
+  { key = "a", action = "add_lane", description = "Add automation lane" },
+  { key = "x", action = "remove_lane", description = "Remove selected lane" },
+  { key = "e", action = "toggle_enabled", description = "Toggle lane enabled" },
+  { key = "Enter", action = "place_point", description = "Place/remove point" },
+  { key = "d", action = "delete_point", description = "Delete point at cursor" },
+  { key = "c", action = "cycle_curve", description = "Cycle curve type" },
+  { key = "C", action = "clear_lane", description = "Clear all points in lane" },
+  { key = "r", action = "toggle_recording", description = "Toggle automation recording" },
+  { key = "z", action = "zoom_in", description = "Zoom in" },
+  { key = "Z", action = "zoom_out", description = "Zoom out" },
+  { key = "Home", action = "home", description = "Jump to start" },
+  { key = "End", action = "end", description = "Jump to end" },
+  { key = "Space", action = "play_stop", description = "Play / Stop" },
 ]
 
 [layers.track]

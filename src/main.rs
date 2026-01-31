@@ -12,7 +12,7 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioEngine;
-use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
+use panes::{AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult, LayerStack,
@@ -66,6 +66,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(LogoPane::new(pane_keymap(&mut keymaps, "logo"))));
     panes.add_pane(Box::new(TrackPane::new(pane_keymap(&mut keymaps, "track"))));
     panes.add_pane(Box::new(WaveformPane::new(pane_keymap(&mut keymaps, "waveform"))));
+    panes.add_pane(Box::new(AutomationPane::new(pane_keymap(&mut keymaps, "automation"))));
 
     // Create layer stack
     let mut layer_stack = LayerStack::new(layers);
@@ -75,6 +76,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut audio_engine = AudioEngine::new();
     let mut app_frame = Frame::new();
     let mut last_frame_time = Instant::now();
+    let mut last_render_time = Instant::now();
     let mut active_notes: Vec<(u32, u8, u32)> = Vec::new();
     let mut select_mode = InstrumentSelectMode::Normal;
 
@@ -87,7 +89,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         // Sync layer stack in case dispatch switched panes last iteration
         layer_stack.set_pane_layer(panes.active().id());
 
-        if let Some(app_event) = backend.poll_event(Duration::from_millis(16)) {
+        if let Some(app_event) = backend.poll_event(Duration::from_millis(2)) {
             let pane_action = match app_event {
                 AppEvent::Mouse(mouse_event) => {
                     panes.active_mut().handle_mouse(&mouse_event, last_area, &state)
@@ -225,24 +227,6 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             playback::tick_drum_sequencer(&mut state, &mut audio_engine, elapsed);
         }
 
-        // Update master meter from real audio peak
-        {
-            let peak = if audio_engine.is_running() {
-                audio_engine.master_peak()
-            } else {
-                0.0
-            };
-            let mute = state.session.master_mute;
-            app_frame.set_master_peak(peak, mute);
-        }
-
-        // Update recording state
-        state.recording = audio_engine.is_recording();
-        state.recording_secs = audio_engine.recording_elapsed()
-            .map(|d| d.as_secs()).unwrap_or(0);
-        app_frame.recording = state.recording;
-        app_frame.recording_secs = state.recording_secs;
-
         // Deferred recording buffer free + waveform load
         // Wait for scsynth to flush the WAV file before reading it
         if audio_engine.poll_pending_buffer_free() {
@@ -255,25 +239,49 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             }
         }
 
-        // Update waveform cache for waveform pane
-        if panes.active().id() == "waveform" {
-            if state.recorded_waveform.is_none() {
-                state.audio_in_waveform = state.instruments.selected_instrument()
-                    .filter(|s| s.source.is_audio_input() || s.source.is_bus_in())
-                    .map(|s| audio_engine.audio_in_waveform(s.id));
-            }
-        } else {
-            state.audio_in_waveform = None;
-            state.recorded_waveform = None;
-        }
+        // Visual updates and rendering at ~60fps
+        let now_render = Instant::now();
+        if now_render.duration_since(last_render_time).as_millis() >= 16 {
+            last_render_time = now_render;
 
-        // Render
-        let mut frame = backend.begin_frame()?;
-        let area = frame.area();
-        last_area = area;
-        app_frame.render_buf(area, frame.buffer_mut(), &state);
-        panes.render(area, frame.buffer_mut(), &state);
-        backend.end_frame(frame)?;
+            // Update master meter from real audio peak
+            {
+                let peak = if audio_engine.is_running() {
+                    audio_engine.master_peak()
+                } else {
+                    0.0
+                };
+                let mute = state.session.master_mute;
+                app_frame.set_master_peak(peak, mute);
+            }
+
+            // Update recording state
+            state.recording = audio_engine.is_recording();
+            state.recording_secs = audio_engine.recording_elapsed()
+                .map(|d| d.as_secs()).unwrap_or(0);
+            app_frame.recording = state.recording;
+            app_frame.recording_secs = state.recording_secs;
+
+            // Update waveform cache for waveform pane
+            if panes.active().id() == "waveform" {
+                if state.recorded_waveform.is_none() {
+                    state.audio_in_waveform = state.instruments.selected_instrument()
+                        .filter(|s| s.source.is_audio_input() || s.source.is_bus_in())
+                        .map(|s| audio_engine.audio_in_waveform(s.id));
+                }
+            } else {
+                state.audio_in_waveform = None;
+                state.recorded_waveform = None;
+            }
+
+            // Render
+            let mut frame = backend.begin_frame()?;
+            let area = frame.area();
+            last_area = area;
+            app_frame.render_buf(area, frame.buffer_mut(), &state);
+            panes.render(area, frame.buffer_mut(), &state);
+            backend.end_frame(frame)?;
+        }
     }
 
     Ok(())
@@ -440,6 +448,9 @@ fn handle_global_action(
         "switch:logo" => {
             switch_to_pane("logo", panes, state, app_frame, layer_stack);
         }
+        "switch:automation" => {
+            switch_to_pane("automation", panes, state, app_frame, layer_stack);
+        }
         "switch:frame_edit" => {
             if panes.active().id() == "frame_edit" {
                 panes.pop(&*state);
@@ -511,6 +522,7 @@ fn handle_global_action(
                     "instrument_edit" => "Edit Instrument",
                     "track" => "Track",
                     "waveform" => "Waveform",
+                    "automation" => "Automation",
                     _ => current_id,
                 };
                 if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::audio::AudioEngine;
 use crate::state::AppState;
+use crate::state::automation::AutomationTarget;
 
 /// Advance the piano roll playhead and process note-on/off events.
 pub fn tick_playback(
@@ -77,7 +78,12 @@ pub fn tick_playback(
                     continue;
                 }
                 if let Some(value) = lane.value_at(new_playhead) {
-                    let _ = audio_engine.apply_automation(&lane.target, value, &state.instruments, &state.session);
+                    if matches!(lane.target, AutomationTarget::Bpm) {
+                        // BPM automation: mutate state directly
+                        state.session.piano_roll.bpm = value;
+                    } else {
+                        let _ = audio_engine.apply_automation(&lane.target, value, &state.instruments, &state.session);
+                    }
                 }
             }
         }

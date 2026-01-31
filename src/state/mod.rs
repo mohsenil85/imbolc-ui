@@ -34,6 +34,7 @@ pub struct AppState {
     pub keyboard_layout: KeyboardLayout,
     pub recording: bool,
     pub recording_secs: u64,
+    pub automation_recording: bool,
 }
 
 impl AppState {
@@ -48,6 +49,7 @@ impl AppState {
             keyboard_layout: KeyboardLayout::default(),
             recording: false,
             recording_secs: 0,
+            automation_recording: false,
         }
     }
 
@@ -61,6 +63,7 @@ impl AppState {
             keyboard_layout: KeyboardLayout::default(),
             recording: false,
             recording_secs: 0,
+            automation_recording: false,
         }
     }
 
