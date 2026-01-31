@@ -26,6 +26,8 @@ pub struct FileBrowserPane {
     entries: Vec<DirEntry>,
     selected: usize,
     filter_extensions: Option<Vec<String>>,
+    /// Extensions that are directory bundles but should be treated as selectable files (e.g. vst3, vst)
+    bundle_extensions: Option<Vec<String>>,
     on_select_action: FileSelectAction,
     scroll_offset: usize,
     show_hidden: bool,
@@ -42,6 +44,7 @@ impl FileBrowserPane {
             entries: Vec::new(),
             selected: 0,
             filter_extensions: Some(vec!["scd".to_string()]),
+            bundle_extensions: None,
             on_select_action: FileSelectAction::ImportCustomSynthDef,
             scroll_offset: 0,
             show_hidden: false,
@@ -53,13 +56,25 @@ impl FileBrowserPane {
     /// Open for a specific action with optional start directory
     pub fn open_for(&mut self, action: FileSelectAction, start_dir: Option<PathBuf>) {
         self.on_select_action = action.clone();
+        self.bundle_extensions = None;
         self.filter_extensions = match action {
             FileSelectAction::ImportCustomSynthDef => Some(vec!["scd".to_string()]),
+            FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
+                self.bundle_extensions = Some(vec!["vst3".to_string(), "vst".to_string()]);
+                Some(vec!["vst3".to_string(), "vst".to_string()])
+            }
             FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample | FileSelectAction::LoadPitchedSample(_) => {
                 Some(vec!["wav".to_string(), "aiff".to_string(), "aif".to_string()])
             }
         };
-        self.current_dir = start_dir.unwrap_or_else(|| {
+        let default_dir = match &self.on_select_action {
+            FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
+                let vst3_dir = PathBuf::from("/Library/Audio/Plug-Ins/VST3");
+                if vst3_dir.exists() { Some(vst3_dir) } else { None }
+            }
+            _ => None,
+        };
+        self.current_dir = start_dir.or(default_dir).unwrap_or_else(|| {
             std::env::current_dir().unwrap_or_else(|_| {
                 dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
             })
@@ -85,7 +100,18 @@ impl FileBrowserPane {
                     continue;
                 }
 
-                let is_dir = path.is_dir();
+                let mut is_dir = path.is_dir();
+
+                // Treat bundle directories (e.g. .vst3, .vst) as selectable files
+                if is_dir {
+                    if let Some(ref bundles) = self.bundle_extensions {
+                        if path.extension()
+                            .map_or(false, |e| bundles.iter().any(|ext| e == ext.as_str()))
+                        {
+                            is_dir = false; // Treat as file
+                        }
+                    }
+                }
 
                 // Filter files by extension if set
                 if !is_dir {
@@ -149,6 +175,9 @@ impl Pane for FileBrowserPane {
                         match self.on_select_action {
                             FileSelectAction::ImportCustomSynthDef => {
                                 Action::Session(SessionAction::ImportCustomSynthDef(entry.path.clone()))
+                            }
+                            FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
+                                Action::Session(SessionAction::ImportVstPlugin(entry.path.clone()))
                             }
                             FileSelectAction::LoadDrumSample(pad_idx) => {
                                 Action::Sequencer(SequencerAction::LoadSampleResult(pad_idx, entry.path.clone()))
@@ -221,6 +250,8 @@ impl Pane for FileBrowserPane {
 
         let title = match self.on_select_action {
             FileSelectAction::ImportCustomSynthDef => " Import Custom SynthDef ",
+            FileSelectAction::ImportVstInstrument => " Import VST Instrument ",
+            FileSelectAction::ImportVstEffect => " Import VST Effect ",
             FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample => " Load Sample ",
             FileSelectAction::LoadPitchedSample(_) => " Load Sample ",
         };
@@ -404,6 +435,11 @@ impl Pane for FileBrowserPane {
                                     FileSelectAction::LoadPitchedSample(id) => {
                                         return Action::Instrument(InstrumentAction::LoadSampleResult(
                                             id,
+                                            self.entries[clicked_idx].path.clone(),
+                                        ));
+                                    }
+                                    FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
+                                        return Action::Session(SessionAction::ImportVstPlugin(
                                             self.entries[clicked_idx].path.clone(),
                                         ));
                                     }

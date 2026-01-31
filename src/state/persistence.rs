@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection as SqlConnection, Result as SqlResult};
 
 use super::custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
+use super::vst_plugin::{VstPlugin, VstPluginKind, VstPluginRegistry, VstParamSpec};
 use super::music::{Key, Scale};
 use super::param::{Param, ParamValue};
 use super::piano_roll::PianoRollState;
@@ -258,6 +259,23 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
                 FOREIGN KEY (synthdef_id) REFERENCES custom_synthdefs(id)
             );
 
+            CREATE TABLE IF NOT EXISTS vst_plugins (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                plugin_path TEXT NOT NULL,
+                kind TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS vst_plugin_params (
+                plugin_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                param_index INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                default_val REAL NOT NULL,
+                PRIMARY KEY (plugin_id, position),
+                FOREIGN KEY (plugin_id) REFERENCES vst_plugins(id)
+            );
+
             CREATE TABLE IF NOT EXISTS drum_pads (
                 instrument_id INTEGER NOT NULL,
                 pad_index INTEGER NOT NULL,
@@ -344,6 +362,8 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
             DELETE FROM drum_steps;
             DELETE FROM drum_patterns;
             DELETE FROM drum_pads;
+            DELETE FROM vst_plugin_params;
+            DELETE FROM vst_plugins;
             DELETE FROM custom_synthdef_params;
             DELETE FROM custom_synthdefs;
             DELETE FROM automation_points;
@@ -390,6 +410,7 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     save_sampler_configs(&conn, instruments)?;
     save_automation(&conn, session)?;
     save_custom_synthdefs(&conn, session)?;
+    save_vst_plugins(&conn, session)?;
     save_drum_sequencers(&conn, instruments)?;
     save_chopper_states(&conn, instruments)?;
     save_midi_recording(&conn, session)?;
@@ -418,6 +439,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let (piano_roll, musical) = load_piano_roll(&conn)?;
     let mut automation = load_automation(&conn)?;
     let custom_synthdefs = load_custom_synthdefs(&conn)?;
+    let vst_plugins = load_vst_plugins(&conn)?;
     load_drum_sequencers(&conn, &mut instruments)?;
     load_chopper_states(&conn, &mut instruments)?;
     let midi_recording = load_midi_recording(&conn)?;
@@ -437,6 +459,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     session.automation = automation;
     session.midi_recording = midi_recording;
     session.custom_synthdefs = custom_synthdefs;
+    session.vst_plugins = vst_plugins;
     // Apply musical settings from load_piano_roll
     session.bpm = musical.bpm;
     session.time_signature = musical.time_signature;
@@ -581,6 +604,42 @@ fn save_custom_synthdefs(conn: &SqlConnection, session: &SessionState) -> SqlRes
     Ok(())
 }
 
+fn save_vst_plugins(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
+    let mut plugin_stmt = conn.prepare(
+        "INSERT INTO vst_plugins (id, name, plugin_path, kind)
+             VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    let mut param_stmt = conn.prepare(
+        "INSERT INTO vst_plugin_params (plugin_id, position, param_index, name, default_val)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?;
+
+    for plugin in &session.vst_plugins.plugins {
+        let kind_str = match plugin.kind {
+            VstPluginKind::Instrument => "instrument",
+            VstPluginKind::Effect => "effect",
+        };
+        plugin_stmt.execute(rusqlite::params![
+            plugin.id,
+            &plugin.name,
+            plugin.plugin_path.to_string_lossy().as_ref(),
+            kind_str,
+        ])?;
+
+        for (pos, param) in plugin.params.iter().enumerate() {
+            param_stmt.execute(rusqlite::params![
+                plugin.id,
+                pos as i32,
+                param.index as i32,
+                &param.name,
+                param.default as f64,
+            ])?;
+        }
+    }
+
+    Ok(())
+}
+
 fn save_instruments(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut stmt = conn.prepare(
         "INSERT INTO instruments (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
@@ -592,6 +651,7 @@ fn save_instruments(conn: &SqlConnection, instruments: &InstrumentState) -> SqlR
     for (pos, inst) in instruments.instruments.iter().enumerate() {
         let source_str = match inst.source {
             SourceType::Custom(id) => format!("custom:{}", id),
+            SourceType::Vst(id) => format!("vst:{}", id),
             _ => inst.source.short_name().to_string(),
         };
         let (filter_type, filter_cutoff, filter_res): (Option<String>, Option<f64>, Option<f64>) =
@@ -696,7 +756,10 @@ fn save_effects(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResul
     )?;
     for inst in &instruments.instruments {
         for (pos, effect) in inst.effects.iter().enumerate() {
-            let type_str = format!("{:?}", effect.effect_type).to_lowercase();
+            let type_str = match effect.effect_type {
+                EffectType::Vst(id) => format!("vst:{}", id),
+                _ => format!("{:?}", effect.effect_type).to_lowercase(),
+            };
             effect_stmt.execute(rusqlite::params![
                 inst.id,
                 pos as i32,
@@ -2406,6 +2469,74 @@ fn load_custom_synthdefs(conn: &SqlConnection) -> SqlResult<CustomSynthDefRegist
     Ok(registry)
 }
 
+fn load_vst_plugins(conn: &SqlConnection) -> SqlResult<VstPluginRegistry> {
+    let mut registry = VstPluginRegistry::new();
+
+    // Load plugins
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, name, plugin_path, kind FROM vst_plugins ORDER BY id",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((id, name, plugin_path, kind_str)) = result {
+                    let kind = match kind_str.as_str() {
+                        "effect" => VstPluginKind::Effect,
+                        _ => VstPluginKind::Instrument,
+                    };
+                    let plugin = VstPlugin {
+                        id,
+                        name,
+                        plugin_path: PathBuf::from(plugin_path),
+                        kind,
+                        params: Vec::new(),
+                    };
+                    registry.plugins.push(plugin);
+                    if id >= registry.next_id {
+                        registry.next_id = id + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Load params for each plugin
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT plugin_id, param_index, name, default_val FROM vst_plugin_params ORDER BY plugin_id, position",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((plugin_id, param_index, name, default_val)) = result {
+                    if let Some(plugin) =
+                        registry.plugins.iter_mut().find(|p| p.id == plugin_id)
+                    {
+                        plugin.params.push(VstParamSpec {
+                            index: param_index,
+                            name,
+                            default: default_val as f32,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(registry)
+}
+
 // --- Parse helpers ---
 
 fn parse_key(s: &str) -> Key {
@@ -2441,6 +2572,13 @@ fn parse_source_type(s: &str) -> SourceType {
                 SourceType::Saw
             }
         }
+        other if other.starts_with("vst:") => {
+            if let Ok(id) = other[4..].parse::<u32>() {
+                SourceType::Vst(id)
+            } else {
+                SourceType::Saw
+            }
+        }
         _ => SourceType::Saw,
     }
 }
@@ -2461,6 +2599,13 @@ fn parse_effect_type(s: &str) -> EffectType {
         "gate" => EffectType::Gate,
         "tapecomp" => EffectType::TapeComp,
         "sidechaincomp" => EffectType::SidechainComp,
+        other if other.starts_with("vst:") => {
+            if let Ok(id) = other[4..].parse::<u32>() {
+                EffectType::Vst(id)
+            } else {
+                EffectType::Delay
+            }
+        }
         _ => EffectType::Delay,
     }
 }

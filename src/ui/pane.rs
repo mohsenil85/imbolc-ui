@@ -144,6 +144,7 @@ pub enum SessionAction {
     UpdateSessionLive(MusicalSettings),
     OpenFileBrowser(FileSelectAction),
     ImportCustomSynthDef(PathBuf),
+    ImportVstPlugin(PathBuf),
 }
 
 /// Actions that can be returned from pane input handling
@@ -186,6 +187,8 @@ pub enum ToggleResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileSelectAction {
     ImportCustomSynthDef,
+    ImportVstInstrument,
+    ImportVstEffect,
     LoadDrumSample(usize), // pad index
     LoadChopperSample,
     LoadPitchedSample(InstrumentId),

@@ -10,6 +10,7 @@ pub mod persistence;
 pub mod piano_roll;
 pub mod sampler;
 pub mod session;
+pub mod vst_plugin;
 
 pub use automation::AutomationTarget;
 pub use custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
@@ -18,6 +19,7 @@ pub use instrument_state::InstrumentState;
 pub use param::{Param, ParamValue};
 pub use sampler::BufferId;
 pub use session::{MixerSelection, MusicalSettings, SessionState, MAX_BUSES};
+pub use vst_plugin::{VstPlugin, VstPluginId, VstPluginKind, VstPluginRegistry};
 
 use crate::ui::KeyboardLayout;
 
@@ -79,6 +81,25 @@ impl AppState {
                             value: param::ParamValue::Float(p.default),
                             min: p.min,
                             max: p.max,
+                        })
+                        .collect();
+                }
+            }
+        }
+
+        // For VST instruments, set name from registry
+        if let SourceType::Vst(vst_id) = source {
+            if let Some(plugin) = self.session.vst_plugins.get(vst_id) {
+                if let Some(inst) = self.instruments.instrument_mut(id) {
+                    inst.name = format!("{}-{}", plugin.name.to_lowercase(), id);
+                    inst.source_params = plugin
+                        .params
+                        .iter()
+                        .map(|p| param::Param {
+                            name: p.name.clone(),
+                            value: param::ParamValue::Float(p.default),
+                            min: 0.0,
+                            max: 1.0,
                         })
                         .collect();
                 }

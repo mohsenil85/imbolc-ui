@@ -2,6 +2,7 @@ use super::custom_synthdef::{CustomSynthDefId, CustomSynthDefRegistry};
 use super::drum_sequencer::DrumSequencerState;
 use super::param::{Param, ParamValue};
 use super::sampler::SamplerConfig;
+use super::vst_plugin::{VstPluginId, VstPluginRegistry};
 
 pub type InstrumentId = u32;
 
@@ -16,6 +17,7 @@ pub enum SourceType {
     PitchedSampler,
     Kit,
     Custom(CustomSynthDefId),
+    Vst(VstPluginId),
 }
 
 impl SourceType {
@@ -30,6 +32,7 @@ impl SourceType {
             SourceType::PitchedSampler => "Pitched Sampler",
             SourceType::Kit => "Kit",
             SourceType::Custom(_) => "Custom",
+            SourceType::Vst(_) => "VST",
         }
     }
 
@@ -44,6 +47,17 @@ impl SourceType {
         }
     }
 
+    /// Get display name with VST plugin registry lookup
+    pub fn display_name_vst(&self, custom_registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) -> String {
+        match self {
+            SourceType::Vst(id) => vst_registry
+                .get(*id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "VST".to_string()),
+            _ => self.display_name(custom_registry),
+        }
+    }
+
     pub fn short_name(&self) -> &'static str {
         match self {
             SourceType::Saw => "saw",
@@ -55,6 +69,7 @@ impl SourceType {
             SourceType::PitchedSampler => "sample",
             SourceType::Kit => "kit",
             SourceType::Custom(_) => "custom",
+            SourceType::Vst(_) => "vst",
         }
     }
 
@@ -66,6 +81,17 @@ impl SourceType {
                 .map(|s| s.synthdef_name.clone())
                 .unwrap_or_else(|| "custom".to_string()),
             _ => self.short_name().to_string(),
+        }
+    }
+
+    /// Get short name with VST plugin registry lookup
+    pub fn short_name_vst(&self, custom_registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) -> String {
+        match self {
+            SourceType::Vst(id) => vst_registry
+                .get(*id)
+                .map(|p| p.name.to_lowercase())
+                .unwrap_or_else(|| "vst".to_string()),
+            _ => self.short_name_with_registry(custom_registry),
         }
     }
 
@@ -81,6 +107,7 @@ impl SourceType {
             SourceType::PitchedSampler => "ilex_sampler",
             SourceType::Kit => "ilex_sampler_oneshot",
             SourceType::Custom(_) => "ilex_saw", // Fallback, use synth_def_name_with_registry instead
+            SourceType::Vst(_) => "ilex_vst_instrument",
         }
     }
 
@@ -91,6 +118,7 @@ impl SourceType {
                 .get(*id)
                 .map(|s| s.synthdef_name.clone())
                 .unwrap_or_else(|| "ilex_saw".to_string()),
+            SourceType::Vst(_) => "ilex_vst_instrument".to_string(),
             _ => self.synth_def_name().to_string(),
         }
     }
@@ -159,6 +187,7 @@ impl SourceType {
             ],
             SourceType::Kit => vec![], // Pads have their own levels
             SourceType::Custom(_) => vec![], // Use default_params_with_registry instead
+            SourceType::Vst(_) => vec![], // VST params discovered from plugin
             _ => vec![
                 Param {
                     name: "freq".to_string(),
@@ -227,6 +256,18 @@ impl SourceType {
         }
     }
 
+    pub fn is_vst(&self) -> bool {
+        matches!(self, SourceType::Vst(_))
+    }
+
+    #[allow(dead_code)]
+    pub fn vst_id(&self) -> Option<VstPluginId> {
+        match self {
+            SourceType::Vst(id) => Some(*id),
+            _ => None,
+        }
+    }
+
     /// Built-in oscillator types (excluding custom)
     pub fn all() -> Vec<SourceType> {
         vec![SourceType::Saw, SourceType::Sin, SourceType::Sqr, SourceType::Tri, SourceType::AudioIn, SourceType::BusIn, SourceType::PitchedSampler, SourceType::Kit]
@@ -280,6 +321,7 @@ pub enum EffectType {
     Gate,
     TapeComp,
     SidechainComp,
+    Vst(VstPluginId),
 }
 
 impl EffectType {
@@ -290,6 +332,18 @@ impl EffectType {
             EffectType::Gate => "Gate",
             EffectType::TapeComp => "Tape Comp",
             EffectType::SidechainComp => "SC Comp",
+            EffectType::Vst(_) => "VST",
+        }
+    }
+
+    /// Get display name with VST plugin registry lookup
+    pub fn display_name(&self, vst_registry: &VstPluginRegistry) -> String {
+        match self {
+            EffectType::Vst(id) => vst_registry
+                .get(*id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "VST".to_string()),
+            _ => self.name().to_string(),
         }
     }
 
@@ -300,6 +354,19 @@ impl EffectType {
             EffectType::Gate => "ilex_gate",
             EffectType::TapeComp => "ilex_tape_comp",
             EffectType::SidechainComp => "ilex_sc_comp",
+            EffectType::Vst(_) => "ilex_vst_effect",
+        }
+    }
+
+    pub fn is_vst(&self) -> bool {
+        matches!(self, EffectType::Vst(_))
+    }
+
+    #[allow(dead_code)]
+    pub fn vst_id(&self) -> Option<VstPluginId> {
+        match self {
+            EffectType::Vst(id) => Some(*id),
+            _ => None,
         }
     }
 
@@ -335,6 +402,7 @@ impl EffectType {
                 Param { name: "release".to_string(), value: ParamValue::Float(0.1), min: 0.01, max: 2.0 },
                 Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
             ],
+            EffectType::Vst(_) => vec![], // VST params discovered from plugin
         }
     }
 

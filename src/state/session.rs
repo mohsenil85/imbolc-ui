@@ -4,6 +4,7 @@ use super::midi_recording::MidiRecordingState;
 use super::music::{Key, Scale};
 use super::piano_roll::PianoRollState;
 use super::instrument::MixerBus;
+use super::vst_plugin::VstPluginRegistry;
 
 pub const MAX_BUSES: usize = 8;
 
@@ -61,6 +62,7 @@ pub struct SessionState {
     pub automation: AutomationState,
     pub midi_recording: MidiRecordingState,
     pub custom_synthdefs: CustomSynthDefRegistry,
+    pub vst_plugins: VstPluginRegistry,
     pub buses: Vec<MixerBus>,
     pub master_level: f32,
     pub master_mute: bool,
@@ -85,6 +87,7 @@ impl SessionState {
             automation: AutomationState::new(),
             midi_recording: MidiRecordingState::new(),
             custom_synthdefs: CustomSynthDefRegistry::new(),
+            vst_plugins: VstPluginRegistry::new(),
             buses,
             master_level: 1.0,
             master_mute: false,

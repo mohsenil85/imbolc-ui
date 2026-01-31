@@ -134,7 +134,7 @@ impl InstrumentEditPane {
         let filter_rows = if self.filter.is_some() { 3 } else { 1 }; // type/cutoff/res or "off"
         let effect_rows = self.effects.len().max(1); // At least 1 for empty message
         let lfo_rows = 4; // enabled, rate, depth, shape/target
-        let env_rows = 4; // A, D, S, R
+        let env_rows = if self.source.is_vst() { 0 } else { 4 }; // VSTi has own envelope
         source_rows + filter_rows + effect_rows + lfo_rows + env_rows
     }
 
@@ -618,7 +618,7 @@ impl Pane for InstrumentEditPane {
                         EffectType::Reverb => EffectType::Gate,
                         EffectType::Gate => EffectType::TapeComp,
                         EffectType::TapeComp => EffectType::SidechainComp,
-                        EffectType::SidechainComp => EffectType::Delay,
+                        EffectType::SidechainComp | EffectType::Vst(_) => EffectType::Delay,
                     }
                 };
                 self.effects.push(EffectSlot::new(next_type));
@@ -679,11 +679,12 @@ impl Pane for InstrumentEditPane {
             "next_section" => {
                 // Jump to first row of next section
                 let current = self.current_section();
+                let skip_env = self.source.is_vst();
                 let next = match current {
                     Section::Source => Section::Filter,
                     Section::Filter => Section::Effects,
                     Section::Effects => Section::Lfo,
-                    Section::Lfo => Section::Envelope,
+                    Section::Lfo => if skip_env { Section::Source } else { Section::Envelope },
                     Section::Envelope => Section::Source,
                 };
                 for i in 0..self.total_rows() {
@@ -697,8 +698,9 @@ impl Pane for InstrumentEditPane {
             "prev_section" => {
                 // Jump to first row of previous section
                 let current = self.current_section();
+                let skip_env = self.source.is_vst();
                 let prev = match current {
-                    Section::Source => Section::Envelope,
+                    Section::Source => if skip_env { Section::Lfo } else { Section::Envelope },
                     Section::Filter => Section::Source,
                     Section::Effects => Section::Filter,
                     Section::Lfo => Section::Effects,
@@ -970,27 +972,29 @@ impl Pane for InstrumentEditPane {
         }
         y += 1;
 
-        // === ENVELOPE SECTION ===
-        Paragraph::new(Line::from(Span::styled(
-            "ENVELOPE (ADSR)  (p: poly, r: track)",
-            ratatui::style::Style::from(Style::new().fg(Color::ENV_COLOR).bold()),
-        ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
-        y += 1;
-
-        let env_labels = ["Attack", "Decay", "Sustain", "Release"];
-        let env_values = [
-            self.amp_envelope.attack,
-            self.amp_envelope.decay,
-            self.amp_envelope.sustain,
-            self.amp_envelope.release,
-        ];
-        let env_maxes = [5.0, 5.0, 1.0, 5.0];
-
-        for (label, (val, max)) in env_labels.iter().zip(env_values.iter().zip(env_maxes.iter())) {
-            let is_sel = self.selected_row == global_row;
-            render_value_row_buf(buf, content_x, y, label, *val, 0.0, *max, is_sel, self.editing && is_sel, &self.edit_input);
+        // === ENVELOPE SECTION === (hidden for VSTi — plugin has own envelope)
+        if !self.source.is_vst() {
+            Paragraph::new(Line::from(Span::styled(
+                "ENVELOPE (ADSR)  (p: poly, r: track)",
+                ratatui::style::Style::from(Style::new().fg(Color::ENV_COLOR).bold()),
+            ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
             y += 1;
-            global_row += 1;
+
+            let env_labels = ["Attack", "Decay", "Sustain", "Release"];
+            let env_values = [
+                self.amp_envelope.attack,
+                self.amp_envelope.decay,
+                self.amp_envelope.sustain,
+                self.amp_envelope.release,
+            ];
+            let env_maxes = [5.0, 5.0, 1.0, 5.0];
+
+            for (label, (val, max)) in env_labels.iter().zip(env_values.iter().zip(env_maxes.iter())) {
+                let is_sel = self.selected_row == global_row;
+                render_value_row_buf(buf, content_x, y, label, *val, 0.0, *max, is_sel, self.editing && is_sel, &self.edit_input);
+                y += 1;
+                global_row += 1;
+            }
         }
 
         // Suppress unused variable warning

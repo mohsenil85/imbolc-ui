@@ -56,6 +56,7 @@ impl Color {
     pub const CUSTOM_COLOR: Color = Color::new(200, 150, 255); // Light purple - custom synthdef
     pub const KIT_COLOR: Color = Color::new(255, 165, 0);    // Orange - kit
     pub const BUS_IN_COLOR: Color = Color::new(180, 220, 100); // Yellow-green - bus input
+    pub const VST_COLOR: Color = Color::new(255, 120, 200);    // Hot pink - VST plugins
 
     // Port type colors
     #[allow(dead_code)]

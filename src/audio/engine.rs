@@ -39,6 +39,10 @@ pub enum ServerStatus {
 /// Maximum simultaneous voices per instrument
 const MAX_VOICES_PER_INSTRUMENT: usize = 16;
 
+/// VSTPlugin UGen index within wrapper SynthDefs (ilex_vst_instrument, ilex_vst_effect).
+/// This is 0 because VSTPlugin is the first (and only) UGen in our wrappers.
+const VST_UGEN_INDEX: i32 = 0;
+
 /// A polyphonic voice chain: entire signal chain spawned per note
 #[derive(Debug, Clone)]
 pub struct VoiceChain {
@@ -588,6 +592,36 @@ impl AudioEngine {
                 ).map_err(|e| e.to_string())?;
 
                 source_node = Some(node_id);
+            } else if instrument.source.is_vst() {
+                // VSTi instruments: persistent node, MIDI note-on/off sent via /u_cmd
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+
+                let params: Vec<(String, f32)> = vec![
+                    ("out".to_string(), source_out_bus as f32),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "ilex_vst_instrument",
+                    node_id,
+                    GROUP_SOURCES,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                // Open the VST plugin in the node
+                if let SourceType::Vst(vst_id) = instrument.source {
+                    if let Some(plugin) = session.vst_plugins.get(vst_id) {
+                        let _ = client.send_unit_cmd(
+                            node_id,
+                            VST_UGEN_INDEX,
+                            "/open",
+                            vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                        );
+                    }
+                }
+
+                source_node = Some(node_id);
             }
             // For oscillator instruments, voices are spawned dynamically via spawn_voice()
 
@@ -697,6 +731,18 @@ impl AudioEngine {
                     GROUP_PROCESSING,
                     &params,
                 ).map_err(|e| e.to_string())?;
+
+                // For VST effects, open the plugin after creating the node
+                if let EffectType::Vst(vst_id) = effect.effect_type {
+                    if let Some(plugin) = session.vst_plugins.get(vst_id) {
+                        let _ = client.send_unit_cmd(
+                            node_id,
+                            VST_UGEN_INDEX,
+                            "/open",
+                            vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                        );
+                    }
+                }
 
                 effect_nodes.push(node_id);
                 current_bus = effect_out_bus;
@@ -874,9 +920,14 @@ impl AudioEngine {
         let instrument = state.instrument(instrument_id)
             .ok_or_else(|| format!("No instrument with id {}", instrument_id))?;
 
-        // AudioIn and BusIn instruments don't use voice spawning - they have persistent synths
+        // AudioIn, BusIn, and VSTi instruments don't use voice spawning - they have persistent synths
         if instrument.source.is_audio_input() || instrument.source.is_bus_in() {
             return Ok(());
+        }
+
+        // VSTi instruments: send MIDI note-on via /u_cmd
+        if instrument.source.is_vst() {
+            return self.send_vsti_note_on(instrument_id, pitch, velocity);
         }
 
         // Sampler instruments need special handling
@@ -1224,6 +1275,13 @@ impl AudioEngine {
         offset_secs: f64,
         state: &InstrumentState,
     ) -> Result<(), String> {
+        // VSTi instruments: send MIDI note-off via /u_cmd
+        if let Some(instrument) = state.instrument(instrument_id) {
+            if instrument.source.is_vst() {
+                return self.send_vsti_note_off(instrument_id, pitch);
+            }
+        }
+
         let client = self.client.as_ref().ok_or("Not connected")?;
 
         if let Some(pos) = self
@@ -1603,6 +1661,43 @@ impl AudioEngine {
 
     pub fn recording_path(&self) -> Option<&Path> {
         self.recording.as_ref().map(|r| r.path.as_path())
+    }
+
+    /// Send MIDI note-on to a VSTi persistent source node
+    fn send_vsti_note_on(&self, instrument_id: InstrumentId, pitch: u8, velocity: f32) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(source_node) = nodes.source {
+                let vel = (velocity * 127.0).round().min(127.0) as u8;
+                // MIDI note-on: status 0x90, note, velocity as raw bytes
+                let midi_msg: Vec<u8> = vec![0x90, pitch, vel];
+                client.send_unit_cmd(
+                    source_node,
+                    VST_UGEN_INDEX,
+                    "/midi_msg",
+                    vec![rosc::OscType::Blob(midi_msg)],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Send MIDI note-off to a VSTi persistent source node
+    fn send_vsti_note_off(&self, instrument_id: InstrumentId, pitch: u8) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(source_node) = nodes.source {
+                // MIDI note-off: status 0x80, note, velocity 0
+                let midi_msg: Vec<u8> = vec![0x80, pitch, 0];
+                client.send_unit_cmd(
+                    source_node,
+                    VST_UGEN_INDEX,
+                    "/midi_msg",
+                    vec![rosc::OscType::Blob(midi_msg)],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
     }
 
 }

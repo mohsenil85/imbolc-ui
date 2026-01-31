@@ -5,7 +5,7 @@ use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use crate::state::{AppState, CustomSynthDefRegistry, SourceType};
+use crate::state::{AppState, CustomSynthDefRegistry, SourceType, VstPluginRegistry};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SessionAction, Style};
 
@@ -15,6 +15,7 @@ pub enum AddOption {
     Source(SourceType),
     Separator(&'static str),
     ImportCustom,
+    ImportVst,
 }
 
 pub struct AddPane {
@@ -33,7 +34,7 @@ impl AddPane {
         }
     }
 
-    /// Build options without custom synthdefs (used for initial state)
+    /// Build options without registries (used for initial state)
     fn build_options_static() -> Vec<AddOption> {
         let mut options = Vec::new();
 
@@ -46,11 +47,15 @@ impl AddPane {
         options.push(AddOption::Separator("── Custom ──"));
         options.push(AddOption::ImportCustom);
 
+        // VST section
+        options.push(AddOption::Separator("── VST ──"));
+        options.push(AddOption::ImportVst);
+
         options
     }
 
-    /// Build options with custom synthdefs from registry
-    fn build_options(&self, registry: &CustomSynthDefRegistry) -> Vec<AddOption> {
+    /// Build options with custom synthdefs and VST plugins from registries
+    fn build_options(&self, custom_registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) -> Vec<AddOption> {
         let mut options = Vec::new();
 
         // Built-in types
@@ -62,19 +67,30 @@ impl AddPane {
         options.push(AddOption::Separator("── Custom ──"));
 
         // Custom synthdefs
-        for synthdef in &registry.synthdefs {
+        for synthdef in &custom_registry.synthdefs {
             options.push(AddOption::Source(SourceType::Custom(synthdef.id)));
         }
 
-        // Import option
+        // Import custom option
         options.push(AddOption::ImportCustom);
+
+        // VST section
+        options.push(AddOption::Separator("── VST ──"));
+
+        // Registered VST instruments
+        for plugin in vst_registry.instruments() {
+            options.push(AddOption::Source(SourceType::Vst(plugin.id)));
+        }
+
+        // Import VST option
+        options.push(AddOption::ImportVst);
 
         options
     }
 
-    /// Update cached options from registry
-    pub fn update_options(&mut self, registry: &CustomSynthDefRegistry) {
-        self.cached_options = self.build_options(registry);
+    /// Update cached options from registries
+    pub fn update_options(&mut self, custom_registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) {
+        self.cached_options = self.build_options(custom_registry, vst_registry);
         // Clamp selection
         if self.selected >= self.cached_options.len() {
             self.selected = self.cached_options.len().saturating_sub(1);
@@ -115,8 +131,8 @@ impl AddPane {
         self.selected = prev;
     }
 
-    /// Render with registry for custom synthdef names (ratatui buffer path)
-    fn render_buf_with_registry(&self, area: RatatuiRect, buf: &mut Buffer, registry: &CustomSynthDefRegistry) {
+    /// Render with registries for custom synthdef and VST plugin names
+    fn render_buf_with_registries(&self, area: RatatuiRect, buf: &mut Buffer, registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) {
         let rect = center_rect(area, 97, 29);
 
         let block = Block::default()
@@ -168,11 +184,12 @@ impl AddPane {
                         SourceType::BusIn => Color::BUS_IN_COLOR,
                         SourceType::PitchedSampler => Color::SAMPLE_COLOR,
                         SourceType::Custom(_) => Color::CUSTOM_COLOR,
+                        SourceType::Vst(_) => Color::VST_COLOR,
                         _ => Color::OSC_COLOR,
                     };
 
-                    let short = format!("{:12}", source.short_name_with_registry(registry));
-                    let name = source.display_name(registry);
+                    let short = format!("{:12}", source.short_name_vst(registry, vst_registry));
+                    let name = source.display_name_vst(registry, vst_registry);
 
                     let short_style = if is_selected {
                         ratatui::style::Style::from(Style::new().fg(color).bg(Color::SELECTION_BG))
@@ -233,6 +250,35 @@ impl AddPane {
                         }
                     }
                 }
+                AddOption::ImportVst => {
+                    if is_selected {
+                        if let Some(cell) = buf.cell_mut((content_x, y)) {
+                            cell.set_char('>').set_style(
+                                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
+                            );
+                        }
+                    }
+
+                    let text_style = if is_selected {
+                        ratatui::style::Style::from(Style::new().fg(Color::VST_COLOR).bg(Color::SELECTION_BG))
+                    } else {
+                        ratatui::style::Style::from(Style::new().fg(Color::VST_COLOR))
+                    };
+                    Paragraph::new(Line::from(Span::styled(
+                        "+ Import VST Instrument...",
+                        text_style,
+                    ))).render(RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
+
+                    if is_selected {
+                        let fill_start = content_x + 2 + 26;
+                        let fill_end = inner.x + inner.width;
+                        for x in fill_start..fill_end {
+                            if let Some(cell) = buf.cell_mut((x, y)) {
+                                cell.set_char(' ').set_style(sel_bg);
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -267,6 +313,9 @@ impl Pane for AddPane {
                         AddOption::Source(source) => Action::Instrument(InstrumentAction::Add(*source)),
                         AddOption::ImportCustom => {
                             Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::ImportCustomSynthDef))
+                        }
+                        AddOption::ImportVst => {
+                            Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::ImportVstInstrument))
                         }
                         AddOption::Separator(_) => Action::None,
                     }
@@ -310,6 +359,9 @@ impl Pane for AddPane {
                             AddOption::ImportCustom => {
                                 return Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::ImportCustomSynthDef));
                             }
+                            AddOption::ImportVst => {
+                                return Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::ImportVstInstrument));
+                            }
                             AddOption::Separator(_) => {}
                         }
                     }
@@ -329,7 +381,7 @@ impl Pane for AddPane {
     }
 
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
-        self.render_buf_with_registry(area, buf, &state.session.custom_synthdefs);
+        self.render_buf_with_registries(area, buf, &state.session.custom_synthdefs, &state.session.vst_plugins);
     }
 
     fn keymap(&self) -> &Keymap {
@@ -337,7 +389,7 @@ impl Pane for AddPane {
     }
 
     fn on_enter(&mut self, state: &AppState) {
-        self.update_options(&state.session.custom_synthdefs);
+        self.update_options(&state.session.custom_synthdefs, &state.session.vst_plugins);
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

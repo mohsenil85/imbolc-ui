@@ -40,6 +40,7 @@ pub trait OscClientLike: Send + Sync {
     fn open_buffer_for_write(&self, bufnum: i32, path: &str) -> std::io::Result<()>;
     fn close_buffer(&self, bufnum: i32) -> std::io::Result<()>;
     fn query_buffer(&self, bufnum: i32) -> std::io::Result<()>;
+    fn send_unit_cmd(&self, node_id: i32, ugen_index: i32, cmd: &str, args: Vec<OscType>) -> std::io::Result<()>;
 }
 
 #[cfg(test)]
@@ -122,6 +123,10 @@ impl OscClientLike for NullOscClient {
     }
 
     fn query_buffer(&self, _bufnum: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn send_unit_cmd(&self, _node_id: i32, _ugen_index: i32, _cmd: &str, _args: Vec<OscType>) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -376,6 +381,19 @@ impl OscClient {
     pub fn query_buffer(&self, bufnum: i32) -> std::io::Result<()> {
         self.send_message("/b_query", vec![OscType::Int(bufnum)])
     }
+
+    /// /u_cmd nodeID ugenIndex command [args...]
+    /// Send a unit command to a specific UGen instance within a synth node.
+    /// Used for VSTPlugin UGen commands like /open, /midi_msg, /set, etc.
+    pub fn send_unit_cmd(&self, node_id: i32, ugen_index: i32, cmd: &str, args: Vec<OscType>) -> std::io::Result<()> {
+        let mut msg_args = vec![
+            OscType::Int(node_id),
+            OscType::Int(ugen_index),
+            OscType::String(cmd.to_string()),
+        ];
+        msg_args.extend(args);
+        self.send_message("/u_cmd", msg_args)
+    }
 }
 
 impl OscClientLike for OscClient {
@@ -447,6 +465,10 @@ impl OscClientLike for OscClient {
 
     fn query_buffer(&self, bufnum: i32) -> std::io::Result<()> {
         self.query_buffer(bufnum)
+    }
+
+    fn send_unit_cmd(&self, node_id: i32, ugen_index: i32, cmd: &str, args: Vec<OscType>) -> std::io::Result<()> {
+        self.send_unit_cmd(node_id, ugen_index, cmd, args)
     }
 }
 

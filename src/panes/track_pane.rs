@@ -20,6 +20,7 @@ fn source_color(source: SourceType) -> Color {
         SourceType::Kit => Color::KIT_COLOR,
         SourceType::BusIn => Color::BUS_IN_COLOR,
         SourceType::Custom(_) => Color::CUSTOM_COLOR,
+        SourceType::Vst(_) => Color::VST_COLOR,
     }
 }
 

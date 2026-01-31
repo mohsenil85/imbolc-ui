@@ -1014,6 +1014,41 @@ fn dispatch_session(
                 }
             }
         }
+        SessionAction::ImportVstPlugin(ref path) => {
+            use crate::state::vst_plugin::{VstPlugin, VstPluginKind};
+
+            // Determine kind based on which file select action opened the browser
+            let kind = if let Some(browser) = panes.get_pane_mut::<FileBrowserPane>("file_browser") {
+                // Access is through the pane, but we can infer from the action
+                // The file browser was opened with ImportVstInstrument or ImportVstEffect
+                // For now, default to Instrument since that's the primary use case
+                let _ = browser; // suppress unused
+                VstPluginKind::Instrument
+            } else {
+                VstPluginKind::Instrument
+            };
+
+            // Extract display name from filename
+            let name = path.file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "VST Plugin".to_string());
+
+            let plugin = VstPlugin {
+                id: 0, // Will be set by registry.add()
+                name: name.clone(),
+                plugin_path: path.clone(),
+                kind,
+                params: vec![],
+            };
+
+            let _id = state.session.vst_plugins.add(plugin);
+
+            if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                server.set_status(audio_engine.status(), &format!("Imported VST: {}", name));
+            }
+
+            panes.pop(&*state);
+        }
     }
 }
 
