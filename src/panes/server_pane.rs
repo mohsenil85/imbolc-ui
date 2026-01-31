@@ -172,7 +172,7 @@ impl Pane for ServerPane {
             "connect" => Action::Server(ServerAction::Connect),
             "disconnect" => Action::Server(ServerAction::Disconnect),
             "compile" => Action::Server(ServerAction::CompileSynthDefs),
-            "load" => Action::Server(ServerAction::LoadSynthDefs),
+            "load_synthdefs" => Action::Server(ServerAction::LoadSynthDefs),
             "refresh_devices" => {
                 self.refresh_devices();
                 if self.server_running {

@@ -149,7 +149,7 @@ bindings = [
   { key = "c", action = "connect", description = "Connect to server" },
   { key = "d", action = "disconnect", description = "Disconnect" },
   { key = "b", action = "compile", description = "Build synthdefs" },
-  { key = "l", action = "load", description = "Load synthdefs" },
+  { key = "l", action = "load_synthdefs", description = "Load synthdefs" },
   { key = "r", action = "refresh_devices", description = "Refresh audio devices" },
   { key = "Tab", action = "next_section", description = "Next section" },
 ]

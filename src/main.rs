@@ -83,6 +83,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut last_area = ratatui::layout::Rect::new(0, 0, 80, 24);
 
     loop {
+        // Sync layer stack in case dispatch switched panes last iteration
+        layer_stack.set_pane_layer(panes.active().id());
+
         if let Some(app_event) = backend.poll_event(Duration::from_millis(16)) {
             let pane_action = match app_event {
                 AppEvent::Mouse(mouse_event) => {

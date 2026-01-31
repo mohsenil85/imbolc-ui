@@ -95,7 +95,11 @@ impl RatatuiFrame {
 
 impl InputSource for RatatuiBackend {
     fn poll_event(&mut self, timeout: Duration) -> Option<AppEvent> {
-        if event::poll(timeout).ok()? {
+        let mut t = timeout;
+        loop {
+            if !event::poll(t).ok()? {
+                return None;
+            }
             match event::read().ok()? {
                 Event::Key(key_event) => {
                     return Some(AppEvent::Key(convert_key_event(key_event)));
@@ -104,11 +108,15 @@ impl InputSource for RatatuiBackend {
                     if let Some(me) = convert_mouse_event(mouse_event) {
                         return Some(AppEvent::Mouse(me));
                     }
+                    // Discarded mouse event (Moved, etc.) — drain with zero timeout
+                    t = Duration::ZERO;
                 }
-                _ => {}
+                _ => {
+                    // Discarded event (Resize, etc.) — drain with zero timeout
+                    t = Duration::ZERO;
+                }
             }
         }
-        None
     }
 }
 
