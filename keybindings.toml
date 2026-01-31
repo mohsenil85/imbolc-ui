@@ -231,7 +231,7 @@ bindings = [
   { key = "Enter", action = "chop", description = "Split slice at cursor" },
   { key = "x", action = "delete", description = "Remove selected slice" },
   { key = "n", action = "auto_slice", description = "Auto-slice (cycle 4/8/12/16)" },
-  { key = "s", action = "load", description = "Load sample" },
+  { key = "s", action = "load_sample", description = "Load sample" },
   { key = "Space", action = "preview", description = "Preview slice" },
   { key = ",", action = "commit", description = "Commit all slices to pads" },
   { key = "Escape", action = "back", description = "Back to sequencer" },

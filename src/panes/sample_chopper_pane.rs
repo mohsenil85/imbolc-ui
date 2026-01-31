@@ -93,7 +93,7 @@ impl Pane for SampleChopperPane {
                 Action::Chopper(ChopperAction::AutoSlice(n))
             }
             "commit" => Action::Chopper(ChopperAction::CommitAll),
-            "load" => Action::Chopper(ChopperAction::LoadSample),
+            "load_sample" => Action::Chopper(ChopperAction::LoadSample),
             "preview" => Action::Chopper(ChopperAction::PreviewSlice),
             "back" => Action::Nav(NavAction::PopPane),
             a if a.starts_with("assign_") => {
