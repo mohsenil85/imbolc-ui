@@ -1,50 +1,80 @@
 # Keybindings Philosophy
 
-ilex tries to use a "normie" keybinding scheme. The inspiration is
-Dwarf Fortress or those 80's tui's that you used to see at the airport
-where an experienced operator can fly through the menus at the speed
-of thought. Numbers keys are used for navigation, ? to view help.
+ilex favors a "normie" keybinding scheme: single keys for common actions,
+mnemonics where possible, and context-sensitive meaning per pane. The goal is
+fast, keyboard-first navigation without modifier chords.
 
-## Design Principles
+## Source of truth
 
-1. **No Ctrl for common actions** - Single keys for frequent operations
-2. **Mnemonic** - Keys should relate to their action (n=next, p=prev, etc.)
-3. **Context-sensitive** - Same key can do different things in different panes
-4. **Introspectable** - Every pane's keymap can be queried for help
+The canonical list of bindings lives in `keybindings.toml`. Each pane has a
+`layer` section there, and the app surfaces context help with `?`. Treat this
+document as a guide to intent and conventions, not an exhaustive list.
 
+## Global keys (defaults)
 
-## Global Keys
+| Key | Action |
+|-----|--------|
+| `Ctrl+q` | Quit |
+| `Ctrl+s` | Save session |
+| `Ctrl+l` | Load session |
+| `F1` | Instruments |
+| `F2` | Piano roll / Sequencer / Waveform (context-driven) |
+| `F3` | Track |
+| `F4` | Mixer |
+| `F5` | Server |
+| `F6` | Logo |
+| `` ` `` / `~` | Back / Forward |
+| `Ctrl+f` | Frame edit (session settings) |
+| `?` | Context help |
+| `/` | Toggle piano keyboard |
+| `.` | Toggle master mute |
+| `1`-`9`, `0` | Select instrument 1-10 |
+| `_` | Two-digit instrument select |
 
-These work across all panes (when not captured by a widget):
-(C-q means Control-q)
+## Pane-specific highlights (defaults)
 
-| Key | Action | Mnemonic |
-|-----|--------|----------|
-| `C-q` | Quit | quit |
-| `?` | Help | question |
-| `1-9` | Switch to pane N | number |
+These are representative examples; check `keybindings.toml` for the full list.
 
-## Navigation Keys
+### Instrument pane
+| Key | Action |
+|-----|--------|
+| `a` | Add instrument |
+| `d` | Delete instrument |
+| `Enter` | Edit instrument |
 
-Standard navigation (when a list/menu is focused):
-Arrow keys work for navigation.
+### Piano roll
+| Key | Action |
+|-----|--------|
+| `Space` | Play/Stop |
+| `l` | Toggle loop |
+| `[` / `]` | Set loop start / end |
+| `+` / `-` | Velocity up / down |
+| `Shift+Left` / `Shift+Right` | Shrink / Grow note duration |
 
-## Selection & Action Keys
+### Sequencer
+| Key | Action |
+|-----|--------|
+| `Enter` | Toggle step |
+| `Space` | Play/Stop |
+| `Shift+Up` / `Shift+Down` | Step velocity up / down |
+| `Shift+Left` / `Shift+Right` | Pad level down / up |
 
-| Key | Action | Mnemonic |
-|-----|--------|----------|
-| `Enter` | Select/confirm | - |
-| `Space` | Toggle/select | - |
-| `Escape` | Cancel/back | - |
-| `Tab` | Next field | - |
-| `a` | Add | add |
-| `d` | Delete | delete |
-| `e` | Edit | edit |
-| `r` | Rename | rename |
-| `s` | Save | save |
-| `u` | Undo | undo |
+### Mixer
+| Key | Action |
+|-----|--------|
+| `m` | Toggle mute |
+| `s` | Toggle solo |
+| `o` / `O` | Cycle output target (forward/back) |
 
-## Text Input Mode
+### Server
+| Key | Action |
+|-----|--------|
+| `s` | Start scsynth |
+| `k` | Stop scsynth |
+| `b` | Compile synthdefs |
+| `l` | Load synthdefs |
+
+## Text input mode
 
 When a text input is focused, all keys type characters except:
 
@@ -58,44 +88,8 @@ When a text input is focused, all keys type characters except:
 | `Left/Right` | Move cursor |
 | `Home/End` | Start/end of input |
 
-## Pane-Specific Keys
+## Modifier rules
 
-Each pane can define additional keys. Use `?` to see the current pane's keymap.
-
-### Rack Pane
-| Key | Action |
-|-----|--------|
-| `a` | Add module |
-| `d` | Delete module |
-| `.` | Panic (silence all) |
-
-### Mixer Pane
-| Key | Action |
-|-----|--------|
-| `m` | toggle Mute channel |
-| `M` | unmute all channels |
-| `s` | toggle Solo channel |
-| `S` | unsolo all channel |
-| `</>` | Pan left/right |
-| `+/-` | Volume up/down |
-
-### Sequencer Pane
-| Key | Action |
-|-----|--------|
-| `Space` | Play/pause |
-| `r` | Record |
-| `l` | Loop toggle |
-| `[/]` | Loop start/end |
-
-## Rationale
-
-3. **Accessibility** - Single keys are easier to press
-4. **Testability** - Easier to send keys via tmux for E2E testing
-
-
-### When to use modifiers?
-
-Ctrl/Alt are reserved for:
-- Destructive actions (Ctrl+D for force delete)
-- System integration (Ctrl+C for copy, if supported)
-- Disambiguation when single key is taken
+- Shift bindings are used only for special keys (e.g., `Shift+Left`).
+- For shifted characters, bind the literal char (`?`, `A`, `+`) rather than a
+  `Shift+` form.

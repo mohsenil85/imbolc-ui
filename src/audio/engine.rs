@@ -15,7 +15,7 @@ struct RecordingState {
 }
 
 use super::bus_allocator::BusAllocator;
-use super::osc_client::{OscClient, osc_time_immediate};
+use super::osc_client::{OscClient, OscClientLike, osc_time_immediate};
 use crate::state::{AutomationTarget, BufferId, CustomSynthDefRegistry, EffectType, FilterType, SourceType, ParamValue, SessionState, InstrumentId, InstrumentState};
 
 #[allow(dead_code)]
@@ -72,7 +72,7 @@ impl InstrumentNodes {
 }
 
 pub struct AudioEngine {
-    client: Option<OscClient>,
+    client: Option<Box<dyn OscClientLike>>,
     node_map: HashMap<InstrumentId, InstrumentNodes>,
     next_node_id: i32,
     is_running: bool,
@@ -370,7 +370,7 @@ impl AudioEngine {
     pub fn connect(&mut self, server_addr: &str) -> std::io::Result<()> {
         let client = OscClient::new(server_addr)?;
         client.send_message("/notify", vec![rosc::OscType::Int(1)])?;
-        self.client = Some(client);
+        self.client = Some(Box::new(client));
         self.is_running = true;
         self.server_status = ServerStatus::Connected;
         Ok(())
@@ -1616,5 +1616,186 @@ impl Drop for AudioEngine {
 impl Default for AudioEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::osc_client::NullOscClient;
+    use crate::state::{AppState, FilterConfig};
+    use crate::state::instrument::{EffectSlot, EffectType, FilterType, SourceType};
+
+    fn connect_engine() -> AudioEngine {
+        let mut engine = AudioEngine::new();
+        engine.client = Some(Box::new(NullOscClient::new()));
+        engine.is_running = true;
+        engine.server_status = ServerStatus::Connected;
+        engine
+    }
+
+    #[test]
+    fn rebuild_routing_creates_nodes_for_audio_in_with_effects_and_sends() {
+        let mut engine = connect_engine();
+        let mut state = AppState::new();
+
+        let inst_id = state.add_instrument(SourceType::AudioIn);
+        if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+            inst.filter = Some(FilterConfig::new(FilterType::Lpf));
+            inst.lfo.enabled = true;
+            inst.effects.push(EffectSlot::new(EffectType::Delay));
+            inst.sends[0].enabled = true;
+            inst.sends[0].level = 0.5;
+        }
+
+        engine
+            .rebuild_instrument_routing(&state.instruments, &state.session)
+            .expect("rebuild routing");
+
+        let nodes = engine.node_map.get(&inst_id).expect("nodes");
+        assert!(nodes.source.is_some());
+        assert!(nodes.filter.is_some());
+        assert!(nodes.lfo.is_some());
+        assert_eq!(nodes.effects.len(), 1);
+        assert!(engine.send_node_map.contains_key(&(0, 1)));
+        assert_eq!(engine.bus_node_map.len(), state.session.buses.len());
+    }
+
+    #[test]
+    fn rebuild_routing_handles_bus_in_with_sidechain_effect() {
+        let mut engine = connect_engine();
+        let mut state = AppState::new();
+
+        let inst_id = state.add_instrument(SourceType::BusIn);
+        if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+            let mut effect = EffectSlot::new(EffectType::SidechainComp);
+            if let Some(param) = effect.params.iter_mut().find(|p| p.name == "sc_bus") {
+                param.value = ParamValue::Int(1);
+            }
+            inst.effects.push(effect);
+        }
+
+        engine
+            .rebuild_instrument_routing(&state.instruments, &state.session)
+            .expect("rebuild routing");
+
+        let nodes = engine.node_map.get(&inst_id).expect("nodes");
+        assert!(nodes.source.is_some());
+        assert_eq!(nodes.effects.len(), 1);
+    }
+
+    #[test]
+    fn apply_automation_covers_all_targets() {
+        let mut engine = connect_engine();
+        let mut state = AppState::new();
+
+        let inst_id = state.add_instrument(SourceType::Saw);
+        if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+            inst.filter = Some(FilterConfig::new(FilterType::Hpf));
+            let mut disabled = EffectSlot::new(EffectType::Delay);
+            disabled.enabled = false;
+            inst.effects.push(disabled);
+            inst.effects.push(EffectSlot::new(EffectType::Reverb));
+        }
+
+        engine
+            .rebuild_instrument_routing(&state.instruments, &state.session)
+            .expect("rebuild routing");
+
+        engine.voice_chains.push(VoiceChain {
+            instrument_id: inst_id,
+            pitch: 60,
+            group_id: 0,
+            midi_node_id: 0,
+            source_node: 1234,
+            spawn_time: Instant::now(),
+        });
+
+        engine
+            .apply_automation(
+                &AutomationTarget::InstrumentLevel(inst_id),
+                0.5,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::InstrumentPan(inst_id),
+                -0.25,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::FilterCutoff(inst_id),
+                800.0,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::FilterResonance(inst_id),
+                0.5,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::EffectParam(inst_id, 1, 0),
+                0.7,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::SampleRate(inst_id),
+                1.2,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::SampleAmp(inst_id),
+                0.8,
+                &state.instruments,
+                &state.session,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn set_source_param_bus_translates_bus_id() {
+        let mut engine = connect_engine();
+        let mut state = AppState::new();
+
+        let inst_id = state.add_instrument(SourceType::BusIn);
+        engine
+            .rebuild_instrument_routing(&state.instruments, &state.session)
+            .expect("rebuild routing");
+
+        engine
+            .set_source_param(inst_id, "bus", 1.0)
+            .expect("set_source_param");
+    }
+
+    #[test]
+    fn set_bus_mixer_params_uses_bus_nodes() {
+        let mut engine = connect_engine();
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+
+        engine
+            .rebuild_instrument_routing(&state.instruments, &state.session)
+            .expect("rebuild routing");
+
+        engine
+            .set_bus_mixer_params(1, 0.5, false, 0.0)
+            .expect("set_bus_mixer_params");
     }
 }

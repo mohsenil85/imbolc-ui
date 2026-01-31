@@ -122,3 +122,30 @@ pub fn snap_freq_to_scale(freq: f32, key: Key, scale: Scale, tuning_a4: f32) -> 
     // Convert back to frequency
     tuning_a4 * (2.0_f32).powf((best_note as f32 - 69.0) / 12.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snap_freq_negative_or_zero_returns_input() {
+        assert!((snap_freq_to_scale(-1.0, Key::C, Scale::Major, 440.0) + 1.0).abs() < 0.0001);
+        assert!(snap_freq_to_scale(0.0, Key::C, Scale::Major, 440.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn snap_freq_c_major_keeps_scale_degree() {
+        let snapped = snap_freq_to_scale(440.0, Key::C, Scale::Major, 440.0);
+        assert!((snapped - 440.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn snap_freq_c_major_prefers_nearest_scale_tone() {
+        // C#4 is closer to C4 than D4, so expect snap to C4 in C major.
+        let c_sharp_4 = 277.18;
+        let snapped = snap_freq_to_scale(c_sharp_4, Key::C, Scale::Major, 440.0);
+        let c4 = 261.63;
+        let d4 = 293.66;
+        assert!((snapped - c4).abs() < (snapped - d4).abs());
+    }
+}

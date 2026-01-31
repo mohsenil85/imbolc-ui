@@ -924,7 +924,9 @@ fn dispatch_session(
             state.session.apply_musical_settings(settings);
             state.session.piano_roll.time_signature = state.session.time_signature;
             state.session.piano_roll.bpm = state.session.bpm as f32;
-            panes.switch_to("instrument", &*state);
+            if !panes.pop(&*state) {
+                panes.switch_to("instrument", &*state);
+            }
         }
         SessionAction::UpdateSessionLive(ref settings) => {
             state.session.apply_musical_settings(settings);

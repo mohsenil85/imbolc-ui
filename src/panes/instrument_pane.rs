@@ -359,3 +359,64 @@ impl Pane for InstrumentPane {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{AppState, SourceType};
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    #[test]
+    fn delete_returns_selected_instrument_id() {
+        let mut state = AppState::new();
+        let id = state.add_instrument(SourceType::Saw);
+        let mut pane = InstrumentPane::new(Keymap::new());
+
+        let action = pane.handle_action("delete", &dummy_event(), &state);
+        match action {
+            Action::Instrument(InstrumentAction::Delete(got)) => assert_eq!(got, id),
+            _ => panic!("Expected InstrumentAction::Delete"),
+        }
+    }
+
+    #[test]
+    fn edit_returns_selected_instrument_id() {
+        let mut state = AppState::new();
+        let id = state.add_instrument(SourceType::Sin);
+        let mut pane = InstrumentPane::new(Keymap::new());
+
+        let action = pane.handle_action("edit", &dummy_event(), &state);
+        match action {
+            Action::Instrument(InstrumentAction::Edit(got)) => assert_eq!(got, id),
+            _ => panic!("Expected InstrumentAction::Edit"),
+        }
+    }
+
+    #[test]
+    fn add_navigates_to_add_pane() {
+        let state = AppState::new();
+        let mut pane = InstrumentPane::new(Keymap::new());
+
+        let action = pane.handle_action("add", &dummy_event(), &state);
+        match action {
+            Action::Nav(NavAction::SwitchPane(id)) => assert_eq!(id, "add"),
+            _ => panic!("Expected SwitchPane(add)"),
+        }
+    }
+
+    #[test]
+    fn next_prev_return_select_actions() {
+        let state = AppState::new();
+        let mut pane = InstrumentPane::new(Keymap::new());
+
+        let action = pane.handle_action("next", &dummy_event(), &state);
+        assert!(matches!(action, Action::Instrument(InstrumentAction::SelectNext)));
+
+        let action = pane.handle_action("prev", &dummy_event(), &state);
+        assert!(matches!(action, Action::Instrument(InstrumentAction::SelectPrev)));
+    }
+}

@@ -71,6 +71,56 @@ impl MixerPane {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    #[test]
+    fn send_target_cycles_and_adjusts_send() {
+        let mut pane = MixerPane::new(Keymap::new());
+        let state = AppState::new();
+
+        let action = pane.handle_action("send_next", &dummy_event(), &state);
+        assert!(matches!(action, Action::None));
+        assert_eq!(pane.send_target, Some(1));
+
+        let action = pane.handle_action("level_up", &dummy_event(), &state);
+        match action {
+            Action::Mixer(MixerAction::AdjustSend(bus_id, delta)) => {
+                assert_eq!(bus_id, 1);
+                assert!((delta - 0.05).abs() < 0.0001);
+            }
+            _ => panic!("Expected AdjustSend when send_target is set"),
+        }
+
+        let action = pane.handle_action("clear_send", &dummy_event(), &state);
+        assert!(matches!(action, Action::None));
+        assert_eq!(pane.send_target, None);
+    }
+
+    #[test]
+    fn prev_next_clear_send_target() {
+        let mut pane = MixerPane::new(Keymap::new());
+        let state = AppState::new();
+
+        pane.send_target = Some(3);
+        let action = pane.handle_action("prev", &dummy_event(), &state);
+        assert!(matches!(action, Action::Mixer(MixerAction::Move(-1))));
+        assert_eq!(pane.send_target, None);
+
+        pane.send_target = Some(2);
+        let action = pane.handle_action("next", &dummy_event(), &state);
+        assert!(matches!(action, Action::Mixer(MixerAction::Move(1))));
+        assert_eq!(pane.send_target, None);
+    }
+}
+
 impl Default for MixerPane {
     fn default() -> Self {
         Self::new(Keymap::new())

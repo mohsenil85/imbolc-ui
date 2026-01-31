@@ -434,4 +434,20 @@ mod tests {
         assert!((val_at_0 - 20.0).abs() < 1.0);
         assert!((val_at_100 - 20000.0).abs() < 1.0);
     }
+
+    #[test]
+    fn test_remove_lanes_for_instrument_updates_selection() {
+        let mut state = AutomationState::new();
+
+        let _id1 = state.add_lane(AutomationTarget::InstrumentLevel(1));
+        let _id2 = state.add_lane(AutomationTarget::InstrumentPan(2));
+        let _id3 = state.add_lane(AutomationTarget::FilterCutoff(1));
+
+        state.selected_lane = Some(2);
+        state.remove_lanes_for_instrument(1);
+
+        assert_eq!(state.lanes.len(), 1);
+        assert!(matches!(state.lanes[0].target, AutomationTarget::InstrumentPan(2)));
+        assert_eq!(state.selected_lane, Some(0));
+    }
 }

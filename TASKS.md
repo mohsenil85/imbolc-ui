@@ -150,6 +150,18 @@ Audio engine: `AudioEngine::free_sample()`, `AudioEngine::get_sc_bufnum()`, `Aud
 
 ---
 
+## Refactors
+
+### Split `dispatch.rs` by domain
+
+`src/dispatch.rs` is ~1.5k LOC and hard to navigate. Break it into domain modules
+(`dispatch/instrument.rs`, `dispatch/mixer.rs`, `dispatch/piano_roll.rs`, etc.)
+and keep a small `dispatch::dispatch_action()` router in `dispatch/mod.rs`.
+
+**Files:** `src/dispatch.rs` (split into `src/dispatch/` modules)
+
+---
+
 ## Infrastructure
 
 ### CLI argument parsing

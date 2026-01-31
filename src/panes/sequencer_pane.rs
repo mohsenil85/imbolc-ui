@@ -414,3 +414,60 @@ impl Pane for SequencerPane {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{AppState, SourceType};
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    #[test]
+    fn no_drum_sequencer_returns_none() {
+        let state = AppState::new();
+        let mut pane = SequencerPane::new(Keymap::new());
+        let action = pane.handle_action("toggle", &dummy_event(), &state);
+        assert!(matches!(action, Action::None));
+    }
+
+    #[test]
+    fn cursor_moves_with_actions_and_toggle_uses_cursor() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Kit);
+        let mut pane = SequencerPane::new(Keymap::new());
+
+        pane.cursor_pad = 0;
+        pane.cursor_step = 0;
+
+        pane.handle_action("down", &dummy_event(), &state);
+        assert_eq!(pane.cursor_pad, 1);
+
+        pane.handle_action("right", &dummy_event(), &state);
+        assert_eq!(pane.cursor_step, 1);
+
+        let action = pane.handle_action("toggle", &dummy_event(), &state);
+        match action {
+            Action::Sequencer(SequencerAction::ToggleStep(pad, step)) => {
+                assert_eq!(pad, pane.cursor_pad);
+                assert_eq!(step, pane.cursor_step);
+            }
+            _ => panic!("Expected ToggleStep"),
+        }
+    }
+
+    #[test]
+    fn chopper_pushes_sample_chopper() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Kit);
+        let mut pane = SequencerPane::new(Keymap::new());
+
+        let action = pane.handle_action("chopper", &dummy_event(), &state);
+        match action {
+            Action::Nav(NavAction::PushPane(id)) => assert_eq!(id, "sample_chopper"),
+            _ => panic!("Expected PushPane(sample_chopper)"),
+        }
+    }
+}

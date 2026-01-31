@@ -183,8 +183,11 @@ impl PianoRollPane {
         let loop_icon = if piano_roll.looping { "L" } else { " " };
         let (ts_num, ts_den) = piano_roll.time_signature;
         let header_text = format!(
-            " BPM:{:.0}  {}/{}  {}  {}  Beat:{:.1}",
-            piano_roll.bpm, ts_num, ts_den, play_icon, loop_icon,
+            " {}/{}  {}  {}  Beat:{:.1}",
+            ts_num,
+            ts_den,
+            play_icon,
+            loop_icon,
             piano_roll.tick_to_beat(piano_roll.playhead),
         );
         Paragraph::new(Line::from(Span::styled(
@@ -601,5 +604,70 @@ impl Pane for PianoRollPane {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    #[test]
+    fn cursor_moves_with_arrow_actions() {
+        let mut pane = PianoRollPane::new(Keymap::new());
+        let state = AppState::new();
+
+        let start_pitch = pane.cursor_pitch;
+        pane.handle_action("up", &dummy_event(), &state);
+        assert_eq!(pane.cursor_pitch, start_pitch + 1);
+
+        pane.handle_action("down", &dummy_event(), &state);
+        assert_eq!(pane.cursor_pitch, start_pitch);
+
+        let start_tick = pane.cursor_tick;
+        pane.handle_action("right", &dummy_event(), &state);
+        assert!(pane.cursor_tick > start_tick);
+
+        pane.handle_action("left", &dummy_event(), &state);
+        assert_eq!(pane.cursor_tick, start_tick);
+    }
+
+    #[test]
+    fn zoom_in_out_clamps() {
+        let mut pane = PianoRollPane::new(Keymap::new());
+        let state = AppState::new();
+
+        pane.zoom_level = 1;
+        pane.handle_action("zoom_in", &dummy_event(), &state);
+        assert_eq!(pane.zoom_level, 1);
+
+        pane.handle_action("zoom_out", &dummy_event(), &state);
+        assert_eq!(pane.zoom_level, 2);
+    }
+
+    #[test]
+    fn home_resets_cursor_and_view() {
+        let mut pane = PianoRollPane::new(Keymap::new());
+        let state = AppState::new();
+
+        pane.cursor_tick = 960;
+        pane.view_start_tick = 480;
+        pane.handle_action("home", &dummy_event(), &state);
+        assert_eq!(pane.cursor_tick, 0);
+        assert_eq!(pane.view_start_tick, 0);
+    }
+
+    #[test]
+    fn toggle_note_returns_action() {
+        let mut pane = PianoRollPane::new(Keymap::new());
+        let state = AppState::new();
+
+        let action = pane.handle_action("toggle_note", &dummy_event(), &state);
+        assert!(matches!(action, Action::PianoRoll(PianoRollAction::ToggleNote)));
     }
 }

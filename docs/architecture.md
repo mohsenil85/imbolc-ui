@@ -90,37 +90,51 @@ All panes implement the `Pane` trait (`src/ui/pane.rs`):
 ```rust
 pub trait Pane {
     fn id(&self) -> &'static str;
-    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action;
-    fn render(&self, g: &mut dyn Graphics, state: &AppState);
+    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action;
+    fn handle_raw_input(&mut self, event: &InputEvent, state: &AppState) -> Action;
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action;
+    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState);
     fn keymap(&self) -> &Keymap;
     fn on_enter(&mut self, _state: &AppState) {}
     fn on_exit(&mut self, _state: &AppState) {}
-    fn wants_exclusive_input(&self) -> bool { false }
+    fn toggle_performance_mode(&mut self, _state: &AppState) -> ToggleResult { ToggleResult::NotSupported }
+    fn activate_piano(&mut self) {}
+    fn activate_pad(&mut self) {}
+    fn deactivate_performance(&mut self) {}
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 ```
 
-Every pane receives `&AppState` for both input handling and rendering.
+Every pane receives `&AppState` for input handling and rendering. `handle_action()`
+is called only when the layer stack resolves a key to an action string; otherwise
+`handle_raw_input()` receives the raw event (e.g., for text input).
 
 ### Registered Panes
 
 | ID | Pane | Key | Purpose |
 |----|------|-----|---------|
-| `instrument` | `InstrumentPane` | `1` | Main view — list of instruments with params |
-| `piano_roll` | `PianoRollPane` | `2` | Note grid editor with playback |
-| `sequencer` | `SequencerPane` | `3` | Drum sequencer / song structure |
-| `mixer` | `MixerPane` | `4` | Mixer channels, buses, master |
-| `server` | `ServerPane` | `5` | SuperCollider server status/control |
+| `instrument` | `InstrumentPane` | `F1` | Main view — list of instruments with params |
+| `piano_roll` | `PianoRollPane` | `F2` | Note grid editor with playback |
+| `sequencer` | `SequencerPane` | `F2` (context) | Drum sequencer / song structure |
+| `mixer` | `MixerPane` | `F4` | Mixer channels, buses, master |
+| `server` | `ServerPane` | `F5` | SuperCollider server status/control |
+| `track` | `TrackPane` | `F3` | Timeline overview (WIP) |
+| `logo` | `LogoPane` | `F6` | Logo splash |
+| `waveform` | `WaveformPane` | `F2` (context) | Recorded/input waveform view |
 | `home` | `HomePane` | — | Welcome screen |
 | `add` | `AddPane` | — | Instrument creation menu |
 | `instrument_edit` | `InstrumentEditPane` | — | Edit instrument params/effects/filter |
-| `frame_edit` | `FrameEditPane` | — | Session settings (BPM, key, etc.) |
+| `frame_edit` | `FrameEditPane` | `Ctrl+f` | Session settings (BPM, key, etc.) |
 | `file_browser` | `FileBrowserPane` | — | File selection for imports |
+| `sample_chopper` | `SampleChopperPane` | — | Slice audio and assign pads |
 | `help` | `HelpPane` | `?` | Context-sensitive keybinding help |
 
 ### Pane Communication
 
-Panes communicate exclusively through `Action` values. A pane's `handle_input()` returns an `Action`, which is dispatched by `dispatch::dispatch_action()` in `src/dispatch.rs`. This function receives `&mut AppState`, `&mut PaneManager`, `&mut AudioEngine`, etc. and can mutate anything.
+Panes communicate exclusively through `Action` values. A pane's `handle_action()` or
+`handle_raw_input()` returns an `Action`, which is dispatched by
+`dispatch::dispatch_action()` in `src/dispatch.rs`. This function receives
+`&mut AppState`, `&mut PaneManager`, `&mut AudioEngine`, etc. and can mutate anything.
 
 For cross-pane data passing (e.g., opening the editor with a specific instrument's data), the dispatch function uses `PaneManager::get_pane_mut::<T>()` to downcast and configure the target pane before switching to it.
 
@@ -146,8 +160,9 @@ The key constraint: extracted data must be owned (cloned), not a reference. Each
 ```
 User Input
   → main.rs: poll_event()
-  → main.rs: check global keys (Ctrl-Q, Ctrl-S, number keys)
-  → PaneManager::handle_input() → active pane's handle_input()
+  → layer_stack.resolve(event) → Action string or Blocked/Unresolved
+  → handle_global_action(...) for global layer actions
+  → Pane::handle_action(action, event, state) OR Pane::handle_raw_input(event, state)
   → returns Action
   → dispatch::dispatch_action() matches on Action
   → mutates AppState / calls AudioEngine / configures panes

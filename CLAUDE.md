@@ -46,8 +46,8 @@ src/
 | `InstrumentId` | `state/instrument.rs` | `u32` — unique identifier for instruments |
 | `SourceType` | `state/instrument.rs` | Oscillator/Source: Saw, Sin, Sqr, Tri, AudioIn, BusIn, PitchedSampler, Kit, Custom |
 | `Action` | `ui/pane.rs` | ~50-variant enum for all user-dispatchable actions |
-| `Pane` | `ui/pane.rs` | Trait: `id()`, `handle_input()`, `render()`, `keymap()` |
-| `PaneManager` | `ui/pane.rs` | Owns all panes, manages active pane, dispatches input |
+| `Pane` | `ui/pane.rs` | Trait: `id()`, `handle_action()`, `handle_raw_input()`, `handle_mouse()`, `render()`, `keymap()` |
+| `PaneManager` | `ui/pane.rs` | Owns all panes, manages active pane, coordinates input |
 
 ## Critical Patterns
 
@@ -55,16 +55,18 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture, stat
 
 ### Action Dispatch
 
-Panes return `Action` values from `handle_input()`. `dispatch.rs` matches on them and mutates state. Panes never mutate state directly.
+Panes return `Action` values from `handle_action()` / `handle_raw_input()`. `dispatch.rs` matches on them and mutates state. Panes never mutate state directly.
 
 When adding a new action:
 1. Add variant to `Action` enum in `src/ui/pane.rs`
-2. Return it from the pane's `handle_input()`
+2. Return it from the pane's `handle_action()` (or `handle_raw_input()` if it bypasses layers)
 3. Handle it in `dispatch::dispatch_action()` in `src/dispatch.rs`
 
 ### Navigation
 
-Number keys switch panes (when not in exclusive input mode): `1`=instrument, `2`=piano_roll, `3`=sequencer, `4`=mixer, `5`=server. `` ` ``/`~` for back/forward. `?` for context-sensitive help.
+Pane switching uses function keys: `F1`=instrument, `F2`=piano roll / sequencer / waveform (context-driven), `F3`=track, `F4`=mixer, `F5`=server, `F6`=logo. `` ` ``/`~` for back/forward. `?` for context-sensitive help. `Ctrl+f` opens the frame settings.
+
+Number keys select instruments: `1`-`9` select instruments 1-9, `0` selects 10, `_` enters two-digit instrument selection.
 
 ### Pane Registration
 
@@ -84,9 +86,11 @@ Keymap::new()
     .bind_ctrl('s', "action_name", "Description")
     .bind_alt('x', "action_name", "Description")
     .bind_ctrl_key(KeyCode::Left, "action_name", "Desc")
+    .bind_shift_key(KeyCode::Right, "action_name", "Desc")
 ```
 
-**There is no `bind_shift_key`.** Check `event.modifiers.shift` manually.
+Shift bindings only exist for special keys (e.g. `Shift+Right`). For shifted
+characters, bind the literal char (`?`, `A`, `+`) rather than a Shift+ variant.
 
 ### Colors
 
@@ -94,14 +98,14 @@ Keymap::new()
 
 ### Pane Sizing
 
-Most main panes use `Rect::centered(width, height, box_width, 29)` — height 29 is standard for full panes. Width varies by pane.
+Use `ui::layout_helpers::center_rect(area, width, height)` to center a sub-rect. Most panes derive an inner rect from the frame and then place content relative to that.
 
 ## Build & Test
 
 ```bash
-cargo build                 # compile
-cargo test --bin ilex     # unit tests (~41 tests)
-cargo test                  # all tests including e2e
+cargo build               # compile
+cargo test --bin ilex   # unit tests
+cargo test                # all tests including e2e
 ```
 
 ## Configuration

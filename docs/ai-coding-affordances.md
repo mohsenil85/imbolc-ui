@@ -28,9 +28,11 @@ Doc comments on key types that enumerate the full API surface:
 /// - `bind_ctrl(char, action, desc)` — Ctrl + character
 /// - `bind_alt(char, action, desc)` — Alt + character
 /// - `bind_ctrl_key(KeyCode, action, desc)` — Ctrl + special key
+/// - `bind_shift_key(KeyCode, action, desc)` — Shift + special key
 ///
-/// No shift variant exists. For shift detection, check
-/// `event.modifiers.shift` manually before keymap lookup.
+/// Shift bindings only exist for special keys (e.g. Shift+Left). For
+/// shifted characters, use the literal char (`?`, `A`, `+`) and not
+/// a Shift+ variant.
 pub struct Keymap { ... }
 ```
 
@@ -55,9 +57,10 @@ plausible-but-nonexistent methods:
 - `Keymap` — bind variants
 - `Color` — constructors
 - `Style` — modifier chain methods (fg, bg, bold, etc.)
-- `Rect` — constructors (new, centered — no `from_size`, no `zero`)
-- `Graphics` trait — drawing methods (put_str, put_char, draw_box,
-  set_style, size — no `fill`, no `clear_rect`)
+- `Rect` / layout helpers — `ratatui::layout::Rect::new` and
+  `ui::layout_helpers::center_rect` (no `Rect::centered`)
+- `Pane` trait — `handle_action`, `handle_raw_input`, `handle_mouse`,
+  `render(area, buf, state)`, `keymap` (no `handle_input`/`Graphics`)
 
 ## 2. Borrow Pattern Cookbook
 
@@ -135,7 +138,7 @@ For even faster feedback, `cargo check` skips codegen and only runs
 the compiler frontend. It catches all type errors, borrow errors, and
 missing imports in roughly half the time of `cargo build`.
 
-A `.cargo/config.toml` alias would make this discoverable:
+A `.cargo/config.toml` alias already makes this discoverable:
 
 ```toml
 [alias]
@@ -174,8 +177,9 @@ State now lives in `AppState`, owned by `main.rs` and passed to all
 panes via the `Pane` trait methods:
 
 ```rust
-fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action;
-fn render(&self, g: &mut dyn Graphics, state: &AppState);
+fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action;
+fn handle_raw_input(&mut self, event: &InputEvent, state: &AppState) -> Action;
+fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState);
 ```
 
 Every pane gets `&AppState` automatically. No special cases needed.
@@ -195,8 +199,8 @@ Things that help AI agents work faster on any codebase:
    first occurrence makes it copy-pasteable.
 
 3. **Name conventions explicitly.** "All panes use
-   `Rect::centered(w, h, 97, 29)`" prevents a new pane from using
-   full-screen coordinates and overwriting the frame.
+   `layout_helpers::center_rect(area, width, height)`" prevents a new pane
+   from using full-screen coordinates and overwriting the frame.
 
 4. **Keep CLAUDE.md updated.** It's the first file the agent reads.
    Every new convention, API, or gotcha should be added there. It

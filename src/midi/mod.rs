@@ -368,4 +368,22 @@ mod tests {
             _ => panic!("Expected ControlChange"),
         }
     }
+
+    #[test]
+    fn test_parse_empty_message_returns_none() {
+        assert!(parse_midi_message(&[]).is_none());
+    }
+
+    #[test]
+    fn test_parse_short_messages_return_none() {
+        assert!(parse_midi_message(&[0x90, 60]).is_none());
+        assert!(parse_midi_message(&[0xB0, 1]).is_none());
+        assert!(parse_midi_message(&[0xE0, 0x00]).is_none());
+    }
+
+    #[test]
+    fn test_parse_unknown_status_returns_none() {
+        assert!(parse_midi_message(&[0x00]).is_none());
+        assert!(parse_midi_message(&[0xF0, 0x01, 0x02]).is_none());
+    }
 }

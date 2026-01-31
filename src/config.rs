@@ -188,4 +188,11 @@ mod tests {
         assert_eq!(parse_scale("Blues"), Some(Scale::Blues));
         assert_eq!(parse_scale("Nope"), None);
     }
+
+    #[test]
+    fn test_parse_keyboard_layout() {
+        assert_eq!(parse_keyboard_layout("qwerty"), Some(KeyboardLayout::Qwerty));
+        assert_eq!(parse_keyboard_layout("COLEMAK"), Some(KeyboardLayout::Colemak));
+        assert_eq!(parse_keyboard_layout("unknown"), None);
+    }
 }

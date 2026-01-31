@@ -95,6 +95,7 @@ impl AppState {
     pub fn remove_instrument(&mut self, id: InstrumentId) {
         self.instruments.remove_instrument(id);
         self.session.piano_roll.remove_track(id);
+        self.session.automation.remove_lanes_for_instrument(id);
     }
 
     /// Compute effective mute for an instrument, considering solo state and master mute.
@@ -184,5 +185,42 @@ impl AppState {
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_instrument_clears_automation_lanes() {
+        let mut state = AppState::new();
+        let instrument_id = state.add_instrument(SourceType::Saw);
+
+        assert_eq!(state.session.piano_roll.track_order.len(), 1);
+        assert_eq!(state.session.piano_roll.track_order[0], instrument_id);
+
+        state
+            .session
+            .automation
+            .add_lane(AutomationTarget::InstrumentLevel(instrument_id));
+        state
+            .session
+            .automation
+            .add_lane(AutomationTarget::InstrumentPan(instrument_id));
+
+        assert_eq!(
+            state.session.automation.lanes_for_instrument(instrument_id).len(),
+            2
+        );
+
+        state.remove_instrument(instrument_id);
+
+        assert!(state
+            .session
+            .automation
+            .lanes_for_instrument(instrument_id)
+            .is_empty());
+        assert!(state.session.piano_roll.track_order.is_empty());
     }
 }

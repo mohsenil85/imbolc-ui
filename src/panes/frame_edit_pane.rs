@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use crate::state::music::{Key, Scale};
 use crate::state::{AppState, MusicalSettings};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Action, Color, InputEvent, Keymap, Pane, SessionAction, Style};
 use crate::ui::widgets::TextInput;
 
 /// Fields editable in the frame editor
@@ -27,6 +27,7 @@ const FIELDS: [Field; 6] = [Field::Bpm, Field::TimeSig, Field::Tuning, Field::Ke
 pub struct FrameEditPane {
     keymap: Keymap,
     settings: MusicalSettings,
+    original_settings: MusicalSettings,
     selected: usize,
     editing: bool,
     edit_input: TextInput,
@@ -37,6 +38,7 @@ impl FrameEditPane {
         Self {
             keymap,
             settings: MusicalSettings::default(),
+            original_settings: MusicalSettings::default(),
             selected: 0,
             editing: false,
             edit_input: TextInput::new(""),
@@ -47,6 +49,7 @@ impl FrameEditPane {
     #[allow(dead_code)]
     pub fn set_settings(&mut self, settings: MusicalSettings) {
         self.settings = settings;
+        self.original_settings = self.settings.clone();
         self.selected = 0;
         self.editing = false;
     }
@@ -161,12 +164,13 @@ impl Pane for FrameEditPane {
                 }
                 self.editing = false;
                 self.edit_input.set_focused(false);
-                Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()))
+                Action::Session(SessionAction::UpdateSession(self.settings.clone()))
             }
             "text:cancel" => {
                 self.editing = false;
                 self.edit_input.set_focused(false);
-                Action::None
+                self.settings = self.original_settings.clone();
+                Action::Session(SessionAction::UpdateSession(self.original_settings.clone()))
             }
             // Normal actions
             "prev" => {
@@ -206,7 +210,8 @@ impl Pane for FrameEditPane {
                 }
             }
             "cancel" => {
-                Action::Nav(NavAction::SwitchPane("instrument"))
+                self.settings = self.original_settings.clone();
+                Action::Session(SessionAction::UpdateSession(self.original_settings.clone()))
             }
             _ => Action::None,
         }
@@ -312,5 +317,96 @@ impl Pane for FrameEditPane {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    #[test]
+    fn confirm_non_text_field_commits() {
+        let mut pane = FrameEditPane::new(Keymap::new());
+        let state = AppState::new();
+        let settings = MusicalSettings::default();
+        pane.set_settings(settings);
+
+        for _ in 0..3 {
+            pane.handle_action("next", &dummy_event(), &state);
+        }
+
+        let action = pane.handle_action("confirm", &dummy_event(), &state);
+        match action {
+            Action::Session(SessionAction::UpdateSession(updated)) => {
+                assert_eq!(updated.key, pane.settings.key);
+            }
+            _ => panic!("Expected UpdateSession for non-text field confirm"),
+        }
+    }
+
+    #[test]
+    fn text_confirm_commits_and_returns() {
+        let mut pane = FrameEditPane::new(Keymap::new());
+        let state = AppState::new();
+        let settings = MusicalSettings::default();
+        pane.set_settings(settings);
+        pane.edit_input.set_value("180");
+
+        let action = pane.handle_action("text:confirm", &dummy_event(), &state);
+        match action {
+            Action::Session(SessionAction::UpdateSession(updated)) => {
+                assert_eq!(updated.bpm, 180);
+                assert!(!pane.editing);
+            }
+            _ => panic!("Expected UpdateSession on text confirm"),
+        }
+    }
+
+    #[test]
+    fn cancel_reverts_to_original_settings() {
+        let mut pane = FrameEditPane::new(Keymap::new());
+        let state = AppState::new();
+        let mut settings = MusicalSettings::default();
+        settings.bpm = 140;
+        pane.set_settings(settings.clone());
+
+        pane.settings.bpm = 200;
+
+        let action = pane.handle_action("cancel", &dummy_event(), &state);
+        match action {
+            Action::Session(SessionAction::UpdateSession(updated)) => {
+                assert_eq!(updated, settings);
+                assert_eq!(pane.settings, settings);
+            }
+            _ => panic!("Expected UpdateSession on cancel"),
+        }
+    }
+
+    #[test]
+    fn text_cancel_reverts_to_original_settings() {
+        let mut pane = FrameEditPane::new(Keymap::new());
+        let state = AppState::new();
+        let mut settings = MusicalSettings::default();
+        settings.tuning_a4 = 432.0;
+        pane.set_settings(settings.clone());
+
+        pane.settings.tuning_a4 = 450.0;
+        pane.editing = true;
+
+        let action = pane.handle_action("text:cancel", &dummy_event(), &state);
+        match action {
+            Action::Session(SessionAction::UpdateSession(updated)) => {
+                assert_eq!(updated, settings);
+                assert_eq!(pane.settings, settings);
+                assert!(!pane.editing);
+            }
+            _ => panic!("Expected UpdateSession on text cancel"),
+        }
     }
 }

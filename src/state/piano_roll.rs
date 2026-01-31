@@ -150,3 +150,54 @@ impl Default for PianoRollState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggle_note_adds_and_removes() {
+        let mut pr = PianoRollState::new();
+        pr.add_track(1);
+        pr.toggle_note(0, 60, 0, 480, 100);
+        assert_eq!(pr.track_at(0).unwrap().notes.len(), 1);
+        pr.toggle_note(0, 60, 0, 480, 100);
+        assert!(pr.track_at(0).unwrap().notes.is_empty());
+    }
+
+    #[test]
+    fn notes_in_range_filters_by_tick() {
+        let mut pr = PianoRollState::new();
+        pr.add_track(1);
+        pr.toggle_note(0, 60, 0, 480, 100);
+        pr.toggle_note(0, 61, 480, 480, 100);
+        let notes = pr.notes_in_range(0, 0, 480);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].pitch, 60);
+    }
+
+    #[test]
+    fn advance_wraps_when_looping() {
+        let mut pr = PianoRollState::new();
+        pr.playing = true;
+        pr.looping = true;
+        pr.loop_start = 480;
+        pr.loop_end = 960;
+        pr.playhead = 900;
+        pr.advance(100);
+        assert_eq!(pr.playhead, 520);
+    }
+
+    #[test]
+    fn ticks_per_bar_respects_time_signature() {
+        let mut pr = PianoRollState::new();
+        pr.time_signature = (3, 4);
+        assert_eq!(pr.ticks_per_bar(), pr.ticks_per_beat * 3);
+    }
+
+    #[test]
+    fn beat_to_tick_uses_ticks_per_beat() {
+        let pr = PianoRollState::new();
+        assert_eq!(pr.beat_to_tick(2), pr.ticks_per_beat * 2);
+    }
+}

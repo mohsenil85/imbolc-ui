@@ -17,6 +17,115 @@ pub struct OscClient {
     _recv_thread: Option<JoinHandle<()>>,
 }
 
+pub trait OscClientLike: Send + Sync {
+    fn meter_peak(&self) -> (f32, f32);
+    fn audio_in_waveform(&self, instrument_id: u32) -> Vec<f32>;
+    fn send_message(&self, addr: &str, args: Vec<OscType>) -> std::io::Result<()>;
+    fn create_group(&self, group_id: i32, add_action: i32, target: i32) -> std::io::Result<()>;
+    fn create_synth(&self, synth_def: &str, node_id: i32, params: &[(String, f32)]) -> std::io::Result<()>;
+    fn create_synth_in_group(
+        &self,
+        synth_def: &str,
+        node_id: i32,
+        group_id: i32,
+        params: &[(String, f32)],
+    ) -> std::io::Result<()>;
+    fn free_node(&self, node_id: i32) -> std::io::Result<()>;
+    fn set_param(&self, node_id: i32, param: &str, value: f32) -> std::io::Result<()>;
+    fn set_params_bundled(&self, node_id: i32, params: &[(&str, f32)], time: OscTime) -> std::io::Result<()>;
+    fn send_bundle(&self, messages: Vec<OscMessage>, time: OscTime) -> std::io::Result<()>;
+    fn load_buffer(&self, bufnum: i32, path: &str) -> std::io::Result<()>;
+    fn alloc_buffer(&self, bufnum: i32, num_frames: i32, num_channels: i32) -> std::io::Result<()>;
+    fn free_buffer(&self, bufnum: i32) -> std::io::Result<()>;
+    fn open_buffer_for_write(&self, bufnum: i32, path: &str) -> std::io::Result<()>;
+    fn close_buffer(&self, bufnum: i32) -> std::io::Result<()>;
+    fn query_buffer(&self, bufnum: i32) -> std::io::Result<()>;
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub struct NullOscClient;
+
+#[cfg(test)]
+impl NullOscClient {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(test)]
+impl OscClientLike for NullOscClient {
+    fn meter_peak(&self) -> (f32, f32) {
+        (0.0, 0.0)
+    }
+
+    fn audio_in_waveform(&self, _instrument_id: u32) -> Vec<f32> {
+        Vec::new()
+    }
+
+    fn send_message(&self, _addr: &str, _args: Vec<OscType>) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn create_group(&self, _group_id: i32, _add_action: i32, _target: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn create_synth(&self, _synth_def: &str, _node_id: i32, _params: &[(String, f32)]) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn create_synth_in_group(
+        &self,
+        _synth_def: &str,
+        _node_id: i32,
+        _group_id: i32,
+        _params: &[(String, f32)],
+    ) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn free_node(&self, _node_id: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn set_param(&self, _node_id: i32, _param: &str, _value: f32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn set_params_bundled(&self, _node_id: i32, _params: &[(&str, f32)], _time: OscTime) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn send_bundle(&self, _messages: Vec<OscMessage>, _time: OscTime) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn load_buffer(&self, _bufnum: i32, _path: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn alloc_buffer(&self, _bufnum: i32, _num_frames: i32, _num_channels: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn free_buffer(&self, _bufnum: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn open_buffer_for_write(&self, _bufnum: i32, _path: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn close_buffer(&self, _bufnum: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn query_buffer(&self, _bufnum: i32) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Recursively process an OSC packet (handles bundles wrapping messages)
 fn handle_osc_packet(
     packet: &OscPacket,
@@ -266,6 +375,78 @@ impl OscClient {
     #[allow(dead_code)]
     pub fn query_buffer(&self, bufnum: i32) -> std::io::Result<()> {
         self.send_message("/b_query", vec![OscType::Int(bufnum)])
+    }
+}
+
+impl OscClientLike for OscClient {
+    fn meter_peak(&self) -> (f32, f32) {
+        self.meter_peak()
+    }
+
+    fn audio_in_waveform(&self, instrument_id: u32) -> Vec<f32> {
+        self.audio_in_waveform(instrument_id)
+    }
+
+    fn send_message(&self, addr: &str, args: Vec<OscType>) -> std::io::Result<()> {
+        self.send_message(addr, args)
+    }
+
+    fn create_group(&self, group_id: i32, add_action: i32, target: i32) -> std::io::Result<()> {
+        self.create_group(group_id, add_action, target)
+    }
+
+    fn create_synth(&self, synth_def: &str, node_id: i32, params: &[(String, f32)]) -> std::io::Result<()> {
+        self.create_synth(synth_def, node_id, params)
+    }
+
+    fn create_synth_in_group(
+        &self,
+        synth_def: &str,
+        node_id: i32,
+        group_id: i32,
+        params: &[(String, f32)],
+    ) -> std::io::Result<()> {
+        self.create_synth_in_group(synth_def, node_id, group_id, params)
+    }
+
+    fn free_node(&self, node_id: i32) -> std::io::Result<()> {
+        self.free_node(node_id)
+    }
+
+    fn set_param(&self, node_id: i32, param: &str, value: f32) -> std::io::Result<()> {
+        self.set_param(node_id, param, value)
+    }
+
+    fn set_params_bundled(&self, node_id: i32, params: &[(&str, f32)], time: OscTime) -> std::io::Result<()> {
+        self.set_params_bundled(node_id, params, time)
+    }
+
+    fn send_bundle(&self, messages: Vec<OscMessage>, time: OscTime) -> std::io::Result<()> {
+        self.send_bundle(messages, time)
+    }
+
+    fn load_buffer(&self, bufnum: i32, path: &str) -> std::io::Result<()> {
+        self.load_buffer(bufnum, path)
+    }
+
+    fn alloc_buffer(&self, bufnum: i32, num_frames: i32, num_channels: i32) -> std::io::Result<()> {
+        self.alloc_buffer(bufnum, num_frames, num_channels)
+    }
+
+    fn free_buffer(&self, bufnum: i32) -> std::io::Result<()> {
+        self.free_buffer(bufnum)
+    }
+
+    fn open_buffer_for_write(&self, bufnum: i32, path: &str) -> std::io::Result<()> {
+        self.open_buffer_for_write(bufnum, path)
+    }
+
+    fn close_buffer(&self, bufnum: i32) -> std::io::Result<()> {
+        self.close_buffer(bufnum)
+    }
+
+    fn query_buffer(&self, bufnum: i32) -> std::io::Result<()> {
+        self.query_buffer(bufnum)
     }
 }
 

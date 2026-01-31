@@ -186,12 +186,14 @@ impl Pane for FileBrowserPane {
             }
             "next" => {
                 if !self.entries.is_empty() {
-                    self.selected = (self.selected + 1).min(self.entries.len() - 1);
+                    self.selected = (self.selected + 1) % self.entries.len();
                 }
                 Action::None
             }
             "prev" => {
-                self.selected = self.selected.saturating_sub(1);
+                if !self.entries.is_empty() {
+                    self.selected = (self.selected + self.entries.len() - 1) % self.entries.len();
+                }
                 Action::None
             }
             "goto_top" => {
@@ -415,12 +417,14 @@ impl Pane for FileBrowserPane {
                 Action::None
             }
             MouseEventKind::ScrollUp => {
-                self.selected = self.selected.saturating_sub(1);
+                if !self.entries.is_empty() {
+                    self.selected = (self.selected + self.entries.len() - 1) % self.entries.len();
+                }
                 Action::None
             }
             MouseEventKind::ScrollDown => {
                 if !self.entries.is_empty() {
-                    self.selected = (self.selected + 1).min(self.entries.len() - 1);
+                    self.selected = (self.selected + 1) % self.entries.len();
                 }
                 Action::None
             }
@@ -438,5 +442,50 @@ impl Pane for FileBrowserPane {
 
     fn on_enter(&mut self, _state: &AppState) {
         self.refresh_entries();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    fn make_temp_dir() -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.push(format!("ilex_file_browser_test_{}", nanos));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn selection_wraps_with_next_and_prev() {
+        let dir = make_temp_dir();
+        std::fs::write(dir.join("a.scd"), "a").unwrap();
+        std::fs::write(dir.join("b.scd"), "b").unwrap();
+
+        let mut pane = FileBrowserPane::new(Keymap::new());
+        pane.open_for(FileSelectAction::ImportCustomSynthDef, Some(dir.clone()));
+        let state = AppState::new();
+
+        assert!(pane.entries.len() >= 2);
+
+        pane.selected = pane.entries.len() - 1;
+        pane.handle_action("next", &dummy_event(), &state);
+        assert_eq!(pane.selected, 0);
+
+        pane.selected = 0;
+        pane.handle_action("prev", &dummy_event(), &state);
+        assert_eq!(pane.selected, pane.entries.len() - 1);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
