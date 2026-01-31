@@ -2,176 +2,127 @@
 
 ![ilex](ilex.png)
 
-A terminal-based Digital Audio Workstation built in Rust. Wire up oscillators, filters, and effects in a modular rack, sequence notes in a piano roll, and mix it all down — without leaving the terminal.
+ilex is a terminal-based digital audio workstation (DAW) built in Rust. The UI is a TUI (ratatui) and the audio engine runs on SuperCollider (scsynth) via OSC. It is optimized for keyboard-first instrument editing, sequencing, and mixing inside the terminal.
 
-Uses [ratatui](https://github.com/ratatui/ratatui) for the TUI and [SuperCollider](https://supercollider.github.io/) (scsynth) for real-time audio synthesis via OSC.
+## Highlights
 
-## Features
+- Instrument strips with a source, filter, FX chain, and output routing.
+- Built-in sources: Saw/Sine/Square/Triangle, Audio In, Bus In, Pitched Sampler, Kit (12-pad drum machine), plus custom SynthDefs.
+- Filters: low-pass, high-pass, band-pass. Effects: delay, reverb, gate, tape comp, sidechain comp.
+- Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat, plus a step sequencer for kits and a sample chopper for slicing/assigning pads.
+- Mixer with level/pan/mute/solo, 8 buses, sends, and master control.
+- Performance modes: computer keyboard piano/pad, two-digit instrument select, fully keybound UI.
+- Audio backend: Rust scheduler plus scsynth DSP with OSC bundles and NTP timetags for sample-accurate note timing.
+- Recording: toggle master recording to WAV and view audio input or recorded waveform.
+- Persistence: project model stored in SQLite; the audio graph is rebuilt on load.
 
-- **Modular rack** — Add oscillators, filters, LFOs, effects, and output modules. Connect them with a visual signal routing system.
-- **Piano roll** — Place and edit notes with per-note velocity. BPM-based timing at 480 ticks/beat resolution with loop support.
-- **Mixer** — Channel strips with level, pan, mute, and solo. Output modules auto-assign to mixer channels.
-- **Real-time synthesis** — All audio runs through SuperCollider. OSC bundles with NTP timetags for sample-accurate scheduling.
-- **Custom SynthDefs** — Import your own `.scd` instruments. Parameters are auto-discovered and editable in the rack.
-- **Persistence** — Sessions saved as SQLite databases (`.ilex` files). Modules, parameters, connections all preserved.
-- **Keyboard-driven** — Every action is a keypress. No mouse needed. Vim-style navigation throughout.
+## Requirements
 
-## Prerequisites
+- Rust toolchain (edition 2021; tested with 1.70+).
+- SuperCollider: `scsynth` on PATH. For custom SynthDefs, `sclang` should also be available.
+- macOS device selection uses `system_profiler`. Other platforms may need extra work for device enumeration.
 
-- **Rust** 1.70+
-- **SuperCollider** — [Install scsynth](https://supercollider.github.io/downloads). The server (`scsynth`) must be available on your PATH.
-
-## Build & Run
+## Build and run
 
 ```bash
-cargo build --release
 cargo run --release
 ```
 
-## Module Types
+ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devices, compile/load synthdefs, or restart the server.
 
-| Category    | Modules                          | Description                              |
-|-------------|----------------------------------|------------------------------------------|
-| Sources     | Saw, Sine, Square, Triangle      | Classic waveform oscillators             |
-| Sources     | MIDI                             | Pitched instrument, driven by piano roll |
-| Sources     | Sampler                          | Trigger audio samples                    |
-| Filters     | Low-Pass Filter                  | Subtractive filtering with cutoff mod    |
-| Modulation  | LFO                              | Low-frequency oscillator for modulation  |
-| Effects     | Delay                            | Time-based echo effect                   |
-| Output      | Output                           | Routes audio to mixer channel + hardware |
+## UI tour
 
-## Signal Routing
+- F1 - Instruments: list and manage instruments, press Enter to edit.
+- F2 - Piano Roll / Sequencer / Waveform (context-driven):
+  - Kit instruments open the step sequencer.
+  - Audio In / Bus In instruments open the waveform view.
+  - Other instruments open the piano roll.
+- F3 - Track: timeline overview (early/WIP).
+- F4 - Mixer: instrument and bus levels, sends, mute/solo.
+- F5 - Server: scsynth status, device selection, synthdef build/load, master recording.
+- F6 - Logo.
+- Ctrl+f - Frame Edit: BPM, time signature, tuning, key/scale, snap.
+- ? - Context help for the active pane.
+- Ctrl+s / Ctrl+l - Save/load the default project.
+- / - Toggle performance mode (piano or pad keyboard depending on instrument).
 
-Modules communicate through audio and control buses. Connect an output port to an input port to route signal between modules. Multiple writers to the same bus are summed automatically.
+## Keybindings and config
 
-```
-  ┌──────────┐        ┌──────────┐        ┌──────────┐
-  │  Saw Osc │──out──>│──in  LPF │──out──>│──in  Out │
-  └──────────┘        └──────────┘        └──────────┘
-                           ^
-  ┌──────────┐             │
-  │   LFO    │──out──>cutoff_mod
-  └──────────┘
-```
+- Default bindings live in `keybindings.toml` and are embedded at build time.
+- Override bindings in `~/.config/ilex/keybindings.toml`.
+- Default musical settings can be overridden in `~/.config/ilex/config.toml`.
 
-Execution order is determined by topological sort — sources run first, then processing, then outputs.
+## Project files
 
-## Keybindings
+- Default project file: `~/.config/ilex/default.sqlite`
+- Custom synthdefs: `~/.config/ilex/synthdefs/`
+- Audio device preferences: `~/.config/ilex/audio_devices.json`
+- Recordings: `master_<timestamp>.wav` in the current working directory
 
-### Global
+## Architecture (from TECHDEETS)
 
-| Key       | Action              |
-|-----------|---------------------|
-| `Ctrl-q`  | Quit                |
-| `Ctrl-s`  | Save session        |
-| `Ctrl-l`  | Load session        |
-| `1`-`9`   | Switch pane         |
-| `.`       | Master mute toggle  |
-| `?`       | Help                |
+ilex uses an MVU-inspired architecture adapted for a TUI with a dedicated audio engine.
 
-### Rack
+### Core components
 
-| Key            | Action                    |
-|----------------|---------------------------|
-| `j` / `k`      | Navigate modules          |
-| `a`            | Add module                |
-| `d`            | Delete module             |
-| `e`            | Edit parameters           |
-| `c`            | Connect mode              |
-| `x`            | Disconnect                |
+- AppState: single source of truth (SessionState, InstrumentState, and UI-related state).
+- Panes: stateless views that render from AppState and emit Action enums.
+- dispatch.rs: central event handler; mutates AppState and drives the AudioEngine.
+- AudioEngine: manages scsynth and mirrors InstrumentState into a concrete DSP graph.
 
-### Connect Mode
+### Data flow
 
-| Key            | Action                    |
-|----------------|---------------------------|
-| `j` / `k`      | Navigate modules          |
-| `Tab` / `h` / `l` | Cycle ports           |
-| `Enter`        | Confirm selection         |
-| `Esc`          | Cancel                    |
+User input -> Pane::handle_input -> Action -> dispatch -> mutate state / send OSC -> render
 
-### Edit Mode
+## Audio engine details
 
-| Key            | Action                    |
-|----------------|---------------------------|
-| `j` / `k`      | Navigate parameters       |
-| `h` / `l`      | Decrease / increase value |
-| `Esc`          | Return to rack            |
+- Scheduling runs in Rust (see `playback.rs`). The main loop advances a tick-based clock (~16 ms) and sends note events as OSC bundles with future NTP timetags for sample-accurate playback.
+- BusAllocator deterministically assigns audio/control buses and resets on project load or engine restart.
+- SynthDefs live in `synthdefs/` and are loaded into scsynth at startup. Execution order is enforced via groups:
+  - 100: Sources
+  - 200: Processing
+  - 300: Output
+  - 400: Record
 
-Press `?` in any pane to see its full keybinding reference.
+### Signal flow and routing
 
-## Architecture
+Each instrument is realized as a chain of SuperCollider nodes:
 
-```
-src/
-├── main.rs            Event loop, action dispatch, playback engine
-├── dispatch.rs        Action dispatch logic
-├── panes/             UI views
-│   ├── strip_pane     Main rack display
-│   ├── piano_roll     Note editor
-│   ├── mixer          Channel strips
-│   ├── add_pane       Module picker
-│   ├── sequencer      Timeline
-│   └── ...
-├── state/             Application state
-│   ├── strip          Modules, connections, mixer channels
-│   ├── piano_roll     Tracks, notes, transport
-│   ├── persistence    SQLite save/load
-│   └── custom_synthdef  User instrument registry
-├── audio/             SuperCollider integration
-│   ├── engine         Synth management, bus allocation, routing
-│   └── osc_client     OSC message/bundle transport
-└── ui/                TUI framework
-    ├── pane           Pane trait, Action enum
-    ├── keymap         Keybinding system
-    ├── style          Colors and theming
-    └── frame          Frame buffer, rendering
-```
+Source -> Filter -> FX Chain -> Output (Master or Bus)
 
-### Data Flow
+- Polyphonic sources spawn per-voice groups and sum into a shared source bus.
+- Audio In and Bus In are monophonic sources with persistent synths.
+- Mixer sends and bus targets are handled in the output stage.
 
-```
-User Input -> Pane::handle_input() -> Action -> main.rs dispatch -> mutate state / send OSC
-```
+### Polyphony and voice chaining
 
-Panes never mutate state directly. All mutations flow through the Action enum and are handled centrally in the dispatch loop.
+- Each note spawns a voice group with an `ilex_midi` control synth feeding a source synth.
+- Voices for an instrument feed a single shared filter/FX chain (paraphonic-ish).
+- Voice stealing is FIFO at 16 voices per instrument.
 
-### Audio Engine
+### Modulation
 
-SuperCollider runs as an external process (`scsynth`). The DAW communicates entirely over OSC/UDP:
-
-- Modules map to synth nodes, organized into source/processing/output groups
-- Connections allocate buses — audio buses for signal, control buses for modulation
-- `rebuild_routing()` reconstructs the full audio graph on topology changes
-- Bundles with NTP timetags enable sub-frame scheduling precision (~60fps render loop, but note timing is not quantized to frames)
+- SynthDefs expose *_mod_in inputs; LFOs write to control buses and are selected via `Select.kr` inside SynthDefs.
+- The audio engine currently wires LFOs to filter cutoff; additional targets are outlined in `src/state/instrument.rs`.
 
 ## Persistence
 
-Sessions are stored as SQLite databases at `~/.config/ilex/rack.ilex`.
+Projects are stored as SQLite databases. The database captures the project model (instruments, effects, mixer buses, notes, automation, drum pads, and settings). The audio graph is reconstructed from this model on load.
 
-Currently persisted:
-- Modules with all parameters
-- Connections between modules
-- Session metadata
+## Known limitations
+
+- UI and input are on the main thread; heavy rendering could jitter scheduling (OSC bundles mitigate this).
+- Voice stealing is FIFO; smarter strategies are not implemented.
+- Parameter smoothing is limited; rapid changes can cause zippering.
+- LFO target wiring beyond filter cutoff is still in progress.
 
 ## Testing
 
 ```bash
-cargo test --bin ilex    # unit tests
-cargo test                 # all tests
+cargo test
+# tmux-based E2E tests are ignored by default
+cargo test -- --ignored
 ```
-
-## Dependencies
-
-| Crate      | Purpose                       |
-|------------|-------------------------------|
-| ratatui    | Terminal UI rendering         |
-| crossterm  | Terminal I/O backend          |
-| rosc       | OSC protocol for SuperCollider|
-| rusqlite   | SQLite persistence            |
-| midir      | MIDI input                    |
-| serde      | Serialization                 |
-| regex      | SCD file parsing              |
-| dirs       | Platform config directories   |
 
 ## License
 
