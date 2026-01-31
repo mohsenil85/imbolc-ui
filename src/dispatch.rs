@@ -194,6 +194,8 @@ fn dispatch_instrument(
         InstrumentAction::LoadSampleResult(instrument_id, ref path) => {
             let instrument_id = *instrument_id;
             let path_str = path.to_string_lossy().to_string();
+            let sample_name = path.file_stem()
+                .map(|s| s.to_string_lossy().to_string());
 
             let buffer_id = state.instruments.next_sampler_buffer_id;
             state.instruments.next_sampler_buffer_id += 1;
@@ -205,10 +207,21 @@ fn dispatch_instrument(
             if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
                 if let Some(ref mut config) = instrument.sampler_config {
                     config.buffer_id = Some(buffer_id);
+                    config.sample_name = sample_name;
                 }
             }
 
             panes.pop(&*state);
+
+            // Refresh the instrument edit pane with updated sample info
+            let inst_data = state.instruments.instrument(instrument_id).cloned();
+            if let Some(inst) = inst_data {
+                if let Some(edit) = panes.get_pane_mut::<InstrumentEditPane>("instrument_edit") {
+                    let saved_row = edit.selected_row;
+                    edit.set_instrument(&inst);
+                    edit.selected_row = saved_row;
+                }
+            }
         }
         InstrumentAction::AddEffect(_, _)
         | InstrumentAction::RemoveEffect(_, _)

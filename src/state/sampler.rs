@@ -79,6 +79,7 @@ impl Slice {
 #[derive(Debug, Clone)]
 pub struct SamplerConfig {
     pub buffer_id: Option<BufferId>,
+    pub sample_name: Option<String>,
     pub slices: Vec<Slice>,
     pub selected_slice: usize,
     pub loop_mode: bool,
@@ -93,6 +94,7 @@ impl SamplerConfig {
         // Create a default full-buffer slice
         let mut config = Self {
             buffer_id: None,
+            sample_name: None,
             slices: Vec::new(),
             selected_slice: 0,
             loop_mode: false,

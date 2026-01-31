@@ -29,13 +29,14 @@ pub struct InstrumentEditPane {
     instrument_name: String,
     source: SourceType,
     source_params: Vec<Param>,
+    sample_name: Option<String>,
     filter: Option<FilterConfig>,
     effects: Vec<EffectSlot>,
     lfo: LfoConfig,
     amp_envelope: EnvConfig,
     polyphonic: bool,
     active: bool,
-    selected_row: usize,
+    pub(crate) selected_row: usize,
     editing: bool,
     edit_input: TextInput,
     piano: PianoKeyboard,
@@ -49,6 +50,7 @@ impl InstrumentEditPane {
             instrument_name: String::new(),
             source: SourceType::Saw,
             source_params: Vec::new(),
+            sample_name: None,
             filter: None,
             effects: Vec::new(),
             lfo: LfoConfig::default(),
@@ -67,6 +69,7 @@ impl InstrumentEditPane {
         self.instrument_name = instrument.name.clone();
         self.source = instrument.source;
         self.source_params = instrument.source_params.clone();
+        self.sample_name = instrument.sampler_config.as_ref().and_then(|c| c.sample_name.clone());
         self.filter = instrument.filter.clone();
         self.effects = instrument.effects.clone();
         self.lfo = instrument.lfo.clone();
@@ -126,7 +129,8 @@ impl InstrumentEditPane {
 
     /// Total number of selectable rows across all sections
     fn total_rows(&self) -> usize {
-        let source_rows = self.source_params.len().max(1); // At least 1 for empty message
+        let sample_row = if self.source.is_sample() { 1 } else { 0 };
+        let source_rows = sample_row + self.source_params.len().max(1); // At least 1 for empty message
         let filter_rows = if self.filter.is_some() { 3 } else { 1 }; // type/cutoff/res or "off"
         let effect_rows = self.effects.len().max(1); // At least 1 for empty message
         let lfo_rows = 4; // enabled, rate, depth, shape/target
@@ -136,7 +140,8 @@ impl InstrumentEditPane {
 
     /// Which section does a given row belong to?
     fn section_for_row(&self, row: usize) -> Section {
-        let source_rows = self.source_params.len().max(1);
+        let sample_row = if self.source.is_sample() { 1 } else { 0 };
+        let source_rows = sample_row + self.source_params.len().max(1);
         let filter_rows = if self.filter.is_some() { 3 } else { 1 };
         let effect_rows = self.effects.len().max(1);
         let lfo_rows = 4;
@@ -156,7 +161,8 @@ impl InstrumentEditPane {
 
     /// Get section and local index for a row
     fn row_info(&self, row: usize) -> (Section, usize) {
-        let source_rows = self.source_params.len().max(1);
+        let sample_row = if self.source.is_sample() { 1 } else { 0 };
+        let source_rows = sample_row + self.source_params.len().max(1);
         let filter_rows = if self.filter.is_some() { 3 } else { 1 };
         let effect_rows = self.effects.len().max(1);
         let lfo_rows = 4;
@@ -184,7 +190,13 @@ impl InstrumentEditPane {
 
         match section {
             Section::Source => {
-                if let Some(param) = self.source_params.get_mut(local_idx) {
+                let param_idx = if self.source.is_sample() {
+                    if local_idx == 0 { return; } // sample name row — not adjustable
+                    local_idx - 1
+                } else {
+                    local_idx
+                };
+                if let Some(param) = self.source_params.get_mut(param_idx) {
                     adjust_param(param, increase, fraction);
                 }
             }
@@ -263,7 +275,13 @@ impl InstrumentEditPane {
 
         match section {
             Section::Source => {
-                if let Some(param) = self.source_params.get_mut(local_idx) {
+                let param_idx = if self.source.is_sample() {
+                    if local_idx == 0 { return; }
+                    local_idx - 1
+                } else {
+                    local_idx
+                };
+                if let Some(param) = self.source_params.get_mut(param_idx) {
                     zero_param(param);
                 }
             }
@@ -352,7 +370,13 @@ impl InstrumentEditPane {
         let (section, local_idx) = self.row_info(self.selected_row);
         match section {
             Section::Source => {
-                if let Some(param) = self.source_params.get(local_idx) {
+                let param_idx = if self.source.is_sample() {
+                    if local_idx == 0 { return String::new(); }
+                    local_idx - 1
+                } else {
+                    local_idx
+                };
+                if let Some(param) = self.source_params.get(param_idx) {
                     match &param.value {
                         ParamValue::Float(v) => format!("{:.2}", v),
                         ParamValue::Int(v) => format!("{}", v),
@@ -466,7 +490,17 @@ impl Pane for InstrumentEditPane {
                 let (section, local_idx) = self.row_info(self.selected_row);
                 match section {
                     Section::Source => {
-                        if let Some(param) = self.source_params.get_mut(local_idx) {
+                        let param_idx = if self.source.is_sample() {
+                            if local_idx == 0 {
+                                self.editing = false;
+                                self.edit_input.set_focused(false);
+                                return Action::None;
+                            }
+                            local_idx - 1
+                        } else {
+                            local_idx
+                        };
+                        if let Some(param) = self.source_params.get_mut(param_idx) {
                             if let Ok(v) = text.parse::<f32>() {
                                 param.value = ParamValue::Float(v.clamp(param.min, param.max));
                             }
@@ -540,6 +574,16 @@ impl Pane for InstrumentEditPane {
                 self.emit_update()
             }
             "enter_edit" => {
+                // On the sample row, trigger load_sample instead of text edit
+                if self.source.is_sample() {
+                    let (section, local_idx) = self.row_info(self.selected_row);
+                    if section == Section::Source && local_idx == 0 {
+                        if let Some(id) = self.instrument_id {
+                            return Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::LoadPitchedSample(id)));
+                        }
+                        return Action::None;
+                    }
+                }
                 self.editing = true;
                 let current_val = self.current_value_string();
                 self.edit_input.set_value(&current_val);
@@ -723,11 +767,25 @@ impl Pane for InstrumentEditPane {
         let mut global_row = 0;
 
         // === SOURCE SECTION ===
+        let source_header = if self.source.is_sample() {
+            format!("SOURCE: {}  (o: load)", self.source.name())
+        } else {
+            format!("SOURCE: {}", self.source.name())
+        };
         Paragraph::new(Line::from(Span::styled(
-            format!("SOURCE: {}", self.source.name()),
+            source_header,
             ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold()),
         ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
         y += 1;
+
+        // Sample name row for sampler instruments
+        if self.source.is_sample() {
+            let is_sel = self.selected_row == global_row;
+            let display_name = self.sample_name.as_deref().unwrap_or("(no sample)");
+            render_label_value_row_buf(buf, content_x, y, "Sample", display_name, Color::CYAN, is_sel);
+            y += 1;
+            global_row += 1;
+        }
 
         if self.source_params.is_empty() {
             let is_sel = self.selected_row == global_row;

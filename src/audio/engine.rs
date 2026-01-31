@@ -15,7 +15,7 @@ struct RecordingState {
 }
 
 use super::bus_allocator::BusAllocator;
-use super::osc_client::OscClient;
+use super::osc_client::{OscClient, osc_time_immediate};
 use crate::state::{AutomationTarget, BufferId, CustomSynthDefRegistry, EffectType, FilterType, SourceType, ParamValue, SessionState, InstrumentId, InstrumentState};
 
 #[allow(dead_code)]
@@ -1500,27 +1500,49 @@ impl AudioEngine {
         }
         let client = self.client.as_ref().ok_or("Not connected")?;
 
-        // Allocate a ring buffer for DiskOut: 131072 frames, 2 channels
-        client.alloc_buffer(Self::RECORD_BUFNUM, 131072, 2)
-            .map_err(|e| e.to_string())?;
-
-        // Open the buffer for disk writing
         let path_str = path.to_string_lossy().to_string();
-        client.open_buffer_for_write(Self::RECORD_BUFNUM, &path_str)
-            .map_err(|e| e.to_string())?;
-
-        // Create DiskOut synth in the record group
         let node_id = self.next_node_id;
         self.next_node_id += 1;
-        client.create_synth_in_group(
-            "ilex_disk_record",
-            node_id,
-            GROUP_RECORD,
-            &[
-                ("bufnum".to_string(), Self::RECORD_BUFNUM as f32),
-                ("in".to_string(), bus as f32),
-            ],
-        ).map_err(|e| e.to_string())?;
+
+        // Send all three commands as a single bundle for atomic execution:
+        // 1. Allocate ring buffer  2. Open for disk write  3. Create DiskOut synth
+        let messages = vec![
+            rosc::OscMessage {
+                addr: "/b_alloc".to_string(),
+                args: vec![
+                    rosc::OscType::Int(Self::RECORD_BUFNUM),
+                    rosc::OscType::Int(131072),
+                    rosc::OscType::Int(2),
+                ],
+            },
+            rosc::OscMessage {
+                addr: "/b_write".to_string(),
+                args: vec![
+                    rosc::OscType::Int(Self::RECORD_BUFNUM),
+                    rosc::OscType::String(path_str),
+                    rosc::OscType::String("wav".to_string()),
+                    rosc::OscType::String("float".to_string()),
+                    rosc::OscType::Int(0),
+                    rosc::OscType::Int(0),
+                    rosc::OscType::Int(1),
+                ],
+            },
+            rosc::OscMessage {
+                addr: "/s_new".to_string(),
+                args: vec![
+                    rosc::OscType::String("ilex_disk_record".to_string()),
+                    rosc::OscType::Int(node_id),
+                    rosc::OscType::Int(1), // addToTail
+                    rosc::OscType::Int(GROUP_RECORD),
+                    rosc::OscType::String("bufnum".to_string()),
+                    rosc::OscType::Float(Self::RECORD_BUFNUM as f32),
+                    rosc::OscType::String("in".to_string()),
+                    rosc::OscType::Float(bus as f32),
+                ],
+            },
+        ];
+        client.send_bundle(messages, osc_time_immediate())
+            .map_err(|e| e.to_string())?;
 
         self.recording = Some(RecordingState {
             bufnum: Self::RECORD_BUFNUM,
@@ -1538,8 +1560,18 @@ impl AudioEngine {
     pub fn stop_recording(&mut self) -> Option<PathBuf> {
         let rec = self.recording.take()?;
         if let Some(ref client) = self.client {
-            let _ = client.free_node(rec.node_id);
-            let _ = client.close_buffer(rec.bufnum);
+            // Bundle node free + buffer close for atomic execution
+            let messages = vec![
+                rosc::OscMessage {
+                    addr: "/n_free".to_string(),
+                    args: vec![rosc::OscType::Int(rec.node_id)],
+                },
+                rosc::OscMessage {
+                    addr: "/b_close".to_string(),
+                    args: vec![rosc::OscType::Int(rec.bufnum)],
+                },
+            ];
+            let _ = client.send_bundle(messages, osc_time_immediate());
             // Defer buffer free to give scsynth time to flush the file
             self.pending_buffer_free = Some((rec.bufnum, Instant::now()));
         }

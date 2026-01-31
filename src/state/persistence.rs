@@ -203,6 +203,7 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
             CREATE TABLE IF NOT EXISTS sampler_configs (
                 instrument_id INTEGER PRIMARY KEY,
                 buffer_id INTEGER,
+                sample_name TEXT,
                 loop_mode INTEGER NOT NULL,
                 pitch_tracking INTEGER NOT NULL,
                 next_slice_id INTEGER NOT NULL,
@@ -790,8 +791,8 @@ fn save_mixer(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
 
 fn save_sampler_configs(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut config_stmt = conn.prepare(
-        "INSERT INTO sampler_configs (instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, selected_slice)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO sampler_configs (instrument_id, buffer_id, sample_name, loop_mode, pitch_tracking, next_slice_id, selected_slice)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
     let mut slice_stmt = conn.prepare(
         "INSERT INTO sampler_slices (instrument_id, slice_id, position, start_pos, end_pos, name, root_note)
@@ -803,6 +804,7 @@ fn save_sampler_configs(conn: &SqlConnection, instruments: &InstrumentState) -> 
             config_stmt.execute(rusqlite::params![
                 inst.id,
                 config.buffer_id.map(|id| id as i32),
+                config.sample_name,
                 config.loop_mode,
                 config.pitch_tracking,
                 config.next_slice_id() as i32,
@@ -1522,10 +1524,16 @@ fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState, MusicalSe
 
 fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     // Load sampler configs
-    if let Ok(mut config_stmt) = conn.prepare(
-        "SELECT instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, COALESCE(selected_slice, 0)
-         FROM sampler_configs",
-    ) {
+    // Use a column check to handle databases created before sample_name was added
+    let has_sample_name = conn
+        .prepare("SELECT sample_name FROM sampler_configs LIMIT 0")
+        .is_ok();
+    let query = if has_sample_name {
+        "SELECT instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, COALESCE(selected_slice, 0), sample_name FROM sampler_configs"
+    } else {
+        "SELECT instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, COALESCE(selected_slice, 0), NULL FROM sampler_configs"
+    };
+    if let Ok(mut config_stmt) = conn.prepare(query) {
         if let Ok(rows) = config_stmt.query_map([], |row| {
             Ok((
                 row.get::<_, InstrumentId>(0)?,
@@ -1534,15 +1542,17 @@ fn load_sampler_configs(conn: &SqlConnection, instruments: &mut [Instrument]) ->
                 row.get::<_, bool>(3)?,
                 row.get::<_, i32>(4)?,
                 row.get::<_, i32>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         }) {
             for result in rows {
-                if let Ok((instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, selected_slice)) = result
+                if let Ok((instrument_id, buffer_id, loop_mode, pitch_tracking, next_slice_id, selected_slice, sample_name)) = result
                 {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(ref mut config) = inst.sampler_config {
                             config.buffer_id =
                                 buffer_id.map(|id| id as super::sampler::BufferId);
+                            config.sample_name = sample_name;
                             config.loop_mode = loop_mode;
                             config.pitch_tracking = pitch_tracking;
                             config
