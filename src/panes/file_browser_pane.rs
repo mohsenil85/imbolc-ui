@@ -132,9 +132,9 @@ impl Pane for FileBrowserPane {
         "file_browser"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        match self.keymap.lookup(&event) {
-            Some("select") => {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "select" => {
                 if let Some(entry) = self.entries.get(self.selected) {
                     if entry.is_dir {
                         self.current_dir = entry.path.clone();
@@ -160,8 +160,8 @@ impl Pane for FileBrowserPane {
                     Action::None
                 }
             }
-            Some("cancel") => Action::Nav(NavAction::PopPane),
-            Some("parent") => {
+            "cancel" => Action::Nav(NavAction::PopPane),
+            "parent" => {
                 if let Some(parent) = self.current_dir.parent() {
                     self.current_dir = parent.to_path_buf();
                     self.selected = 0;
@@ -170,7 +170,7 @@ impl Pane for FileBrowserPane {
                 }
                 Action::None
             }
-            Some("home") => {
+            "home" => {
                 if let Some(home) = dirs::home_dir() {
                     self.current_dir = home;
                     self.selected = 0;
@@ -179,22 +179,22 @@ impl Pane for FileBrowserPane {
                 }
                 Action::None
             }
-            Some("next") => {
+            "next" => {
                 if !self.entries.is_empty() {
                     self.selected = (self.selected + 1).min(self.entries.len() - 1);
                 }
                 Action::None
             }
-            Some("prev") => {
+            "prev" => {
                 self.selected = self.selected.saturating_sub(1);
                 Action::None
             }
-            Some("goto_top") => {
+            "goto_top" => {
                 self.selected = 0;
                 self.scroll_offset = 0;
                 Action::None
             }
-            Some("goto_bottom") => {
+            "goto_bottom" => {
                 if !self.entries.is_empty() {
                     self.selected = self.entries.len() - 1;
                 }

@@ -11,7 +11,7 @@ use crate::state::{
 };
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::widgets::TextInput;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, PianoKeyboard, InstrumentAction, Style};
+use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, PianoKeyboard, InstrumentAction, Style, ToggleResult};
 
 /// Which section a row belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,6 +338,50 @@ impl InstrumentEditPane {
         }
     }
 
+
+    pub fn is_editing(&self) -> bool {
+        self.editing
+    }
+
+    /// Get current parameter value as a string for pre-filling text edit
+    fn current_value_string(&self) -> String {
+        let (section, local_idx) = self.row_info(self.selected_row);
+        match section {
+            Section::Source => {
+                if let Some(param) = self.source_params.get(local_idx) {
+                    match &param.value {
+                        ParamValue::Float(v) => format!("{:.2}", v),
+                        ParamValue::Int(v) => format!("{}", v),
+                        ParamValue::Bool(v) => format!("{}", v),
+                    }
+                } else {
+                    String::new()
+                }
+            }
+            Section::Filter => {
+                if let Some(ref f) = self.filter {
+                    match local_idx {
+                        1 => format!("{:.2}", f.cutoff.value),
+                        2 => format!("{:.2}", f.resonance.value),
+                        _ => String::new(),
+                    }
+                } else {
+                    String::new()
+                }
+            }
+            Section::Envelope => {
+                match local_idx {
+                    0 => format!("{:.2}", self.amp_envelope.attack),
+                    1 => format!("{:.2}", self.amp_envelope.decay),
+                    2 => format!("{:.2}", self.amp_envelope.sustain),
+                    3 => format!("{:.2}", self.amp_envelope.release),
+                    _ => String::new(),
+                }
+            }
+            _ => String::new(),
+        }
+    }
+
 }
 
 fn adjust_param(param: &mut Param, increase: bool, fraction: f32) {
@@ -385,44 +429,22 @@ impl Pane for InstrumentEditPane {
         "instrument_edit"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        // Piano mode
-        if self.piano.is_active() {
-            match event.key {
-                KeyCode::Char('[') => {
-                    self.piano.octave_down();
-                    return Action::None;
+    fn handle_action(&mut self, action: &str, event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            // Piano mode actions
+            "piano:escape" => {
+                let was_active = self.piano.is_active();
+                self.piano.handle_escape();
+                if was_active && !self.piano.is_active() {
+                    Action::ExitPerformanceMode
+                } else {
+                    Action::None
                 }
-                KeyCode::Char(']') => {
-                    self.piano.octave_up();
-                    return Action::None;
-                }
-                KeyCode::Up => {
-                    if self.selected_row > 0 { self.selected_row -= 1; }
-                    return Action::None;
-                }
-                KeyCode::Down => {
-                    let total = self.total_rows();
-                    if self.selected_row + 1 < total { self.selected_row += 1; }
-                    return Action::None;
-                }
-                KeyCode::Left => {
-                    self.adjust_value(false, false);
-                    return self.emit_update();
-                }
-                KeyCode::Right => {
-                    self.adjust_value(true, false);
-                    return self.emit_update();
-                }
-                KeyCode::Char('\\') => {
-                    self.zero_current_param();
-                    return self.emit_update();
-                }
-                KeyCode::Char('|') => {
-                    self.zero_current_section();
-                    return self.emit_update();
-                }
-                KeyCode::Char(c) => {
+            }
+            "piano:octave_down" => { self.piano.octave_down(); Action::None }
+            "piano:octave_up" => { self.piano.octave_up(); Action::None }
+            "piano:key" | "piano:space" => {
+                if let KeyCode::Char(c) = event.key {
                     if let Some(pitches) = self.piano.key_to_pitches(c) {
                         if pitches.len() == 1 {
                             return Action::Instrument(InstrumentAction::PlayNote(pitches[0], 100));
@@ -430,112 +452,104 @@ impl Pane for InstrumentEditPane {
                             return Action::Instrument(InstrumentAction::PlayNotes(pitches, 100));
                         }
                     }
-                    return Action::None;
                 }
-                _ => return Action::None,
+                Action::None
             }
-        }
-
-        // Text editing mode
-        if self.editing {
-            match event.key {
-                KeyCode::Enter => {
-                    let text = self.edit_input.value().to_string();
-                    let (section, local_idx) = self.row_info(self.selected_row);
-                    match section {
-                        Section::Source => {
-                            if let Some(param) = self.source_params.get_mut(local_idx) {
-                                if let Ok(v) = text.parse::<f32>() {
-                                    param.value = ParamValue::Float(v.clamp(param.min, param.max));
-                                }
-                            }
-                        }
-                        Section::Filter => {
-                            if let Some(ref mut f) = self.filter {
-                                match local_idx {
-                                    1 => if let Ok(v) = text.parse::<f32>() { f.cutoff.value = v.clamp(f.cutoff.min, f.cutoff.max); },
-                                    2 => if let Ok(v) = text.parse::<f32>() { f.resonance.value = v.clamp(f.resonance.min, f.resonance.max); },
-                                    _ => {}
-                                }
-                            }
-                        }
-                        Section::Envelope => {
+            // Text edit layer actions
+            "text:confirm" => {
+                let text = self.edit_input.value().to_string();
+                let (section, local_idx) = self.row_info(self.selected_row);
+                match section {
+                    Section::Source => {
+                        if let Some(param) = self.source_params.get_mut(local_idx) {
                             if let Ok(v) = text.parse::<f32>() {
-                                let max = if local_idx == 2 { 1.0 } else { 5.0 };
-                                let val = v.clamp(0.0, max);
-                                match local_idx {
-                                    0 => self.amp_envelope.attack = val,
-                                    1 => self.amp_envelope.decay = val,
-                                    2 => self.amp_envelope.sustain = val,
-                                    3 => self.amp_envelope.release = val,
-                                    _ => {}
-                                }
+                                param.value = ParamValue::Float(v.clamp(param.min, param.max));
                             }
                         }
-                        _ => {}
                     }
-                    self.editing = false;
-                    self.edit_input.set_focused(false);
-                    return self.emit_update();
+                    Section::Filter => {
+                        if let Some(ref mut f) = self.filter {
+                            match local_idx {
+                                1 => if let Ok(v) = text.parse::<f32>() { f.cutoff.value = v.clamp(f.cutoff.min, f.cutoff.max); },
+                                2 => if let Ok(v) = text.parse::<f32>() { f.resonance.value = v.clamp(f.resonance.min, f.resonance.max); },
+                                _ => {}
+                            }
+                        }
+                    }
+                    Section::Envelope => {
+                        if let Ok(v) = text.parse::<f32>() {
+                            let max = if local_idx == 2 { 1.0 } else { 5.0 };
+                            let val = v.clamp(0.0, max);
+                            match local_idx {
+                                0 => self.amp_envelope.attack = val,
+                                1 => self.amp_envelope.decay = val,
+                                2 => self.amp_envelope.sustain = val,
+                                3 => self.amp_envelope.release = val,
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                KeyCode::Escape => {
-                    self.editing = false;
-                    self.edit_input.set_focused(false);
-                    return Action::None;
-                }
-                _ => {
-                    self.edit_input.handle_input(&event);
-                    return Action::None;
-                }
+                self.editing = false;
+                self.edit_input.set_focused(false);
+                self.emit_update()
             }
-        }
-
-        match self.keymap.lookup(&event) {
-            Some("done") => {
-                return self.emit_update();
+            "text:cancel" => {
+                self.editing = false;
+                self.edit_input.set_focused(false);
+                Action::None
             }
-            Some("next") => {
+            // Normal pane actions
+            "done" => {
+                self.emit_update()
+            }
+            "next" => {
                 let total = self.total_rows();
                 if total > 0 {
                     self.selected_row = (self.selected_row + 1) % total;
                 }
+                Action::None
             }
-            Some("prev") => {
+            "prev" => {
                 let total = self.total_rows();
                 if total > 0 {
                     self.selected_row = if self.selected_row == 0 { total - 1 } else { self.selected_row - 1 };
                 }
+                Action::None
             }
-            Some("increase") => {
+            "increase" => {
                 self.adjust_value(true, false);
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("decrease") => {
+            "decrease" => {
                 self.adjust_value(false, false);
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("increase_big") => {
+            "increase_big" => {
                 self.adjust_value(true, true);
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("decrease_big") => {
+            "decrease_big" => {
                 self.adjust_value(false, true);
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("enter_edit") => {
+            "enter_edit" => {
                 self.editing = true;
-                self.edit_input.set_value("");
+                let current_val = self.current_value_string();
+                self.edit_input.set_value(&current_val);
                 self.edit_input.set_focused(true);
+                Action::PushLayer("text_edit")
             }
-            Some("toggle_filter") => {
+            "toggle_filter" => {
                 if self.filter.is_some() {
                     self.filter = None;
                 } else {
                     self.filter = Some(FilterConfig::new(FilterType::Lpf));
                 }
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("cycle_filter_type") => {
+            "cycle_filter_type" => {
                 if let Some(ref mut f) = self.filter {
                     f.filter_type = match f.filter_type {
                         FilterType::Lpf => FilterType::Hpf,
@@ -544,8 +558,9 @@ impl Pane for InstrumentEditPane {
                     };
                     return self.emit_update();
                 }
+                Action::None
             }
-            Some("add_effect") => {
+            "add_effect" => {
                 let next_type = if self.effects.is_empty() {
                     EffectType::Delay
                 } else {
@@ -558,41 +573,42 @@ impl Pane for InstrumentEditPane {
                     }
                 };
                 self.effects.push(EffectSlot::new(next_type));
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("remove_effect") => {
+            "remove_effect" => {
                 let (section, local_idx) = self.row_info(self.selected_row);
                 if section == Section::Effects && !self.effects.is_empty() {
                     let idx = local_idx.min(self.effects.len() - 1);
                     self.effects.remove(idx);
                     return self.emit_update();
                 }
+                Action::None
             }
-            Some("toggle_poly") => {
+            "toggle_poly" => {
                 self.polyphonic = !self.polyphonic;
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("zero_param") => {
+            "zero_param" => {
                 self.zero_current_param();
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("zero_section") => {
+            "zero_section" => {
                 self.zero_current_section();
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("toggle_lfo") => {
+            "toggle_lfo" => {
                 self.lfo.enabled = !self.lfo.enabled;
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("cycle_lfo_shape") => {
+            "cycle_lfo_shape" => {
                 self.lfo.shape = self.lfo.shape.next();
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("cycle_lfo_target") => {
+            "cycle_lfo_target" => {
                 self.lfo.target = self.lfo.target.next();
-                return self.emit_update();
+                self.emit_update()
             }
-            Some("next_section") => {
+            "next_section" => {
                 // Jump to first row of next section
                 let current = self.current_section();
                 let next = match current {
@@ -608,8 +624,9 @@ impl Pane for InstrumentEditPane {
                         break;
                     }
                 }
+                Action::None
             }
-            Some("prev_section") => {
+            "prev_section" => {
                 // Jump to first row of previous section
                 let current = self.current_section();
                 let prev = match current {
@@ -625,8 +642,15 @@ impl Pane for InstrumentEditPane {
                         break;
                     }
                 }
+                Action::None
             }
-            _ => {}
+            _ => Action::None,
+        }
+    }
+
+    fn handle_raw_input(&mut self, event: &InputEvent, _state: &AppState) -> Action {
+        if self.editing {
+            self.edit_input.handle_input(event);
         }
         Action::None
     }
@@ -896,26 +920,26 @@ impl Pane for InstrumentEditPane {
         &self.keymap
     }
 
-    fn wants_exclusive_input(&self) -> bool {
-        self.editing || self.piano.is_active()
-    }
-
-    fn toggle_piano_mode(&mut self, _state: &AppState) -> bool {
+    fn toggle_performance_mode(&mut self, _state: &AppState) -> ToggleResult {
         if self.piano.is_active() {
             self.piano.handle_escape();
+            if self.piano.is_active() {
+                ToggleResult::CycledLayout
+            } else {
+                ToggleResult::Deactivated
+            }
         } else {
             self.piano.activate();
+            ToggleResult::ActivatedPiano
         }
-        true
     }
 
-    fn exit_piano_mode(&mut self) -> bool {
-        if self.piano.is_active() {
-            self.piano.deactivate();
-            true
-        } else {
-            false
-        }
+    fn activate_piano(&mut self) {
+        if !self.piano.is_active() { self.piano.activate(); }
+    }
+
+    fn deactivate_performance(&mut self) {
+        self.piano.deactivate();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

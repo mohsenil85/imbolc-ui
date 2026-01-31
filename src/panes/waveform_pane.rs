@@ -46,7 +46,7 @@ impl Pane for WaveformPane {
         "waveform"
     }
 
-    fn handle_input(&mut self, _event: InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, _action: &str, _event: &InputEvent, _state: &AppState) -> Action {
         Action::None
     }
 

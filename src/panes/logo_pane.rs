@@ -28,9 +28,9 @@ impl Pane for LogoPane {
         "logo"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        match self.keymap.lookup(&event) {
-            Some("quit") => Action::Quit,
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "quit" => Action::Quit,
             _ => Action::None,
         }
     }

@@ -251,6 +251,10 @@ impl PianoKeyboard {
     }
 
     /// Map a keyboard character to Stradella column index and row type.
+    /// 3 physical rows with shift selecting the alternate row:
+    /// - QWERTY: unshifted=Dom7, shifted=Dim7
+    /// - Home:   unshifted=Major, shifted=Minor
+    /// - Bottom: unshifted=Bass,  shifted=CounterBass
     fn stradella_key_info(key: char) -> Option<(usize, StradellaRow)> {
         match key {
             // Bass (bottom row, unshifted)
@@ -265,7 +269,7 @@ impl PianoKeyboard {
             '.' => Some((8, StradellaRow::Bass)),
             '/' => Some((9, StradellaRow::Bass)),
 
-            // Counter-bass (bottom row, shifted)
+            // CounterBass (bottom row, shifted)
             'Z' => Some((0, StradellaRow::CounterBass)),
             'X' => Some((1, StradellaRow::CounterBass)),
             'C' => Some((2, StradellaRow::CounterBass)),
@@ -277,7 +281,7 @@ impl PianoKeyboard {
             '>' => Some((8, StradellaRow::CounterBass)),
             '?' => Some((9, StradellaRow::CounterBass)),
 
-            // Major (home row)
+            // Major (home row, unshifted)
             'a' => Some((0, StradellaRow::Major)),
             's' => Some((1, StradellaRow::Major)),
             'd' => Some((2, StradellaRow::Major)),
@@ -289,41 +293,41 @@ impl PianoKeyboard {
             'l' => Some((8, StradellaRow::Major)),
             ';' => Some((9, StradellaRow::Major)),
 
-            // Minor (qwerty row)
-            'q' => Some((0, StradellaRow::Minor)),
-            'w' => Some((1, StradellaRow::Minor)),
-            'e' => Some((2, StradellaRow::Minor)),
-            'r' => Some((3, StradellaRow::Minor)),
-            't' => Some((4, StradellaRow::Minor)),
-            'y' => Some((5, StradellaRow::Minor)),
-            'u' => Some((6, StradellaRow::Minor)),
-            'i' => Some((7, StradellaRow::Minor)),
-            'o' => Some((8, StradellaRow::Minor)),
-            'p' => Some((9, StradellaRow::Minor)),
+            // Minor (home row, shifted)
+            'A' => Some((0, StradellaRow::Minor)),
+            'S' => Some((1, StradellaRow::Minor)),
+            'D' => Some((2, StradellaRow::Minor)),
+            'F' => Some((3, StradellaRow::Minor)),
+            'G' => Some((4, StradellaRow::Minor)),
+            'H' => Some((5, StradellaRow::Minor)),
+            'J' => Some((6, StradellaRow::Minor)),
+            'K' => Some((7, StradellaRow::Minor)),
+            'L' => Some((8, StradellaRow::Minor)),
+            ':' => Some((9, StradellaRow::Minor)),
 
-            // Dom7 (number row)
-            '1' => Some((0, StradellaRow::Dom7)),
-            '2' => Some((1, StradellaRow::Dom7)),
-            '3' => Some((2, StradellaRow::Dom7)),
-            '4' => Some((3, StradellaRow::Dom7)),
-            '5' => Some((4, StradellaRow::Dom7)),
-            '6' => Some((5, StradellaRow::Dom7)),
-            '7' => Some((6, StradellaRow::Dom7)),
-            '8' => Some((7, StradellaRow::Dom7)),
-            '9' => Some((8, StradellaRow::Dom7)),
-            '0' => Some((9, StradellaRow::Dom7)),
+            // Dom7 (qwerty row, unshifted)
+            'q' => Some((0, StradellaRow::Dom7)),
+            'w' => Some((1, StradellaRow::Dom7)),
+            'e' => Some((2, StradellaRow::Dom7)),
+            'r' => Some((3, StradellaRow::Dom7)),
+            't' => Some((4, StradellaRow::Dom7)),
+            'y' => Some((5, StradellaRow::Dom7)),
+            'u' => Some((6, StradellaRow::Dom7)),
+            'i' => Some((7, StradellaRow::Dom7)),
+            'o' => Some((8, StradellaRow::Dom7)),
+            'p' => Some((9, StradellaRow::Dom7)),
 
-            // Dim7 (number row, shifted)
-            '!' => Some((0, StradellaRow::Dim7)),
-            '@' => Some((1, StradellaRow::Dim7)),
-            '#' => Some((2, StradellaRow::Dim7)),
-            '$' => Some((3, StradellaRow::Dim7)),
-            '%' => Some((4, StradellaRow::Dim7)),
-            '^' => Some((5, StradellaRow::Dim7)),
-            '&' => Some((6, StradellaRow::Dim7)),
-            '*' => Some((7, StradellaRow::Dim7)),
-            '(' => Some((8, StradellaRow::Dim7)),
-            ')' => Some((9, StradellaRow::Dim7)),
+            // Dim7 (qwerty row, shifted)
+            'Q' => Some((0, StradellaRow::Dim7)),
+            'W' => Some((1, StradellaRow::Dim7)),
+            'E' => Some((2, StradellaRow::Dim7)),
+            'R' => Some((3, StradellaRow::Dim7)),
+            'T' => Some((4, StradellaRow::Dim7)),
+            'Y' => Some((5, StradellaRow::Dim7)),
+            'U' => Some((6, StradellaRow::Dim7)),
+            'I' => Some((7, StradellaRow::Dim7)),
+            'O' => Some((8, StradellaRow::Dim7)),
+            'P' => Some((9, StradellaRow::Dim7)),
 
             _ => None,
         }

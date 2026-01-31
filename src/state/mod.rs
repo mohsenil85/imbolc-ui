@@ -27,9 +27,18 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             session: SessionState::new(),
+            instruments: InstrumentState::new(),
+            audio_in_waveform: None,
+        }
+    }
+
+    pub fn new_with_defaults(defaults: MusicalSettings) -> Self {
+        Self {
+            session: SessionState::new_with_defaults(defaults),
             instruments: InstrumentState::new(),
             audio_in_waveform: None,
         }

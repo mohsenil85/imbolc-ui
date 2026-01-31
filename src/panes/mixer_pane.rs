@@ -82,46 +82,46 @@ impl Pane for MixerPane {
         "mixer"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        match self.keymap.lookup(&event) {
-            Some("prev") => { self.send_target = None; Action::Mixer(MixerAction::Move(-1)) }
-            Some("next") => { self.send_target = None; Action::Mixer(MixerAction::Move(1)) }
-            Some("first") => Action::Mixer(MixerAction::Jump(1)),
-            Some("last") => Action::Mixer(MixerAction::Jump(-1)),
-            Some("level_up") => {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "prev" => { self.send_target = None; Action::Mixer(MixerAction::Move(-1)) }
+            "next" => { self.send_target = None; Action::Mixer(MixerAction::Move(1)) }
+            "first" => Action::Mixer(MixerAction::Jump(1)),
+            "last" => Action::Mixer(MixerAction::Jump(-1)),
+            "level_up" => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, 0.05))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(0.05))
                 }
             }
-            Some("level_down") => {
+            "level_down" => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, -0.05))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(-0.05))
                 }
             }
-            Some("level_up_big") => {
+            "level_up_big" => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, 0.10))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(0.10))
                 }
             }
-            Some("level_down_big") => {
+            "level_down_big" => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, -0.10))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(-0.10))
                 }
             }
-            Some("mute") => Action::Mixer(MixerAction::ToggleMute),
-            Some("solo") => Action::Mixer(MixerAction::ToggleSolo),
-            Some("output") => Action::Mixer(MixerAction::CycleOutput),
-            Some("output_rev") => Action::Mixer(MixerAction::CycleOutputReverse),
-            Some("section") => { self.send_target = None; Action::Mixer(MixerAction::CycleSection) }
-            Some("send_next") => {
+            "mute" => Action::Mixer(MixerAction::ToggleMute),
+            "solo" => Action::Mixer(MixerAction::ToggleSolo),
+            "output" => Action::Mixer(MixerAction::CycleOutput),
+            "output_rev" => Action::Mixer(MixerAction::CycleOutputReverse),
+            "section" => { self.send_target = None; Action::Mixer(MixerAction::CycleSection) }
+            "send_next" => {
                 self.send_target = match self.send_target {
                     None => Some(1),
                     Some(8) => None,
@@ -129,7 +129,7 @@ impl Pane for MixerPane {
                 };
                 Action::None
             }
-            Some("send_prev") => {
+            "send_prev" => {
                 self.send_target = match self.send_target {
                     None => Some(8),
                     Some(1) => None,
@@ -137,14 +137,14 @@ impl Pane for MixerPane {
                 };
                 Action::None
             }
-            Some("send_toggle") => {
+            "send_toggle" => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::ToggleSend(bus_id))
                 } else {
                     Action::None
                 }
             }
-            Some("clear_send") => { self.send_target = None; Action::None }
+            "clear_send" => { self.send_target = None; Action::None }
             _ => Action::None,
         }
     }

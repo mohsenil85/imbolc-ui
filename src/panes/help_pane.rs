@@ -58,24 +58,24 @@ impl Pane for HelpPane {
         "help"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        match self.keymap.lookup(&event) {
-            Some("close") => Action::Nav(NavAction::PopPane),
-            Some("up") => {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "close" => Action::Nav(NavAction::PopPane),
+            "up" => {
                 if self.scroll > 0 {
                     self.scroll -= 1;
                 }
                 Action::None
             }
-            Some("down") => {
+            "down" => {
                 self.scroll += 1;
                 Action::None
             }
-            Some("top") => {
+            "top" => {
                 self.scroll = 0;
                 Action::None
             }
-            Some("bottom") => {
+            "bottom" => {
                 self.scroll = self.display_keymap.len().saturating_sub(1);
                 Action::None
             }

@@ -69,14 +69,18 @@ pub struct SessionState {
 
 impl SessionState {
     pub fn new() -> Self {
+        Self::new_with_defaults(MusicalSettings::default())
+    }
+
+    pub fn new_with_defaults(defaults: MusicalSettings) -> Self {
         let buses = (1..=MAX_BUSES as u8).map(MixerBus::new).collect();
         Self {
-            key: Key::C,
-            scale: Scale::Major,
-            bpm: 120,
-            tuning_a4: 440.0,
-            snap: false,
-            time_signature: (4, 4),
+            key: defaults.key,
+            scale: defaults.scale,
+            bpm: defaults.bpm,
+            tuning_a4: defaults.tuning_a4,
+            snap: defaults.snap,
+            time_signature: defaults.time_signature,
             piano_roll: PianoRollState::new(),
             automation: AutomationState::new(),
             midi_recording: MidiRecordingState::new(),

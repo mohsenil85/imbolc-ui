@@ -61,22 +61,22 @@ impl Pane for HomePane {
         "home"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        match self.keymap.lookup(&event) {
-            Some("up") => {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "up" => {
                 if self.selected > 0 {
                     self.selected -= 1;
                 }
                 Action::None
             }
-            Some("down") => {
+            "down" => {
                 if self.selected < self.items.len() - 1 {
                     self.selected += 1;
                 }
                 Action::None
             }
-            Some("select") => Action::Nav(NavAction::SwitchPane(self.items[self.selected].pane_id)),
-            Some("quit") => Action::Quit,
+            "select" => Action::Nav(NavAction::SwitchPane(self.items[self.selected].pane_id)),
+            "quit" => Action::Quit,
             _ => Action::None,
         }
     }

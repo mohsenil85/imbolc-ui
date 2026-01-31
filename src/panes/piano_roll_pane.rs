@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use crate::state::piano_roll::PianoRollState;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, PianoKeyboard, PianoRollAction, Style};
+use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, PianoKeyboard, PianoRollAction, Style, ToggleResult};
 
 /// MIDI note name for a given pitch (0-127)
 fn note_name(pitch: u8) -> String {
@@ -376,24 +376,33 @@ impl Pane for PianoRollPane {
         "piano_roll"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        // Piano mode: letter keys play notes, minimal other keys work
-        if self.piano.is_active() {
-            match event.key {
-                KeyCode::Char('[') => {
-                    if self.piano.octave_down() {
-                        self.center_view_on_piano_octave();
-                    }
-                    return Action::None;
+    fn handle_action(&mut self, action: &str, event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            // Piano mode actions (from piano layer)
+            "piano:escape" => {
+                let was_active = self.piano.is_active();
+                self.piano.handle_escape();
+                if was_active && !self.piano.is_active() {
+                    Action::ExitPerformanceMode
+                } else {
+                    Action::None
                 }
-                KeyCode::Char(']') => {
-                    if self.piano.octave_up() {
-                        self.center_view_on_piano_octave();
-                    }
-                    return Action::None;
+            }
+            "piano:octave_down" => {
+                if self.piano.octave_down() {
+                    self.center_view_on_piano_octave();
                 }
-                KeyCode::Char(' ') => return Action::PianoRoll(PianoRollAction::PlayStopRecord),
-                KeyCode::Char(c) => {
+                Action::None
+            }
+            "piano:octave_up" => {
+                if self.piano.octave_up() {
+                    self.center_view_on_piano_octave();
+                }
+                Action::None
+            }
+            "piano:space" => Action::PianoRoll(PianoRollAction::PlayStopRecord),
+            "piano:key" => {
+                if let KeyCode::Char(c) = event.key {
                     if let Some(pitches) = self.piano.key_to_pitches(c) {
                         if pitches.len() == 1 {
                             return Action::PianoRoll(PianoRollAction::PlayNote(pitches[0], 100));
@@ -401,64 +410,61 @@ impl Pane for PianoRollPane {
                             return Action::PianoRoll(PianoRollAction::PlayNotes(pitches, 100));
                         }
                     }
-                    return Action::None;
                 }
-                _ => return Action::None,
+                Action::None
             }
-        }
-
-        match self.keymap.lookup(&event) {
-            Some("up") => {
+            // Normal grid navigation
+            "up" => {
                 if self.cursor_pitch < 127 {
                     self.cursor_pitch += 1;
                     self.scroll_to_cursor();
                 }
                 Action::None
             }
-            Some("down") => {
+            "down" => {
                 if self.cursor_pitch > 0 {
                     self.cursor_pitch -= 1;
                     self.scroll_to_cursor();
                 }
                 Action::None
             }
-            Some("right") => {
+            "right" => {
                 self.cursor_tick += self.ticks_per_cell();
                 self.scroll_to_cursor();
                 Action::None
             }
-            Some("left") => {
+            "left" => {
                 let step = self.ticks_per_cell();
                 self.cursor_tick = self.cursor_tick.saturating_sub(step);
                 self.scroll_to_cursor();
                 Action::None
             }
-            Some("toggle_note") => Action::PianoRoll(PianoRollAction::ToggleNote),
-            Some("grow_duration") => Action::PianoRoll(PianoRollAction::AdjustDuration(self.ticks_per_cell() as i32)),
-            Some("shrink_duration") => Action::PianoRoll(PianoRollAction::AdjustDuration(-(self.ticks_per_cell() as i32))),
-            Some("vel_up") => Action::PianoRoll(PianoRollAction::AdjustVelocity(10)),
-            Some("vel_down") => Action::PianoRoll(PianoRollAction::AdjustVelocity(-10)),
-            Some("play_stop") => Action::PianoRoll(PianoRollAction::PlayStop),
-            Some("loop") => Action::PianoRoll(PianoRollAction::ToggleLoop),
-            Some("loop_start") => Action::PianoRoll(PianoRollAction::SetLoopStart),
-            Some("loop_end") => Action::PianoRoll(PianoRollAction::SetLoopEnd),
-            Some("octave_up") => {
+            "toggle_note" => Action::PianoRoll(PianoRollAction::ToggleNote),
+            "grow_duration" => Action::PianoRoll(PianoRollAction::AdjustDuration(self.ticks_per_cell() as i32)),
+            "shrink_duration" => Action::PianoRoll(PianoRollAction::AdjustDuration(-(self.ticks_per_cell() as i32))),
+            "vel_up" => Action::PianoRoll(PianoRollAction::AdjustVelocity(10)),
+            "vel_down" => Action::PianoRoll(PianoRollAction::AdjustVelocity(-10)),
+            "play_stop" => Action::PianoRoll(PianoRollAction::PlayStop),
+            "loop" => Action::PianoRoll(PianoRollAction::ToggleLoop),
+            "loop_start" => Action::PianoRoll(PianoRollAction::SetLoopStart),
+            "loop_end" => Action::PianoRoll(PianoRollAction::SetLoopEnd),
+            "octave_up" => {
                 self.cursor_pitch = (self.cursor_pitch as i16 + 12).min(127) as u8;
                 self.scroll_to_cursor();
                 Action::None
             }
-            Some("octave_down") => {
+            "octave_down" => {
                 self.cursor_pitch = (self.cursor_pitch as i16 - 12).max(0) as u8;
                 self.scroll_to_cursor();
                 Action::None
             }
-            Some("home") => {
+            "home" => {
                 self.cursor_tick = 0;
                 self.view_start_tick = 0;
                 Action::None
             }
-            Some("end") => Action::PianoRoll(PianoRollAction::Jump(1)),
-            Some("zoom_in") => {
+            "end" => Action::PianoRoll(PianoRollAction::Jump(1)),
+            "zoom_in" => {
                 if self.zoom_level > 1 {
                     self.zoom_level -= 1;
                     self.cursor_tick = self.snap_tick(self.cursor_tick);
@@ -466,7 +472,7 @@ impl Pane for PianoRollPane {
                 }
                 Action::None
             }
-            Some("zoom_out") => {
+            "zoom_out" => {
                 if self.zoom_level < 5 {
                     self.zoom_level += 1;
                     self.cursor_tick = self.snap_tick(self.cursor_tick);
@@ -474,8 +480,8 @@ impl Pane for PianoRollPane {
                 }
                 Action::None
             }
-            Some("time_sig") => Action::PianoRoll(PianoRollAction::CycleTimeSig),
-            Some("toggle_poly") => Action::PianoRoll(PianoRollAction::TogglePolyMode),
+            "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
+            "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode),
             _ => Action::None,
         }
     }
@@ -488,26 +494,26 @@ impl Pane for PianoRollPane {
         &self.keymap
     }
 
-    fn wants_exclusive_input(&self) -> bool {
-        self.piano.is_active()
-    }
-
-    fn toggle_piano_mode(&mut self, _state: &AppState) -> bool {
+    fn toggle_performance_mode(&mut self, _state: &AppState) -> ToggleResult {
         if self.piano.is_active() {
             self.piano.handle_escape();
+            if self.piano.is_active() {
+                ToggleResult::CycledLayout
+            } else {
+                ToggleResult::Deactivated
+            }
         } else {
             self.piano.activate();
+            ToggleResult::ActivatedPiano
         }
-        true
     }
 
-    fn exit_piano_mode(&mut self) -> bool {
-        if self.piano.is_active() {
-            self.piano.deactivate();
-            true
-        } else {
-            false
-        }
+    fn activate_piano(&mut self) {
+        if !self.piano.is_active() { self.piano.activate(); }
+    }
+
+    fn deactivate_performance(&mut self) {
+        self.piano.deactivate();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

@@ -40,6 +40,8 @@ pub fn dispatch_action(
         Action::Sequencer(a) => dispatch_sequencer(a, state, panes, audio_engine),
         Action::Chopper(a) => dispatch_chopper(a, state, panes, audio_engine),
         Action::None => {}
+        // Layer management actions — handled in main.rs before dispatch
+        Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => {}
     }
     false
 }
@@ -1043,7 +1045,11 @@ fn dispatch_chopper(
                 });
             }
 
-            panes.pop(&*state);
+            // Only pop if we're at the standalone file browser (pushed via LoadSample action).
+            // When using the embedded browser inside the chopper pane, we're already where we want to be.
+            if panes.active().id() == "file_browser" {
+                panes.pop(&*state);
+            }
         }
         ChopperAction::AddSlice(cursor_pos) => {
             let cursor_pos = *cursor_pos;

@@ -4,51 +4,34 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use super::keymap::{KeyBinding, KeyPattern, Keymap};
+use super::layer::Layer;
 use super::KeyCode;
 
-/// Raw JSON structure for the keybindings config file
+/// Raw TOML structure for the v2 keybindings config file
 #[derive(Deserialize)]
 struct KeybindingConfig {
     #[allow(dead_code)]
     version: u32,
-    global: Vec<RawBinding>,
-    panes: HashMap<String, Vec<RawBinding>>,
+    layers: HashMap<String, LayerConfig>,
 }
 
-/// A single binding entry from JSON
+#[derive(Deserialize)]
+struct LayerConfig {
+    #[serde(default = "default_transparent")]
+    transparent: bool,
+    bindings: Vec<RawBinding>,
+}
+
+fn default_transparent() -> bool {
+    true
+}
+
+/// A single binding entry from TOML
 #[derive(Deserialize)]
 struct RawBinding {
     key: String,
     action: String,
     description: String,
-    #[serde(default)]
-    always_active: bool,
-}
-
-/// Parsed global keybindings for use in main.rs
-pub struct GlobalBindings {
-    bindings: Vec<GlobalBinding>,
-}
-
-struct GlobalBinding {
-    pattern: KeyPattern,
-    action: &'static str,
-    #[allow(dead_code)]
-    description: &'static str,
-    always_active: bool,
-}
-
-impl GlobalBindings {
-    /// Look up a global action for an input event.
-    /// If `exclusive_mode` is true, only returns actions marked `always_active`.
-    pub fn lookup(&self, event: &super::InputEvent, exclusive_mode: bool) -> Option<&'static str> {
-        self.bindings
-            .iter()
-            .find(|b| {
-                b.pattern.matches(event) && (!exclusive_mode || b.always_active)
-            })
-            .map(|b| b.action)
-    }
 }
 
 /// Intern a String into a &'static str.
@@ -116,75 +99,79 @@ fn parse_named_key(s: &str) -> KeyCode {
     }
 }
 
-/// Embedded default keybindings JSON
-const DEFAULT_KEYBINDINGS: &str = include_str!("../../keybindings.json");
+/// Embedded default keybindings TOML
+const DEFAULT_KEYBINDINGS: &str = include_str!("../../keybindings.toml");
+
+/// Mode layer names that are not pane layers
+const MODE_LAYERS: &[&str] = &["global", "piano_mode", "pad_mode", "text_edit"];
 
 /// Load keybindings: embedded default, optionally merged with user override.
-/// Returns (GlobalBindings, pane keymaps).
-pub fn load_keybindings() -> (GlobalBindings, HashMap<String, Keymap>) {
+/// Returns (Vec<Layer> for LayerStack, pane keymaps for pane construction).
+pub fn load_keybindings() -> (Vec<Layer>, HashMap<String, Keymap>) {
     let mut config: KeybindingConfig =
-        serde_json::from_str(DEFAULT_KEYBINDINGS).expect("Failed to parse embedded keybindings.json");
+        toml::from_str(DEFAULT_KEYBINDINGS).expect("Failed to parse embedded keybindings.toml");
 
     // Try to load user override
     let user_path = user_keybindings_path();
     if let Some(path) = user_path {
         if path.exists() {
             if let Ok(contents) = std::fs::read_to_string(&path) {
-                if let Ok(user_config) = serde_json::from_str::<KeybindingConfig>(&contents) {
+                if let Ok(user_config) = toml::from_str::<KeybindingConfig>(&contents) {
                     merge_config(&mut config, user_config);
                 }
             }
         }
     }
 
-    let global = build_global_bindings(&config.global);
-    let pane_keymaps = build_pane_keymaps(&config.panes);
+    let layers = build_layers(&config.layers);
+    let pane_keymaps = build_pane_keymaps(&config.layers);
 
-    (global, pane_keymaps)
+    (layers, pane_keymaps)
 }
 
 fn user_keybindings_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("ilex").join("keybindings.json"))
+    dirs::config_dir().map(|d| d.join("ilex").join("keybindings.toml"))
 }
 
 /// Merge user config into the base config.
-/// User pane entries fully replace the default pane entries.
-/// User globals fully replace default globals.
+/// User layer entries fully replace the default layer entries.
 fn merge_config(base: &mut KeybindingConfig, user: KeybindingConfig) {
-    if !user.global.is_empty() {
-        base.global = user.global;
-    }
-    for (pane_id, bindings) in user.panes {
-        base.panes.insert(pane_id, bindings);
+    for (layer_id, layer_config) in user.layers {
+        base.layers.insert(layer_id, layer_config);
     }
 }
 
-fn build_global_bindings(raw: &[RawBinding]) -> GlobalBindings {
-    let bindings = raw
-        .iter()
-        .map(|b| GlobalBinding {
+fn build_bindings(raw: &[RawBinding]) -> Vec<KeyBinding> {
+    raw.iter()
+        .map(|b| KeyBinding {
             pattern: parse_key(&b.key),
             action: intern(b.action.clone()),
             description: intern(b.description.clone()),
-            always_active: b.always_active,
         })
-        .collect();
-    GlobalBindings { bindings }
+        .collect()
 }
 
-fn build_pane_keymaps(panes: &HashMap<String, Vec<RawBinding>>) -> HashMap<String, Keymap> {
-    panes
+fn build_layers(layers: &HashMap<String, LayerConfig>) -> Vec<Layer> {
+    layers
         .iter()
-        .map(|(pane_id, bindings)| {
-            let key_bindings: Vec<KeyBinding> = bindings
-                .iter()
-                .map(|b| KeyBinding {
-                    pattern: parse_key(&b.key),
-                    action: intern(b.action.clone()),
-                    description: intern(b.description.clone()),
-                })
-                .collect();
-            (pane_id.clone(), Keymap::from_bindings(key_bindings))
+        .map(|(name, config)| Layer {
+            name: intern(name.clone()),
+            keymap: Keymap::from_bindings(build_bindings(&config.bindings)),
+            transparent: config.transparent,
+        })
+        .collect()
+}
+
+/// Build pane keymaps (excluding mode layers) for pane construction.
+fn build_pane_keymaps(layers: &HashMap<String, LayerConfig>) -> HashMap<String, Keymap> {
+    layers
+        .iter()
+        .filter(|(name, _)| !MODE_LAYERS.contains(&name.as_str()))
+        .map(|(name, config)| {
+            (
+                name.clone(),
+                Keymap::from_bindings(build_bindings(&config.bindings)),
+            )
         })
         .collect()
 }
@@ -222,12 +209,12 @@ mod tests {
 
     #[test]
     fn test_load_embedded_keybindings() {
-        let (global, panes) = load_keybindings();
-        // Global bindings should exist
-        assert!(global.bindings.len() > 5);
+        let (layers, pane_keymaps) = load_keybindings();
+        // Should have layers
+        assert!(layers.len() > 5);
         // Should have pane keymaps
-        assert!(panes.contains_key("instrument"));
-        assert!(panes.contains_key("mixer"));
-        assert!(panes.contains_key("piano_roll"));
+        assert!(pane_keymaps.contains_key("instrument"));
+        assert!(pane_keymaps.contains_key("mixer"));
+        assert!(pane_keymaps.contains_key("piano_roll"));
     }
 }

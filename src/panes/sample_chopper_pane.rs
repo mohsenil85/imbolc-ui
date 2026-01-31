@@ -57,29 +57,32 @@ impl Pane for SampleChopperPane {
         "sample_chopper"
     }
 
-    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
         if self.should_show_file_browser(state) {
-            return self.file_browser.handle_input(event, state);
+            if let Some(fb_action) = self.file_browser.keymap().lookup(event) {
+                return self.file_browser.handle_action(fb_action, event, state);
+            }
+            return Action::None;
         }
 
-        match self.keymap.lookup(&event) {
-            Some("move_left") => {
+        match action {
+            "move_left" => {
                 self.cursor_pos = (self.cursor_pos - 0.01).max(0.0);
-                Action::Chopper(ChopperAction::MoveCursor(-1)) // Also update state if needed, but we track locally too
+                Action::Chopper(ChopperAction::MoveCursor(-1))
             }
-            Some("move_right") => {
+            "move_right" => {
                 self.cursor_pos = (self.cursor_pos + 0.01).min(1.0);
                 Action::Chopper(ChopperAction::MoveCursor(1))
             }
-            Some("next_slice") => Action::Chopper(ChopperAction::SelectSlice(1)),
-            Some("prev_slice") => Action::Chopper(ChopperAction::SelectSlice(-1)),
-            Some("nudge_start") => Action::Chopper(ChopperAction::NudgeSliceStart(-0.005)),
-            Some("nudge_end") => Action::Chopper(ChopperAction::NudgeSliceEnd(0.005)),
-            Some("chop") => {
+            "next_slice" => Action::Chopper(ChopperAction::SelectSlice(1)),
+            "prev_slice" => Action::Chopper(ChopperAction::SelectSlice(-1)),
+            "nudge_start" => Action::Chopper(ChopperAction::NudgeSliceStart(-0.005)),
+            "nudge_end" => Action::Chopper(ChopperAction::NudgeSliceEnd(0.005)),
+            "chop" => {
                 Action::Chopper(ChopperAction::AddSlice(self.cursor_pos))
             }
-            Some("delete") => Action::Chopper(ChopperAction::RemoveSlice),
-            Some("auto_slice") => {
+            "delete" => Action::Chopper(ChopperAction::RemoveSlice),
+            "auto_slice" => {
                 let n = self.auto_slice_n;
                 self.auto_slice_n = match n {
                     4 => 8,
@@ -89,12 +92,12 @@ impl Pane for SampleChopperPane {
                 };
                 Action::Chopper(ChopperAction::AutoSlice(n))
             }
-            Some("commit") => Action::Chopper(ChopperAction::CommitAll),
-            Some("load") => Action::Chopper(ChopperAction::LoadSample),
-            Some("preview") => Action::Chopper(ChopperAction::PreviewSlice),
-            Some("back") => Action::Nav(NavAction::PopPane),
-            Some(action) if action.starts_with("assign_") => {
-                if let Ok(idx) = action[7..].parse::<usize>() {
+            "commit" => Action::Chopper(ChopperAction::CommitAll),
+            "load" => Action::Chopper(ChopperAction::LoadSample),
+            "preview" => Action::Chopper(ChopperAction::PreviewSlice),
+            "back" => Action::Nav(NavAction::PopPane),
+            a if a.starts_with("assign_") => {
+                if let Ok(idx) = a[7..].parse::<usize>() {
                     Action::Chopper(ChopperAction::AssignToPad(idx - 1))
                 } else {
                     Action::None
@@ -310,9 +313,6 @@ impl Pane for SampleChopperPane {
         &self.keymap
     }
 
-    fn wants_exclusive_input(&self) -> bool {
-        true
-    }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self

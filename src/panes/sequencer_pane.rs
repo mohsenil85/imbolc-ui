@@ -46,70 +46,70 @@ impl Pane for SequencerPane {
         "sequencer"
     }
 
-    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
         let seq = match state.instruments.selected_drum_sequencer() {
             Some(s) => s,
             None => return Action::None,
         };
         let pattern_length = seq.pattern().length;
 
-        match self.keymap.lookup(&event) {
-            Some("vel_up") => {
+        match action {
+            "vel_up" => {
                 return Action::Sequencer(SequencerAction::AdjustVelocity(
                     self.cursor_pad,
                     self.cursor_step,
                     10,
                 ));
             }
-            Some("vel_down") => {
+            "vel_down" => {
                 return Action::Sequencer(SequencerAction::AdjustVelocity(
                     self.cursor_pad,
                     self.cursor_step,
                     -10,
                 ));
             }
-            Some("pad_level_down") => {
+            "pad_level_down" => {
                 return Action::Sequencer(SequencerAction::AdjustPadLevel(
                     self.cursor_pad,
                     -0.05,
                 ));
             }
-            Some("pad_level_up") => {
+            "pad_level_up" => {
                 return Action::Sequencer(SequencerAction::AdjustPadLevel(
                     self.cursor_pad,
                     0.05,
                 ));
             }
-            Some("up") => {
+            "up" => {
                 self.cursor_pad = self.cursor_pad.saturating_sub(1);
                 Action::None
             }
-            Some("down") => {
+            "down" => {
                 self.cursor_pad = (self.cursor_pad + 1).min(NUM_PADS - 1);
                 Action::None
             }
-            Some("left") => {
+            "left" => {
                 self.cursor_step = self.cursor_step.saturating_sub(1);
                 Action::None
             }
-            Some("right") => {
+            "right" => {
                 self.cursor_step = (self.cursor_step + 1).min(pattern_length - 1);
                 Action::None
             }
-            Some("toggle") => Action::Sequencer(SequencerAction::ToggleStep(
+            "toggle" => Action::Sequencer(SequencerAction::ToggleStep(
                 self.cursor_pad,
                 self.cursor_step,
             )),
-            Some("play_stop") => Action::Sequencer(SequencerAction::PlayStop),
-            Some("load_sample") => {
+            "play_stop" => Action::Sequencer(SequencerAction::PlayStop),
+            "load_sample" => {
                 Action::Sequencer(SequencerAction::LoadSample(self.cursor_pad))
             }
-            Some("chopper") => Action::Nav(NavAction::PushPane("sample_chopper")),
-            Some("clear_pad") => Action::Sequencer(SequencerAction::ClearPad(self.cursor_pad)),
-            Some("clear_pattern") => Action::Sequencer(SequencerAction::ClearPattern),
-            Some("prev_pattern") => Action::Sequencer(SequencerAction::PrevPattern),
-            Some("next_pattern") => Action::Sequencer(SequencerAction::NextPattern),
-            Some("cycle_length") => Action::Sequencer(SequencerAction::CyclePatternLength),
+            "chopper" => Action::Nav(NavAction::PushPane("sample_chopper")),
+            "clear_pad" => Action::Sequencer(SequencerAction::ClearPad(self.cursor_pad)),
+            "clear_pattern" => Action::Sequencer(SequencerAction::ClearPattern),
+            "prev_pattern" => Action::Sequencer(SequencerAction::PrevPattern),
+            "next_pattern" => Action::Sequencer(SequencerAction::NextPattern),
+            "cycle_length" => Action::Sequencer(SequencerAction::CyclePatternLength),
             _ => Action::None,
         }
     }

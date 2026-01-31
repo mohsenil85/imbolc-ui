@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::{AppState, SourceType};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, NavAction, InstrumentAction, SessionAction, Color, InputEvent, KeyCode, Keymap, PadKeyboard, Pane, PianoKeyboard, Style};
+use crate::ui::{Action, NavAction, InstrumentAction, SessionAction, Color, InputEvent, KeyCode, Keymap, PadKeyboard, Pane, PianoKeyboard, Style, ToggleResult};
 
 fn source_color(source: SourceType) -> Color {
     match source {
@@ -73,44 +73,45 @@ impl Pane for InstrumentPane {
         "instrument"
     }
 
-    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
-        // Pad keyboard mode: letter keys trigger drum pads
-        if self.pad_keyboard.is_active() {
-            match event.key {
-                KeyCode::Up => {
-                    return Action::Instrument(InstrumentAction::SelectPrev);
+    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+        match action {
+            "quit" => Action::Quit,
+            "next" => Action::Instrument(InstrumentAction::SelectNext),
+            "prev" => Action::Instrument(InstrumentAction::SelectPrev),
+            "goto_top" => Action::Instrument(InstrumentAction::SelectFirst),
+            "goto_bottom" => Action::Instrument(InstrumentAction::SelectLast),
+            "add" => Action::Nav(NavAction::SwitchPane("add")),
+            "delete" => {
+                if let Some(instrument) = state.instruments.selected_instrument() {
+                    Action::Instrument(InstrumentAction::Delete(instrument.id))
+                } else {
+                    Action::None
                 }
-                KeyCode::Down => {
-                    return Action::Instrument(InstrumentAction::SelectNext);
-                }
-                KeyCode::Char(c) => {
-                    if let Some(pad_idx) = self.pad_keyboard.key_to_pad(c) {
-                        return Action::Instrument(InstrumentAction::PlayDrumPad(pad_idx));
-                    }
-                    return Action::None;
-                }
-                _ => return Action::None,
             }
-        }
+            "edit" => {
+                if let Some(instrument) = state.instruments.selected_instrument() {
+                    Action::Instrument(InstrumentAction::Edit(instrument.id))
+                } else {
+                    Action::None
+                }
+            }
+            "save" => Action::Session(SessionAction::Save),
+            "load" => Action::Session(SessionAction::Load),
 
-        // Piano mode: letter keys play notes
-        if self.piano.is_active() {
-            match event.key {
-                KeyCode::Char('[') => {
-                    self.piano.octave_down();
-                    return Action::None;
+            // Piano layer actions
+            "piano:escape" => {
+                let was_active = self.piano.is_active();
+                self.piano.handle_escape();
+                if was_active && !self.piano.is_active() {
+                    Action::ExitPerformanceMode
+                } else {
+                    Action::None
                 }
-                KeyCode::Char(']') => {
-                    self.piano.octave_up();
-                    return Action::None;
-                }
-                KeyCode::Up => {
-                    return Action::Instrument(InstrumentAction::SelectPrev);
-                }
-                KeyCode::Down => {
-                    return Action::Instrument(InstrumentAction::SelectNext);
-                }
-                KeyCode::Char(c) => {
+            }
+            "piano:octave_down" => { self.piano.octave_down(); Action::None }
+            "piano:octave_up" => { self.piano.octave_up(); Action::None }
+            "piano:key" | "piano:space" => {
+                if let KeyCode::Char(c) = event.key {
                     if let Some(pitches) = self.piano.key_to_pitches(c) {
                         if pitches.len() == 1 {
                             return Action::Instrument(InstrumentAction::PlayNote(pitches[0], 100));
@@ -118,35 +119,24 @@ impl Pane for InstrumentPane {
                             return Action::Instrument(InstrumentAction::PlayNotes(pitches, 100));
                         }
                     }
-                    return Action::None;
                 }
-                _ => return Action::None,
+                Action::None
             }
-        }
 
-        match self.keymap.lookup(&event) {
-            Some("quit") => Action::Quit,
-            Some("next") => Action::Instrument(InstrumentAction::SelectNext),
-            Some("prev") => Action::Instrument(InstrumentAction::SelectPrev),
-            Some("goto_top") => Action::Instrument(InstrumentAction::SelectFirst),
-            Some("goto_bottom") => Action::Instrument(InstrumentAction::SelectLast),
-            Some("add") => Action::Nav(NavAction::SwitchPane("add")),
-            Some("delete") => {
-                if let Some(instrument) = state.instruments.selected_instrument() {
-                    Action::Instrument(InstrumentAction::Delete(instrument.id))
-                } else {
-                    Action::None
-                }
+            // Pad layer actions
+            "pad:escape" => {
+                self.pad_keyboard.deactivate();
+                Action::ExitPerformanceMode
             }
-            Some("edit") => {
-                if let Some(instrument) = state.instruments.selected_instrument() {
-                    Action::Instrument(InstrumentAction::Edit(instrument.id))
-                } else {
-                    Action::None
+            "pad:key" => {
+                if let KeyCode::Char(c) = event.key {
+                    if let Some(pad_idx) = self.pad_keyboard.key_to_pad(c) {
+                        return Action::Instrument(InstrumentAction::PlayDrumPad(pad_idx));
+                    }
                 }
+                Action::None
             }
-            Some("save") => Action::Session(SessionAction::Save),
-            Some("load") => Action::Session(SessionAction::Load),
+
             _ => Action::None,
         }
     }
@@ -294,35 +284,41 @@ impl Pane for InstrumentPane {
         &self.keymap
     }
 
-    fn wants_exclusive_input(&self) -> bool {
-        self.piano.is_active() || self.pad_keyboard.is_active()
-    }
-
-    fn toggle_piano_mode(&mut self, state: &AppState) -> bool {
+    fn toggle_performance_mode(&mut self, state: &AppState) -> ToggleResult {
         if self.pad_keyboard.is_active() {
-            self.pad_keyboard.handle_escape();
+            self.pad_keyboard.deactivate();
+            ToggleResult::Deactivated
         } else if self.piano.is_active() {
             self.piano.handle_escape();
+            if self.piano.is_active() {
+                ToggleResult::CycledLayout
+            } else {
+                ToggleResult::Deactivated
+            }
         } else if state.instruments.selected_instrument()
             .map_or(false, |s| s.source.is_kit())
         {
             self.pad_keyboard.activate();
+            ToggleResult::ActivatedPad
         } else {
             self.piano.activate();
+            ToggleResult::ActivatedPiano
         }
-        true
     }
 
-    fn exit_piano_mode(&mut self) -> bool {
-        if self.piano.is_active() {
-            self.piano.deactivate();
-            true
-        } else if self.pad_keyboard.is_active() {
-            self.pad_keyboard.deactivate();
-            true
-        } else {
-            false
-        }
+    fn activate_piano(&mut self) {
+        if !self.piano.is_active() { self.piano.activate(); }
+        self.pad_keyboard.deactivate();
+    }
+
+    fn activate_pad(&mut self) {
+        if !self.pad_keyboard.is_active() { self.pad_keyboard.activate(); }
+        self.piano.deactivate();
+    }
+
+    fn deactivate_performance(&mut self) {
+        self.piano.deactivate();
+        self.pad_keyboard.deactivate();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

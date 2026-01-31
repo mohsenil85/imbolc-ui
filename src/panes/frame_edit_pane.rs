@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use crate::state::music::{Key, Scale};
 use crate::state::{AppState, MusicalSettings};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
 use crate::ui::widgets::TextInput;
 
 /// Fields editable in the frame editor
@@ -124,6 +124,10 @@ impl FrameEditPane {
             Field::Snap => if self.settings.snap { "ON".into() } else { "OFF".into() },
         }
     }
+
+    pub fn is_editing(&self) -> bool {
+        self.editing
+    }
 }
 
 impl Default for FrameEditPane {
@@ -137,64 +141,55 @@ impl Pane for FrameEditPane {
         "frame_edit"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        // Text editing mode for BPM/Tuning
-        if self.editing {
-            match event.key {
-                KeyCode::Enter => {
-                    let text = self.edit_input.value().to_string();
-                    match self.current_field() {
-                        Field::Bpm => {
-                            if let Ok(v) = text.parse::<u16>() {
-                                self.settings.bpm = v.clamp(20, 300);
-                            }
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            // Text edit layer actions
+            "text:confirm" => {
+                let text = self.edit_input.value().to_string();
+                match self.current_field() {
+                    Field::Bpm => {
+                        if let Ok(v) = text.parse::<u16>() {
+                            self.settings.bpm = v.clamp(20, 300);
                         }
-                        Field::Tuning => {
-                            if let Ok(v) = text.parse::<f32>() {
-                                self.settings.tuning_a4 = v.clamp(400.0, 480.0);
-                            }
-                        }
-                        _ => {}
                     }
-                    self.editing = false;
-                    self.edit_input.set_focused(false);
-                    return Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()));
+                    Field::Tuning => {
+                        if let Ok(v) = text.parse::<f32>() {
+                            self.settings.tuning_a4 = v.clamp(400.0, 480.0);
+                        }
+                    }
+                    _ => {}
                 }
-                KeyCode::Escape => {
-                    self.editing = false;
-                    self.edit_input.set_focused(false);
-                    return Action::None;
-                }
-                _ => {
-                    self.edit_input.handle_input(&event);
-                    return Action::None;
-                }
+                self.editing = false;
+                self.edit_input.set_focused(false);
+                Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()))
             }
-        }
-
-        match self.keymap.lookup(&event) {
-            Some("prev") => {
+            "text:cancel" => {
+                self.editing = false;
+                self.edit_input.set_focused(false);
+                Action::None
+            }
+            // Normal actions
+            "prev" => {
                 if self.selected > 0 {
                     self.selected -= 1;
                 }
                 Action::None
             }
-            Some("next") => {
+            "next" => {
                 if self.selected < FIELDS.len() - 1 {
                     self.selected += 1;
                 }
                 Action::None
             }
-            Some("decrease") => {
+            "decrease" => {
                 self.adjust(false);
                 Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()))
             }
-            Some("increase") => {
+            "increase" => {
                 self.adjust(true);
                 Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()))
             }
-            Some("confirm") => {
-                // For numeric fields, enter text editing; for others, confirm
+            "confirm" => {
                 let field = self.current_field();
                 if matches!(field, Field::Bpm | Field::Tuning) {
                     let val = match field {
@@ -205,16 +200,23 @@ impl Pane for FrameEditPane {
                     self.edit_input.set_value(&val);
                     self.edit_input.set_focused(true);
                     self.editing = true;
-                    Action::None
+                    Action::PushLayer("text_edit")
                 } else {
                     Action::Session(SessionAction::UpdateSession(self.settings.clone()))
                 }
             }
-            Some("cancel") => {
+            "cancel" => {
                 Action::Nav(NavAction::SwitchPane("instrument"))
             }
             _ => Action::None,
         }
+    }
+
+    fn handle_raw_input(&mut self, event: &InputEvent, _state: &AppState) -> Action {
+        if self.editing {
+            self.edit_input.handle_input(event);
+        }
+        Action::None
     }
 
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
@@ -307,9 +309,6 @@ impl Pane for FrameEditPane {
         self.set_settings(state.session.musical_settings());
     }
 
-    fn wants_exclusive_input(&self) -> bool {
-        self.editing
-    }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self

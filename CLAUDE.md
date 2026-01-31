@@ -11,6 +11,7 @@ A terminal-based DAW (Digital Audio Workstation) in Rust. Uses ratatui for TUI r
 ```
 src/
   main.rs          — Event loop, global keybindings, render loop
+  config.rs        — TOML config loading (musical defaults)
   dispatch.rs      — Action handler (all state mutation happens here)
   playback.rs      — Piano roll playback engine (tick-based, runs in main loop)
   setup.rs         — Auto-startup for SuperCollider
@@ -100,6 +101,18 @@ cargo build                 # compile
 cargo test --bin ilex     # unit tests (~41 tests)
 cargo test                  # all tests including e2e
 ```
+
+## Configuration
+
+TOML-based configuration system with embedded defaults and optional user overrides.
+
+- **Musical defaults:** `config.toml` (embedded) + `~/.config/ilex/config.toml` (user override)
+- **Keybindings:** `keybindings.toml` (embedded) + `~/.config/ilex/keybindings.toml` (user override)
+- Config loading: `src/config.rs` — `Config::load()` parses embedded defaults, layers user overrides
+- Keybinding loading: `src/ui/keybindings.rs` — same embedded + user override pattern
+- User override files are optional; missing fields fall back to embedded defaults
+
+Musical defaults (`[defaults]` section): `bpm`, `key`, `scale`, `tuning_a4`, `time_signature`, `snap`
 
 ## Persistence
 

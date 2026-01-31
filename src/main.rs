@@ -1,5 +1,5 @@
 mod audio;
-
+mod config;
 mod dispatch;
 mod midi;
 mod panes;
@@ -15,8 +15,8 @@ use audio::AudioEngine;
 use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
-    Action, Frame, InputSource, KeyCode, Keymap, PaneManager, RatatuiBackend, SessionAction, ViewState,
-    keybindings,
+    Action, Frame, InputSource, KeyCode, Keymap, LayerResult, LayerStack, PaneManager, RatatuiBackend,
+    SessionAction, ToggleResult, ViewState, keybindings,
 };
 
 fn main() -> std::io::Result<()> {
@@ -41,10 +41,11 @@ enum InstrumentSelectMode {
 }
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
-    let mut state = AppState::new();
+    let config = config::Config::load();
+    let mut state = AppState::new_with_defaults(config.defaults());
 
-    // Load keybindings from embedded JSON (with optional user override)
-    let (global_bindings, mut keymaps) = keybindings::load_keybindings();
+    // Load keybindings from embedded TOML (with optional user override)
+    let (layers, mut keymaps) = keybindings::load_keybindings();
 
     // file_browser keymap is used by both FileBrowserPane and SampleChopperPane's internal browser
     let file_browser_km = keymaps.get("file_browser").cloned().unwrap_or_else(Keymap::new);
@@ -65,6 +66,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(TrackPane::new(pane_keymap(&mut keymaps, "track"))));
     panes.add_pane(Box::new(WaveformPane::new(pane_keymap(&mut keymaps, "waveform"))));
 
+    // Create layer stack
+    let mut layer_stack = LayerStack::new(layers);
+    layer_stack.push("global");
+    layer_stack.set_pane_layer(panes.active().id());
+
     let mut audio_engine = AudioEngine::new();
     let mut app_frame = Frame::new();
     let mut last_frame_time = Instant::now();
@@ -75,62 +81,105 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
     loop {
         if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
-            let exclusive = panes.active().wants_exclusive_input();
+            // Two-digit instrument selection state machine (pre-layer)
+            match &select_mode {
+                InstrumentSelectMode::WaitingFirstDigit => {
+                    if let KeyCode::Char(c) = event.key {
+                        if let Some(d) = c.to_digit(10) {
+                            select_mode = InstrumentSelectMode::WaitingSecondDigit(d as u8);
+                            continue;
+                        }
+                    }
+                    // Non-digit cancels
+                    select_mode = InstrumentSelectMode::Normal;
+                    // Fall through to normal handling
+                }
+                InstrumentSelectMode::WaitingSecondDigit(first) => {
+                    let first = *first;
+                    if let KeyCode::Char(c) = event.key {
+                        if let Some(d) = c.to_digit(10) {
+                            let combined = first * 10 + d as u8;
+                            let target = if combined == 0 { 10 } else { combined };
+                            select_instrument(target as usize, &mut state, &mut panes);
+                            select_mode = InstrumentSelectMode::Normal;
+                            continue;
+                        }
+                    }
+                    // Non-digit cancels
+                    select_mode = InstrumentSelectMode::Normal;
+                    // Fall through to normal handling
+                }
+                InstrumentSelectMode::Normal => {}
+            }
 
-            // Two-digit instrument selection state machine
-            if !exclusive {
-                match &select_mode {
-                    InstrumentSelectMode::WaitingFirstDigit => {
-                        if let KeyCode::Char(c) = event.key {
-                            if let Some(d) = c.to_digit(10) {
-                                select_mode = InstrumentSelectMode::WaitingSecondDigit(d as u8);
-                                continue;
-                            }
+            // Layer resolution
+            let pane_action = match layer_stack.resolve(&event) {
+                LayerResult::Action(action) => {
+                    match handle_global_action(
+                        action,
+                        &mut state,
+                        &mut panes,
+                        &mut audio_engine,
+                        &mut app_frame,
+                        &mut active_notes,
+                        &mut select_mode,
+                        &mut layer_stack,
+                    ) {
+                        GlobalResult::Quit => break,
+                        GlobalResult::Handled => continue,
+                        GlobalResult::NotHandled => {
+                            panes.active_mut().handle_action(action, &event, &state)
                         }
-                        // Non-digit cancels
-                        select_mode = InstrumentSelectMode::Normal;
-                        // Fall through to normal handling
                     }
-                    InstrumentSelectMode::WaitingSecondDigit(first) => {
-                        let first = *first;
-                        if let KeyCode::Char(c) = event.key {
-                            if let Some(d) = c.to_digit(10) {
-                                let combined = first * 10 + d as u8;
-                                // _00 selects instrument 10, _01 selects 1
-                                let target = if combined == 0 { 10 } else { combined };
-                                select_instrument(target as usize, &mut state, &mut panes);
-                                select_mode = InstrumentSelectMode::Normal;
-                                continue;
-                            }
-                        }
-                        // Non-digit cancels
-                        select_mode = InstrumentSelectMode::Normal;
-                        // Fall through to normal handling
+                }
+                LayerResult::Blocked | LayerResult::Unresolved => {
+                    panes.active_mut().handle_raw_input(&event, &state)
+                }
+            };
+
+            // Process layer management actions
+            match &pane_action {
+                Action::PushLayer(name) => {
+                    layer_stack.push(name);
+                }
+                Action::PopLayer(name) => {
+                    layer_stack.pop(name);
+                }
+                Action::ExitPerformanceMode => {
+                    layer_stack.pop("piano_mode");
+                    layer_stack.pop("pad_mode");
+                    panes.active_mut().deactivate_performance();
+                }
+                _ => {}
+            }
+
+            // Auto-pop text_edit layer when pane is no longer editing
+            if layer_stack.has_layer("text_edit") {
+                let still_editing = match panes.active().id() {
+                    "instrument_edit" => {
+                        panes.get_pane_mut::<InstrumentEditPane>("instrument_edit")
+                            .map_or(false, |p| p.is_editing())
                     }
-                    InstrumentSelectMode::Normal => {}
+                    "frame_edit" => {
+                        panes.get_pane_mut::<FrameEditPane>("frame_edit")
+                            .map_or(false, |p| p.is_editing())
+                    }
+                    _ => false,
+                };
+                if !still_editing {
+                    layer_stack.pop("text_edit");
                 }
             }
 
-            // Check global bindings (always_active ones work even in exclusive mode)
-            if let Some(action) = global_bindings.lookup(&event, exclusive) {
-                let handled = handle_global_action(
-                    action,
-                    &mut state,
-                    &mut panes,
-                    &mut audio_engine,
-                    &mut app_frame,
-                    &mut active_notes,
-                    &mut select_mode,
-                );
-                match handled {
-                    GlobalResult::Quit => break,
-                    GlobalResult::Handled => continue,
-                    GlobalResult::NotHandled => {}
-                }
+            // Process navigation
+            panes.process_nav(&pane_action, &state);
+
+            // Sync pane layer after navigation
+            if matches!(&pane_action, Action::Nav(_)) {
+                sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
-            let action = panes.handle_input(event, &state);
-            if dispatch::dispatch_action(&action, &mut state, &mut panes, &mut audio_engine, &mut app_frame, &mut active_notes) {
+            if dispatch::dispatch_action(&pane_action, &mut state, &mut panes, &mut audio_engine, &mut app_frame, &mut active_notes) {
                 break;
             }
         }
@@ -240,6 +289,19 @@ fn sync_piano_roll_to_selection(state: &mut AppState, panes: &mut PaneManager) {
     }
 }
 
+/// Sync layer stack pane layer and performance mode state after pane switch.
+fn sync_pane_layer(panes: &mut PaneManager, layer_stack: &mut LayerStack) {
+    let had_piano = layer_stack.has_layer("piano_mode");
+    let had_pad = layer_stack.has_layer("pad_mode");
+    layer_stack.set_pane_layer(panes.active().id());
+    if had_piano {
+        panes.active_mut().activate_piano();
+    }
+    if had_pad {
+        panes.active_mut().activate_pad();
+    }
+}
+
 fn handle_global_action(
     action: &str,
     state: &mut AppState,
@@ -248,6 +310,7 @@ fn handle_global_action(
     app_frame: &mut Frame,
     active_notes: &mut Vec<(u32, u8, u32)>,
     select_mode: &mut InstrumentSelectMode,
+    layer_stack: &mut LayerStack,
 ) -> GlobalResult {
     // Helper to capture current view state
     let capture_view = |panes: &mut PaneManager, state: &AppState| -> ViewState {
@@ -269,7 +332,7 @@ fn handle_global_action(
     };
 
     // Helper for pane switching with view history
-    let switch_to_pane = |target: &str, panes: &mut PaneManager, state: &mut AppState, app_frame: &mut Frame| {
+    let switch_to_pane = |target: &str, panes: &mut PaneManager, state: &mut AppState, app_frame: &mut Frame, layer_stack: &mut LayerStack| {
         let current = capture_view(panes, state);
         if app_frame.view_history.is_empty() {
             app_frame.view_history.push(current);
@@ -280,6 +343,7 @@ fn handle_global_action(
         app_frame.view_history.truncate(app_frame.history_cursor + 1);
         // Switch and record new view
         panes.switch_to(target, &*state);
+        sync_pane_layer(panes, layer_stack);
         let new_view = capture_view(panes, state);
         app_frame.view_history.push(new_view);
         app_frame.history_cursor = app_frame.view_history.len() - 1;
@@ -300,7 +364,7 @@ fn handle_global_action(
             }
         }
         "switch:instrument" => {
-            switch_to_pane("instrument", panes, state, app_frame);
+            switch_to_pane("instrument", panes, state, app_frame, layer_stack);
         }
         "switch:piano_roll_or_sequencer" => {
             let target = if let Some(inst) = state.instruments.selected_instrument() {
@@ -314,19 +378,19 @@ fn handle_global_action(
             } else {
                 "piano_roll"
             };
-            switch_to_pane(target, panes, state, app_frame);
+            switch_to_pane(target, panes, state, app_frame, layer_stack);
         }
         "switch:track" => {
-            switch_to_pane("track", panes, state, app_frame);
+            switch_to_pane("track", panes, state, app_frame, layer_stack);
         }
         "switch:mixer" => {
-            switch_to_pane("mixer", panes, state, app_frame);
+            switch_to_pane("mixer", panes, state, app_frame, layer_stack);
         }
         "switch:server" => {
-            switch_to_pane("server", panes, state, app_frame);
+            switch_to_pane("server", panes, state, app_frame, layer_stack);
         }
         "switch:logo" => {
-            switch_to_pane("logo", panes, state, app_frame);
+            switch_to_pane("logo", panes, state, app_frame, layer_stack);
         }
         "switch:frame_edit" => {
             if panes.active().id() == "frame_edit" {
@@ -338,24 +402,23 @@ fn handle_global_action(
         "nav_back" => {
             let history = &mut app_frame.view_history;
             if !history.is_empty() {
-                // Save current live state into history
                 let current = capture_view(panes, state);
                 history[app_frame.history_cursor] = current;
 
                 let at_front = app_frame.history_cursor == history.len() - 1;
                 if at_front {
-                    // Go back 1
                     if app_frame.history_cursor > 0 {
                         app_frame.history_cursor -= 1;
                         let view = history[app_frame.history_cursor].clone();
                         restore_view(panes, state, &view);
+                        sync_pane_layer(panes, layer_stack);
                     }
                 } else {
-                    // Go forward 1
                     if app_frame.history_cursor < history.len() - 1 {
                         app_frame.history_cursor += 1;
                         let view = history[app_frame.history_cursor].clone();
                         restore_view(panes, state, &view);
+                        sync_pane_layer(panes, layer_stack);
                     }
                 }
             }
@@ -363,26 +426,25 @@ fn handle_global_action(
         "nav_forward" => {
             let history = &mut app_frame.view_history;
             if !history.is_empty() {
-                // Save current live state into history
                 let current = capture_view(panes, state);
                 history[app_frame.history_cursor] = current;
 
                 let at_front = app_frame.history_cursor == history.len() - 1;
                 if at_front {
-                    // Go back 2
                     let target = app_frame.history_cursor.saturating_sub(2);
                     if target != app_frame.history_cursor {
                         app_frame.history_cursor = target;
                         let view = history[app_frame.history_cursor].clone();
                         restore_view(panes, state, &view);
+                        sync_pane_layer(panes, layer_stack);
                     }
                 } else {
-                    // Go forward 2
                     let target = (app_frame.history_cursor + 2).min(history.len() - 1);
                     if target != app_frame.history_cursor {
                         app_frame.history_cursor = target;
                         let view = history[app_frame.history_cursor].clone();
                         restore_view(panes, state, &view);
+                        sync_pane_layer(panes, layer_stack);
                     }
                 }
             }
@@ -427,15 +489,23 @@ fn handle_global_action(
             *select_mode = InstrumentSelectMode::WaitingFirstDigit;
         }
         "toggle_piano_mode" => {
-            if panes.active_mut().toggle_piano_mode(state) {
-                return GlobalResult::Handled;
+            let result = panes.active_mut().toggle_performance_mode(state);
+            match result {
+                ToggleResult::ActivatedPiano => {
+                    layer_stack.push("piano_mode");
+                }
+                ToggleResult::ActivatedPad => {
+                    layer_stack.push("pad_mode");
+                }
+                ToggleResult::Deactivated => {
+                    layer_stack.pop("piano_mode");
+                    layer_stack.pop("pad_mode");
+                }
+                ToggleResult::CycledLayout | ToggleResult::NotSupported => {}
             }
-            return GlobalResult::NotHandled;
         }
-        "exit_piano_mode" => {
-            if panes.active_mut().exit_piano_mode() {
-                return GlobalResult::Handled;
-            }
+        "escape" => {
+            // Global escape — falls through to pane when no mode layer handles it
             return GlobalResult::NotHandled;
         }
         _ => return GlobalResult::NotHandled,

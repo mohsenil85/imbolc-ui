@@ -259,9 +259,9 @@ impl Pane for AddPane {
         "add"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        match self.keymap.lookup(&event) {
-            Some("confirm") => {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "confirm" => {
                 if let Some(option) = self.cached_options.get(self.selected) {
                     match option {
                         AddOption::Source(source) => Action::Instrument(InstrumentAction::Add(*source)),
@@ -274,12 +274,12 @@ impl Pane for AddPane {
                     Action::None
                 }
             }
-            Some("cancel") => Action::Nav(NavAction::SwitchPane("instrument")),
-            Some("next") => {
+            "cancel" => Action::Nav(NavAction::SwitchPane("instrument")),
+            "next" => {
                 self.select_next();
                 Action::None
             }
-            Some("prev") => {
+            "prev" => {
                 self.select_prev();
                 Action::None
             }

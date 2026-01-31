@@ -154,6 +154,27 @@ pub enum Action {
     Session(SessionAction),
     Sequencer(SequencerAction),
     Chopper(ChopperAction),
+    /// Pane signals: pop piano_mode/pad_mode layer
+    ExitPerformanceMode,
+    /// Push a named layer onto the layer stack
+    PushLayer(&'static str),
+    /// Pop a named layer from the layer stack
+    PopLayer(&'static str),
+}
+
+/// Result of toggling performance mode (piano/pad keyboard)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToggleResult {
+    /// Pane doesn't support performance mode
+    NotSupported,
+    /// Piano keyboard was activated
+    ActivatedPiano,
+    /// Pad keyboard was activated
+    ActivatedPad,
+    /// Layout cycled (still in piano mode)
+    CycledLayout,
+    /// Performance mode was deactivated
+    Deactivated,
 }
 
 /// Action to take when a file is selected in the file browser
@@ -169,8 +190,13 @@ pub trait Pane {
     /// Unique identifier for this pane
     fn id(&self) -> &'static str;
 
-    /// Handle an input event, returning an action
-    fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action;
+    /// Handle a resolved action string from the layer system
+    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action;
+
+    /// Handle raw input when layers resolved to Blocked or Unresolved
+    fn handle_raw_input(&mut self, _event: &InputEvent, _state: &AppState) -> Action {
+        Action::None
+    }
 
     /// Render the pane to the buffer
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState);
@@ -184,16 +210,19 @@ pub trait Pane {
     /// Called when this pane becomes inactive
     fn on_exit(&mut self, _state: &AppState) {}
 
-    /// Whether this pane is in an input mode that should suppress global keybindings
-    fn wants_exclusive_input(&self) -> bool {
-        false
+    /// Toggle performance mode (piano/pad keyboard). Returns what happened.
+    fn toggle_performance_mode(&mut self, _state: &AppState) -> ToggleResult {
+        ToggleResult::NotSupported
     }
 
-    /// Toggle piano/pad keyboard mode. Returns true if this pane supports it.
-    fn toggle_piano_mode(&mut self, _state: &AppState) -> bool { false }
+    /// Activate piano keyboard on this pane (for cross-pane sync)
+    fn activate_piano(&mut self) {}
 
-    /// Force-exit piano/pad keyboard mode. Returns true if it was active.
-    fn exit_piano_mode(&mut self) -> bool { false }
+    /// Activate pad keyboard on this pane
+    fn activate_pad(&mut self) {}
+
+    /// Deactivate performance mode (piano/pad) on this pane
+    fn deactivate_performance(&mut self) {}
 
     /// Return self as Any for downcasting (required for type-specific access)
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -271,11 +300,9 @@ impl PaneManager {
         }
     }
 
-    /// Handle input for the active pane and process the resulting action
-    pub fn handle_input(&mut self, event: InputEvent, state: &AppState) -> Action {
-        let action = self.active_mut().handle_input(event, state);
-
-        match &action {
+    /// Process navigation actions from a pane result
+    pub fn process_nav(&mut self, action: &Action, state: &AppState) {
+        match action {
             Action::Nav(NavAction::SwitchPane(id)) => {
                 self.switch_to(id, state);
             }
@@ -287,8 +314,6 @@ impl PaneManager {
             }
             _ => {}
         }
-
-        action
     }
 
     /// Render the active pane to the buffer.

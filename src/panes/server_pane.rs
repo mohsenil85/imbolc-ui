@@ -165,27 +165,32 @@ impl Pane for ServerPane {
         "server"
     }
 
-    fn handle_input(&mut self, event: InputEvent, _state: &AppState) -> Action {
-        // Keymap actions (s/k/c/d/b/l/r/Tab) work regardless of focus
-        match self.keymap.lookup(&event) {
-            Some("start") => return Action::Server(ServerAction::Start),
-            Some("stop") => return Action::Server(ServerAction::Stop),
-            Some("connect") => return Action::Server(ServerAction::Connect),
-            Some("disconnect") => return Action::Server(ServerAction::Disconnect),
-            Some("compile") => return Action::Server(ServerAction::CompileSynthDefs),
-            Some("load") => return Action::Server(ServerAction::LoadSynthDefs),
-            Some("refresh_devices") => {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+        match action {
+            "start" => Action::Server(ServerAction::Start),
+            "stop" => Action::Server(ServerAction::Stop),
+            "connect" => Action::Server(ServerAction::Connect),
+            "disconnect" => Action::Server(ServerAction::Disconnect),
+            "compile" => Action::Server(ServerAction::CompileSynthDefs),
+            "load" => Action::Server(ServerAction::LoadSynthDefs),
+            "refresh_devices" => {
                 self.refresh_devices();
-                return Action::None;
+                if self.server_running {
+                    Action::Server(ServerAction::Restart)
+                } else {
+                    Action::None
+                }
             }
-            Some("next_section") => {
+            "next_section" => {
                 self.cycle_focus();
-                return Action::None;
+                Action::None
             }
-            _ => {}
+            _ => Action::None,
         }
+    }
 
-        // Focus-dependent navigation
+    fn handle_raw_input(&mut self, event: &InputEvent, _state: &AppState) -> Action {
+        // Focus-dependent navigation for Up/Down/Enter (not in layer)
         match self.focus {
             ServerPaneFocus::OutputDevice => {
                 let count = self.output_devices().len() + 1; // +1 for "System Default"
