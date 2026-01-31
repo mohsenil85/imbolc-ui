@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, Style};
+use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
 
 /// Menu item for the home screen
 struct MenuItem {
@@ -139,6 +139,37 @@ impl Pane for HomePane {
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
             )));
             help.render(help_area, buf);
+        }
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+        let rect = center_rect(area, 50, 12);
+        let inner_x = rect.x + 1;
+        let inner_y = rect.y + 1;
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let col = event.column;
+                let row = event.row;
+                // Each item occupies 2 rows, starting at inner_y + 1
+                for (i, item) in self.items.iter().enumerate() {
+                    let item_y = inner_y + 1 + (i as u16 * 2);
+                    if col >= inner_x && row >= item_y && row <= item_y + 1 {
+                        self.selected = i;
+                        return Action::Nav(NavAction::SwitchPane(item.pane_id));
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollUp => {
+                if self.selected > 0 { self.selected -= 1; }
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                if self.selected < self.items.len() - 1 { self.selected += 1; }
+                Action::None
+            }
+            _ => Action::None,
         }
     }
 

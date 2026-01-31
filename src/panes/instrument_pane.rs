@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::{AppState, SourceType};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, NavAction, InstrumentAction, SessionAction, Color, InputEvent, KeyCode, Keymap, PadKeyboard, Pane, PianoKeyboard, Style, ToggleResult};
+use crate::ui::{Action, NavAction, InstrumentAction, SessionAction, Color, InputEvent, KeyCode, Keymap, MouseEvent, MouseEventKind, MouseButton, PadKeyboard, Pane, PianoKeyboard, Style, ToggleResult};
 
 fn source_color(source: SourceType) -> Color {
     match source {
@@ -278,6 +278,38 @@ impl Pane for InstrumentPane {
             help_text,
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
         ))).render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+        let rect = center_rect(area, 97, 29);
+        let inner_x = rect.x + 2;
+        let inner_y = rect.y + 2;
+        let content_y = inner_y + 1;
+        let list_y = content_y + 2;
+        let inner_height = rect.height.saturating_sub(4);
+        let max_visible = ((inner_height.saturating_sub(7)) as usize).max(3);
+
+        let scroll_offset = state.instruments.selected
+            .map(|s| if s >= max_visible { s - max_visible + 1 } else { 0 })
+            .unwrap_or(0);
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let col = event.column;
+                let row = event.row;
+                // Click on instrument list
+                if col >= inner_x && row >= list_y && row < list_y + max_visible as u16 {
+                    let clicked_idx = scroll_offset + (row - list_y) as usize;
+                    if clicked_idx < state.instruments.instruments.len() {
+                        return Action::Instrument(InstrumentAction::Select(clicked_idx));
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollUp => Action::Instrument(InstrumentAction::SelectPrev),
+            MouseEventKind::ScrollDown => Action::Instrument(InstrumentAction::SelectNext),
+            _ => Action::None,
+        }
     }
 
     fn keymap(&self) -> &Keymap {

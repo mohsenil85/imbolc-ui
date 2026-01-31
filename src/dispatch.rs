@@ -141,6 +141,11 @@ fn dispatch_instrument(
                 }
             }
         }
+        InstrumentAction::Select(idx) => {
+            if *idx < state.instruments.instruments.len() {
+                state.instruments.selected = Some(*idx);
+            }
+        }
         InstrumentAction::SelectNext => {
             state.instruments.select_next();
         }
@@ -194,6 +199,9 @@ fn dispatch_mixer(
         }
         MixerAction::Jump(direction) => {
             state.mixer_jump(*direction);
+        }
+        MixerAction::SelectAt(selection) => {
+            state.session.mixer_selection = *selection;
         }
         MixerAction::AdjustLevel(delta) => {
             let mut bus_update: Option<(u8, f32, bool, f32)> = None;

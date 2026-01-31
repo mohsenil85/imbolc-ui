@@ -2,7 +2,7 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyEvent, KeyCode as CrosstermKeyCode, KeyModifiers},
+    event::{self, Event, KeyEvent, KeyCode as CrosstermKeyCode, KeyModifiers, MouseEvent as CrosstermMouseEvent, MouseEventKind as CrosstermMouseEventKind, MouseButton as CrosstermMouseButton, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -15,7 +15,7 @@ use ratatui::{
     Terminal,
 };
 
-use super::{InputEvent, InputSource, KeyCode, Modifiers};
+use super::{AppEvent, InputEvent, InputSource, KeyCode, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 
 /// Ratatui-based terminal backend
 pub struct RatatuiBackend {
@@ -30,10 +30,10 @@ impl RatatuiBackend {
         Ok(Self { terminal })
     }
 
-    /// Enter raw mode and alternate screen
+    /// Enter raw mode and alternate screen with mouse capture
     pub fn start(&mut self) -> io::Result<()> {
         enable_raw_mode()?;
-        execute!(io::stdout(), EnterAlternateScreen)?;
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         self.terminal.clear()?;
         Ok(())
     }
@@ -41,7 +41,7 @@ impl RatatuiBackend {
     /// Leave raw mode and alternate screen
     pub fn stop(&mut self) -> io::Result<()> {
         disable_raw_mode()?;
-        execute!(io::stdout(), LeaveAlternateScreen)?;
+        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
         Ok(())
     }
 
@@ -94,10 +94,18 @@ impl RatatuiFrame {
 }
 
 impl InputSource for RatatuiBackend {
-    fn poll_event(&mut self, timeout: Duration) -> Option<InputEvent> {
+    fn poll_event(&mut self, timeout: Duration) -> Option<AppEvent> {
         if event::poll(timeout).ok()? {
-            if let Event::Key(key_event) = event::read().ok()? {
-                return Some(convert_key_event(key_event));
+            match event::read().ok()? {
+                Event::Key(key_event) => {
+                    return Some(AppEvent::Key(convert_key_event(key_event)));
+                }
+                Event::Mouse(mouse_event) => {
+                    if let Some(me) = convert_mouse_event(mouse_event) {
+                        return Some(AppEvent::Mouse(me));
+                    }
+                }
+                _ => {}
             }
         }
         None
@@ -132,6 +140,38 @@ fn convert_key_event(event: KeyEvent) -> InputEvent {
     };
 
     InputEvent::new(key, modifiers)
+}
+
+fn convert_mouse_button(button: CrosstermMouseButton) -> MouseButton {
+    match button {
+        CrosstermMouseButton::Left => MouseButton::Left,
+        CrosstermMouseButton::Right => MouseButton::Right,
+        CrosstermMouseButton::Middle => MouseButton::Middle,
+    }
+}
+
+fn convert_mouse_event(event: CrosstermMouseEvent) -> Option<MouseEvent> {
+    let kind = match event.kind {
+        CrosstermMouseEventKind::Down(btn) => MouseEventKind::Down(convert_mouse_button(btn)),
+        CrosstermMouseEventKind::Up(btn) => MouseEventKind::Up(convert_mouse_button(btn)),
+        CrosstermMouseEventKind::Drag(btn) => MouseEventKind::Drag(convert_mouse_button(btn)),
+        CrosstermMouseEventKind::ScrollUp => MouseEventKind::ScrollUp,
+        CrosstermMouseEventKind::ScrollDown => MouseEventKind::ScrollDown,
+        _ => return None, // Ignore Moved and other events
+    };
+
+    let modifiers = Modifiers {
+        ctrl: event.modifiers.contains(KeyModifiers::CONTROL),
+        alt: event.modifiers.contains(KeyModifiers::ALT),
+        shift: event.modifiers.contains(KeyModifiers::SHIFT),
+    };
+
+    Some(MouseEvent {
+        kind,
+        column: event.column,
+        row: event.row,
+        modifiers,
+    })
 }
 
 /// Widget that renders a pre-built buffer

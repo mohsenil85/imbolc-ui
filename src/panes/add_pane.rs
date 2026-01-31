@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::{AppState, CustomSynthDefRegistry, SourceType};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SessionAction, Style};
 
 /// Options available in the Add Instrument menu
 #[derive(Debug, Clone)]
@@ -281,6 +281,47 @@ impl Pane for AddPane {
             }
             "prev" => {
                 self.select_prev();
+                Action::None
+            }
+            _ => Action::None,
+        }
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+        let rect = center_rect(area, 97, 29);
+        let inner_y = rect.y + 2;
+        let content_y = inner_y + 1;
+        let list_y = content_y + 2;
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let row = event.row;
+                if row >= list_y {
+                    let idx = (row - list_y) as usize;
+                    if idx < self.cached_options.len() {
+                        // Skip separators
+                        if matches!(self.cached_options.get(idx), Some(AddOption::Separator(_))) {
+                            return Action::None;
+                        }
+                        self.selected = idx;
+                        // Confirm selection
+                        match &self.cached_options[idx] {
+                            AddOption::Source(source) => return Action::Instrument(InstrumentAction::Add(*source)),
+                            AddOption::ImportCustom => {
+                                return Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::ImportCustomSynthDef));
+                            }
+                            AddOption::Separator(_) => {}
+                        }
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollUp => {
+                self.select_prev();
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                self.select_next();
                 Action::None
             }
             _ => Action::None,

@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, Style};
+use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
 
 pub struct HelpPane {
     keymap: Keymap,
@@ -145,6 +145,24 @@ impl Pane for HelpPane {
                 "[ESC/F1] Close  [Up/Down] Scroll",
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
             ))).render(help_area, buf);
+        }
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, _area: RatatuiRect, _state: &AppState) -> Action {
+        match event.kind {
+            MouseEventKind::ScrollUp => {
+                if self.scroll > 0 { self.scroll -= 1; }
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                self.scroll += 1;
+                Action::None
+            }
+            MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+                // Click anywhere to close
+                Action::Nav(NavAction::PopPane)
+            }
+            _ => Action::None,
         }
     }
 

@@ -15,8 +15,8 @@ use audio::AudioEngine;
 use panes::{AddPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
-    Action, Frame, InputSource, KeyCode, Keymap, LayerResult, LayerStack, PaneManager, RatatuiBackend,
-    SessionAction, ToggleResult, ViewState, keybindings,
+    Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult, LayerStack,
+    PaneManager, RatatuiBackend, SessionAction, ToggleResult, ViewState, keybindings,
 };
 
 fn main() -> std::io::Result<()> {
@@ -79,61 +79,71 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
     setup::auto_start_sc(&mut audio_engine, &state, &mut panes);
 
-    loop {
-        if let Some(event) = backend.poll_event(Duration::from_millis(16)) {
-            // Two-digit instrument selection state machine (pre-layer)
-            match &select_mode {
-                InstrumentSelectMode::WaitingFirstDigit => {
-                    if let KeyCode::Char(c) = event.key {
-                        if let Some(d) = c.to_digit(10) {
-                            select_mode = InstrumentSelectMode::WaitingSecondDigit(d as u8);
-                            continue;
-                        }
-                    }
-                    // Non-digit cancels
-                    select_mode = InstrumentSelectMode::Normal;
-                    // Fall through to normal handling
-                }
-                InstrumentSelectMode::WaitingSecondDigit(first) => {
-                    let first = *first;
-                    if let KeyCode::Char(c) = event.key {
-                        if let Some(d) = c.to_digit(10) {
-                            let combined = first * 10 + d as u8;
-                            let target = if combined == 0 { 10 } else { combined };
-                            select_instrument(target as usize, &mut state, &mut panes);
-                            select_mode = InstrumentSelectMode::Normal;
-                            continue;
-                        }
-                    }
-                    // Non-digit cancels
-                    select_mode = InstrumentSelectMode::Normal;
-                    // Fall through to normal handling
-                }
-                InstrumentSelectMode::Normal => {}
-            }
+    // Track last render area for mouse hit-testing
+    let mut last_area = ratatui::layout::Rect::new(0, 0, 80, 24);
 
-            // Layer resolution
-            let pane_action = match layer_stack.resolve(&event) {
-                LayerResult::Action(action) => {
-                    match handle_global_action(
-                        action,
-                        &mut state,
-                        &mut panes,
-                        &mut audio_engine,
-                        &mut app_frame,
-                        &mut active_notes,
-                        &mut select_mode,
-                        &mut layer_stack,
-                    ) {
-                        GlobalResult::Quit => break,
-                        GlobalResult::Handled => continue,
-                        GlobalResult::NotHandled => {
-                            panes.active_mut().handle_action(action, &event, &state)
+    loop {
+        if let Some(app_event) = backend.poll_event(Duration::from_millis(16)) {
+            let pane_action = match app_event {
+                AppEvent::Mouse(mouse_event) => {
+                    panes.active_mut().handle_mouse(&mouse_event, last_area, &state)
+                }
+                AppEvent::Key(event) => {
+                    // Two-digit instrument selection state machine (pre-layer)
+                    match &select_mode {
+                        InstrumentSelectMode::WaitingFirstDigit => {
+                            if let KeyCode::Char(c) = event.key {
+                                if let Some(d) = c.to_digit(10) {
+                                    select_mode = InstrumentSelectMode::WaitingSecondDigit(d as u8);
+                                    continue;
+                                }
+                            }
+                            // Non-digit cancels
+                            select_mode = InstrumentSelectMode::Normal;
+                            // Fall through to normal handling
+                        }
+                        InstrumentSelectMode::WaitingSecondDigit(first) => {
+                            let first = *first;
+                            if let KeyCode::Char(c) = event.key {
+                                if let Some(d) = c.to_digit(10) {
+                                    let combined = first * 10 + d as u8;
+                                    let target = if combined == 0 { 10 } else { combined };
+                                    select_instrument(target as usize, &mut state, &mut panes);
+                                    select_mode = InstrumentSelectMode::Normal;
+                                    continue;
+                                }
+                            }
+                            // Non-digit cancels
+                            select_mode = InstrumentSelectMode::Normal;
+                            // Fall through to normal handling
+                        }
+                        InstrumentSelectMode::Normal => {}
+                    }
+
+                    // Layer resolution
+                    match layer_stack.resolve(&event) {
+                        LayerResult::Action(action) => {
+                            match handle_global_action(
+                                action,
+                                &mut state,
+                                &mut panes,
+                                &mut audio_engine,
+                                &mut app_frame,
+                                &mut active_notes,
+                                &mut select_mode,
+                                &mut layer_stack,
+                            ) {
+                                GlobalResult::Quit => break,
+                                GlobalResult::Handled => continue,
+                                GlobalResult::NotHandled => {
+                                    panes.active_mut().handle_action(action, &event, &state)
+                                }
+                            }
+                        }
+                        LayerResult::Blocked | LayerResult::Unresolved => {
+                            panes.active_mut().handle_raw_input(&event, &state)
                         }
                     }
-                }
-                LayerResult::Blocked | LayerResult::Unresolved => {
-                    panes.active_mut().handle_raw_input(&event, &state)
                 }
             };
 
@@ -226,6 +236,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         // Render
         let mut frame = backend.begin_frame()?;
         let area = frame.area();
+        last_area = area;
         app_frame.render_buf(area, frame.buffer_mut(), &state);
         panes.render(area, frame.buffer_mut(), &state);
         backend.end_frame(frame)?;

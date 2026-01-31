@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use crate::state::piano_roll::PianoRollState;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, PianoKeyboard, PianoRollAction, Style, ToggleResult};
+use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, MouseEvent, MouseEventKind, MouseButton, Pane, PianoKeyboard, PianoRollAction, Style, ToggleResult};
 
 /// MIDI note name for a given pitch (0-127)
 fn note_name(pitch: u8) -> String {
@@ -482,6 +482,88 @@ impl Pane for PianoRollPane {
             }
             "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
             "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode),
+            _ => Action::None,
+        }
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+        let rect = center_rect(area, 97, 29);
+        let key_col_width: u16 = 5;
+        let header_height: u16 = 2;
+        let footer_height: u16 = 2;
+        let grid_x = rect.x + key_col_width;
+        let grid_y = rect.y + header_height;
+        let grid_width = rect.width.saturating_sub(key_col_width + 1);
+        let grid_height = rect.height.saturating_sub(header_height + footer_height + 1);
+
+        let col = event.column;
+        let row = event.row;
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                // Click on the grid area
+                if col >= grid_x && col < grid_x + grid_width
+                    && row >= grid_y && row < grid_y + grid_height
+                {
+                    let grid_col = col - grid_x;
+                    let grid_row = row - grid_y;
+                    let pitch = self.view_bottom_pitch.saturating_add((grid_height - 1 - grid_row) as u8);
+                    let tick = self.view_start_tick + grid_col as u32 * self.ticks_per_cell();
+
+                    if pitch <= 127 {
+                        self.cursor_pitch = pitch;
+                        self.cursor_tick = tick;
+                        return Action::PianoRoll(PianoRollAction::ToggleNote);
+                    }
+                }
+                // Click on piano key column to set pitch
+                if col >= rect.x && col < grid_x && row >= grid_y && row < grid_y + grid_height {
+                    let grid_row = row - grid_y;
+                    let pitch = self.view_bottom_pitch.saturating_add((grid_height - 1 - grid_row) as u8);
+                    if pitch <= 127 {
+                        self.cursor_pitch = pitch;
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::Down(MouseButton::Right) => {
+                // Right-click on grid: just move cursor (no toggle)
+                if col >= grid_x && col < grid_x + grid_width
+                    && row >= grid_y && row < grid_y + grid_height
+                {
+                    let grid_col = col - grid_x;
+                    let grid_row = row - grid_y;
+                    let pitch = self.view_bottom_pitch.saturating_add((grid_height - 1 - grid_row) as u8);
+                    let tick = self.view_start_tick + grid_col as u32 * self.ticks_per_cell();
+                    if pitch <= 127 {
+                        self.cursor_pitch = pitch;
+                        self.cursor_tick = tick;
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollUp => {
+                if event.modifiers.shift {
+                    // Horizontal scroll
+                    let step = self.ticks_per_cell() * 4;
+                    self.view_start_tick = self.view_start_tick.saturating_sub(step);
+                } else {
+                    // Vertical scroll - pitch up
+                    self.view_bottom_pitch = self.view_bottom_pitch.saturating_add(3).min(127);
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                if event.modifiers.shift {
+                    // Horizontal scroll
+                    let step = self.ticks_per_cell() * 4;
+                    self.view_start_tick += step;
+                } else {
+                    // Vertical scroll - pitch down
+                    self.view_bottom_pitch = self.view_bottom_pitch.saturating_sub(3);
+                }
+                Action::None
+            }
             _ => Action::None,
         }
     }

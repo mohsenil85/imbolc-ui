@@ -12,7 +12,7 @@ pub mod style;
 pub mod widgets;
 
 pub use frame::{Frame, ViewState};
-pub use input::{InputEvent, InputSource, KeyCode, Modifiers};
+pub use input::{AppEvent, InputEvent, InputSource, KeyCode, Modifiers, MouseEvent, MouseEventKind, MouseButton};
 pub use keymap::Keymap;
 pub use layer::{LayerResult, LayerStack};
 pub use pad_keyboard::PadKeyboard;

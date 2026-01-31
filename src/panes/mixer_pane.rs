@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::{AppState, MixerSelection, OutputTarget};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, MixerAction, Pane, Style};
+use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, MixerAction, Pane, Style};
 
 const CHANNEL_WIDTH: u16 = 8;
 const METER_HEIGHT: u16 = 12;
@@ -145,6 +145,91 @@ impl Pane for MixerPane {
                 }
             }
             "clear_send" => { self.send_target = None; Action::None }
+            _ => Action::None,
+        }
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+        use crate::state::MixerSelection;
+
+        let box_width = (NUM_VISIBLE_CHANNELS as u16 * CHANNEL_WIDTH) + 2 +
+                        (NUM_VISIBLE_BUSES as u16 * CHANNEL_WIDTH) + 2 +
+                        CHANNEL_WIDTH + 4;
+        let box_height = METER_HEIGHT + 8;
+        let rect = center_rect(area, box_width, box_height);
+        let base_x = rect.x + 2;
+
+        let col = event.column;
+        let row = event.row;
+
+        // Check if click is within the mixer box
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+            return Action::None;
+        }
+
+        // Calculate scroll offsets (same as render)
+        let instrument_scroll = match state.session.mixer_selection {
+            MixerSelection::Instrument(idx) => {
+                Self::calc_scroll_offset(idx, state.instruments.instruments.len(), NUM_VISIBLE_CHANNELS)
+            }
+            _ => 0,
+        };
+        let bus_scroll = match state.session.mixer_selection {
+            MixerSelection::Bus(id) => {
+                Self::calc_scroll_offset((id - 1) as usize, state.session.buses.len(), NUM_VISIBLE_BUSES)
+            }
+            _ => 0,
+        };
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                // Instrument channels region
+                let inst_end_x = base_x + (NUM_VISIBLE_CHANNELS as u16 * CHANNEL_WIDTH);
+                if col >= base_x && col < inst_end_x {
+                    let channel = ((col - base_x) / CHANNEL_WIDTH) as usize;
+                    let idx = instrument_scroll + channel;
+                    if idx < state.instruments.instruments.len() {
+                        self.send_target = None;
+                        return Action::Mixer(MixerAction::SelectAt(MixerSelection::Instrument(idx)));
+                    }
+                }
+
+                // Bus channels region (after separator)
+                let bus_start_x = inst_end_x + 2;
+                let bus_end_x = bus_start_x + (NUM_VISIBLE_BUSES as u16 * CHANNEL_WIDTH);
+                if col >= bus_start_x && col < bus_end_x {
+                    let channel = ((col - bus_start_x) / CHANNEL_WIDTH) as usize;
+                    let bus_idx = bus_scroll + channel;
+                    if bus_idx < state.session.buses.len() {
+                        let bus_id = state.session.buses[bus_idx].id;
+                        self.send_target = None;
+                        return Action::Mixer(MixerAction::SelectAt(MixerSelection::Bus(bus_id)));
+                    }
+                }
+
+                // Master region (after second separator)
+                let master_start_x = bus_end_x + 2;
+                if col >= master_start_x {
+                    self.send_target = None;
+                    return Action::Mixer(MixerAction::SelectAt(MixerSelection::Master));
+                }
+
+                Action::None
+            }
+            MouseEventKind::ScrollUp => {
+                if let Some(bus_id) = self.send_target {
+                    Action::Mixer(MixerAction::AdjustSend(bus_id, 0.05))
+                } else {
+                    Action::Mixer(MixerAction::AdjustLevel(0.05))
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if let Some(bus_id) = self.send_target {
+                    Action::Mixer(MixerAction::AdjustSend(bus_id, -0.05))
+                } else {
+                    Action::Mixer(MixerAction::AdjustLevel(-0.05))
+                }
+            }
             _ => Action::None,
         }
     }

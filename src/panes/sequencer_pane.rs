@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use crate::state::drum_sequencer::NUM_PADS;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, SequencerAction, Style};
+use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SequencerAction, Style};
 
 pub struct SequencerPane {
     keymap: Keymap,
@@ -340,6 +340,70 @@ impl Pane for SequencerPane {
             "Enter:toggle  Space:play/stop  s:sample  c:chopper  x:clear  []:pattern  {:length",
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
         ))).render(RatatuiRect::new(cx, help_y, rect.width.saturating_sub(4), 1), buf);
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+        let box_width: u16 = 97;
+        let rect = center_rect(area, box_width, 29);
+        let cx = rect.x + 2;
+        let header_y = rect.y + 3;
+        let label_width: u16 = 11;
+        let step_col_start = cx + label_width;
+        let grid_y = header_y + 1;
+        let visible = self.visible_steps(box_width);
+
+        let seq = match state.instruments.selected_drum_sequencer() {
+            Some(s) => s,
+            None => return Action::None,
+        };
+        let pattern = seq.pattern();
+
+        // Calculate effective scroll (same as render)
+        let mut view_start = self.view_start_step;
+        if self.cursor_step < view_start {
+            view_start = self.cursor_step;
+        } else if self.cursor_step >= view_start + visible {
+            view_start = self.cursor_step - visible + 1;
+        }
+        if view_start + visible > pattern.length {
+            view_start = pattern.length.saturating_sub(visible);
+        }
+
+        let col = event.column;
+        let row = event.row;
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                // Click on step grid
+                if col >= step_col_start && row >= grid_y && row < grid_y + NUM_PADS as u16 {
+                    let pad_idx = (row - grid_y) as usize;
+                    let step_offset = (col - step_col_start) / 3;
+                    let step_idx = view_start + step_offset as usize;
+                    if pad_idx < NUM_PADS && step_idx < pattern.length {
+                        self.cursor_pad = pad_idx;
+                        self.cursor_step = step_idx;
+                        return Action::Sequencer(SequencerAction::ToggleStep(pad_idx, step_idx));
+                    }
+                }
+                // Click on pad label to select pad
+                if col >= cx && col < step_col_start && row >= grid_y && row < grid_y + NUM_PADS as u16 {
+                    let pad_idx = (row - grid_y) as usize;
+                    if pad_idx < NUM_PADS {
+                        self.cursor_pad = pad_idx;
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollUp => {
+                self.cursor_pad = self.cursor_pad.saturating_sub(1);
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                self.cursor_pad = (self.cursor_pad + 1).min(NUM_PADS - 1);
+                Action::None
+            }
+            _ => Action::None,
+        }
     }
 
     fn keymap(&self) -> &Keymap {

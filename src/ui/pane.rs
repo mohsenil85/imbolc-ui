@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 
-use super::{InputEvent, Keymap};
-use crate::state::{AppState, EffectType, FilterType, InstrumentId, MusicalSettings, SourceType};
+use super::{InputEvent, Keymap, MouseEvent};
+use crate::state::{AppState, EffectType, FilterType, InstrumentId, MixerSelection, MusicalSettings, SourceType};
 
 /// Drum sequencer actions
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +51,7 @@ pub enum InstrumentAction {
     SetFilter(InstrumentId, Option<FilterType>),
     PlayNote(u8, u8),
     PlayNotes(Vec<u8>, u8),
+    Select(usize),
     SelectNext,
     SelectPrev,
     SelectFirst,
@@ -63,6 +64,7 @@ pub enum InstrumentAction {
 pub enum MixerAction {
     Move(i8),
     Jump(i8),
+    SelectAt(MixerSelection),
     AdjustLevel(f32),
     ToggleMute,
     ToggleSolo,
@@ -195,6 +197,11 @@ pub trait Pane {
 
     /// Handle raw input when layers resolved to Blocked or Unresolved
     fn handle_raw_input(&mut self, _event: &InputEvent, _state: &AppState) -> Action {
+        Action::None
+    }
+
+    /// Handle mouse input. Area is the full terminal area (same as render receives).
+    fn handle_mouse(&mut self, _event: &MouseEvent, _area: RatatuiRect, _state: &AppState) -> Action {
         Action::None
     }
 

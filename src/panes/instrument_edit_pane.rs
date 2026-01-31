@@ -11,7 +11,7 @@ use crate::state::{
 };
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::widgets::TextInput;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, PianoKeyboard, InstrumentAction, Style, ToggleResult};
+use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, MouseEvent, MouseEventKind, Pane, PianoKeyboard, InstrumentAction, Style, ToggleResult};
 
 /// Which section a row belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -914,6 +914,23 @@ impl Pane for InstrumentEditPane {
             help_text,
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
         ))).render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, _area: RatatuiRect, _state: &AppState) -> Action {
+        let total = self.total_rows();
+        if total == 0 { return Action::None; }
+
+        match event.kind {
+            MouseEventKind::ScrollUp => {
+                self.selected_row = if self.selected_row == 0 { total - 1 } else { self.selected_row - 1 };
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                self.selected_row = (self.selected_row + 1) % total;
+                Action::None
+            }
+            _ => Action::None,
+        }
     }
 
     fn keymap(&self) -> &Keymap {

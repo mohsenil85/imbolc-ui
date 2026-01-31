@@ -10,8 +10,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{
-    Action, ChopperAction, Color, FileSelectAction, InputEvent, Keymap, NavAction, Pane,
-    SequencerAction, SessionAction, Style,
+    Action, ChopperAction, Color, FileSelectAction, InputEvent, Keymap, MouseEvent,
+    MouseEventKind, MouseButton, NavAction, Pane, SequencerAction, SessionAction, Style,
 };
 
 struct DirEntry {
@@ -338,6 +338,76 @@ impl Pane for FileBrowserPane {
                 "Enter: select | Backspace: parent | ~: home | Esc: cancel",
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
             ))).render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+        }
+    }
+
+    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+        let rect = center_rect(area, 97, 29);
+        let inner_y = rect.y + 2;
+        let content_y = inner_y + 1;
+        let list_y = content_y + 2;
+        let inner_height = rect.height.saturating_sub(4);
+        let visible_height = inner_height.saturating_sub(6) as usize;
+
+        // Calculate effective scroll offset (same as render)
+        let mut eff_scroll = self.scroll_offset;
+        if self.selected < eff_scroll {
+            eff_scroll = self.selected;
+        } else if self.selected >= eff_scroll + visible_height {
+            eff_scroll = self.selected - visible_height + 1;
+        }
+
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let row = event.row;
+                if row >= list_y && row < list_y + visible_height as u16 {
+                    let clicked_idx = eff_scroll + (row - list_y) as usize;
+                    if clicked_idx < self.entries.len() {
+                        if self.selected == clicked_idx {
+                            // Click on already-selected item: open it
+                            if self.entries[clicked_idx].is_dir {
+                                self.current_dir = self.entries[clicked_idx].path.clone();
+                                self.selected = 0;
+                                self.scroll_offset = 0;
+                                self.refresh_entries();
+                            } else {
+                                match self.on_select_action {
+                                    FileSelectAction::ImportCustomSynthDef => {
+                                        return Action::Session(SessionAction::ImportCustomSynthDef(
+                                            self.entries[clicked_idx].path.clone(),
+                                        ));
+                                    }
+                                    FileSelectAction::LoadDrumSample(pad_idx) => {
+                                        return Action::Sequencer(SequencerAction::LoadSampleResult(
+                                            pad_idx,
+                                            self.entries[clicked_idx].path.clone(),
+                                        ));
+                                    }
+                                    FileSelectAction::LoadChopperSample => {
+                                        return Action::Chopper(ChopperAction::LoadSampleResult(
+                                            self.entries[clicked_idx].path.clone(),
+                                        ));
+                                    }
+                                }
+                            }
+                        } else {
+                            self.selected = clicked_idx;
+                        }
+                    }
+                }
+                Action::None
+            }
+            MouseEventKind::ScrollUp => {
+                self.selected = self.selected.saturating_sub(1);
+                Action::None
+            }
+            MouseEventKind::ScrollDown => {
+                if !self.entries.is_empty() {
+                    self.selected = (self.selected + 1).min(self.entries.len() - 1);
+                }
+                Action::None
+            }
+            _ => Action::None,
         }
     }
 
