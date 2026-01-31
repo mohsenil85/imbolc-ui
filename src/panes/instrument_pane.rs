@@ -207,17 +207,17 @@ impl Pane for InstrumentPane {
 
             // Build row as a Line with multiple spans
             let name_str = format!("{:14}", &instrument.name[..instrument.name.len().min(14)]);
-            let osc_str = format!(" {:10}", instrument.source.name());
+            let source_str = format!(" {:10}", instrument.source.name());
             let filter_str = format!(" {:12}", Self::format_filter(instrument));
             let fx_raw = Self::format_effects(instrument);
             let fx_str = format!(" {:18}", &fx_raw[..fx_raw.len().min(18)]);
             let level_str = format!(" {}", Self::format_level(instrument.level));
 
-            let osc_c = source_color(instrument.source);
+            let source_c = source_color(instrument.source);
 
             let line = Line::from(vec![
                 Span::styled(name_str, mk_style(Color::WHITE)),
-                Span::styled(osc_str, mk_style(osc_c)),
+                Span::styled(source_str, mk_style(source_c)),
                 Span::styled(filter_str, mk_style(Color::FILTER_COLOR)),
                 Span::styled(fx_str, mk_style(Color::FX_COLOR)),
                 Span::styled(level_str, mk_style(Color::LIME)),

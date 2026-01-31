@@ -101,7 +101,7 @@ impl Pane for TrackPane {
                 break;
             }
 
-            let osc_color = source_color(instrument.source);
+            let source_c = source_color(instrument.source);
 
             // Selection indicator
             if is_selected {
@@ -139,9 +139,9 @@ impl Pane for TrackPane {
             if lane_height > 2 {
                 let src_str = format!("   {}", instrument.source.name());
                 let src_style = if is_selected {
-                    ratatui::style::Style::from(Style::new().fg(osc_color).bg(Color::SELECTION_BG))
+                    ratatui::style::Style::from(Style::new().fg(source_c).bg(Color::SELECTION_BG))
                 } else {
-                    ratatui::style::Style::from(Style::new().fg(osc_color))
+                    ratatui::style::Style::from(Style::new().fg(source_c))
                 };
                 Paragraph::new(Line::from(Span::styled(src_str, src_style))).render(
                     RatatuiRect::new(inner.x + 1, lane_y + 1, label_width, 1), buf,
@@ -175,7 +175,7 @@ impl Pane for TrackPane {
             }
 
             // Timeline area: empty lane with bar markers
-            let lane_color = if is_selected { osc_color } else { Color::new(35, 35, 35) };
+            let lane_color = if is_selected { source_c } else { Color::new(35, 35, 35) };
             let lane_style = ratatui::style::Style::from(Style::new().fg(lane_color));
             let bar_style = ratatui::style::Style::from(Style::new().fg(Color::new(50, 50, 50)));
 
