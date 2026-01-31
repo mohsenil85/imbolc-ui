@@ -1,3 +1,7 @@
+> **Status: Implemented**
+>
+> All targets listed below have been implemented in `src/state/strip.rs` (LfoTarget enum) and wired up in `src/audio/engine.rs`.
+
 # LFO Target Implementation Plan
 
 This document outlines how to wire up each of the 15 LFO targets defined in `src/state/strip.rs`.

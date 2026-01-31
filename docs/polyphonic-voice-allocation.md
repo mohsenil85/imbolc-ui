@@ -1,3 +1,7 @@
+> **Status: Implemented**
+>
+> This plan has been implemented in `src/audio/engine.rs` (Option 2).
+
 # Polyphonic Voice Allocation
 
 ## Problem

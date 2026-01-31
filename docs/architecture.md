@@ -9,19 +9,34 @@ All state lives in `AppState`, owned by `main.rs` and passed to panes by referen
 ```rust
 // src/state/mod.rs
 pub struct AppState {
-    pub strip: StripState,
+    pub session: SessionState,
+    pub instruments: InstrumentState,
     pub audio_in_waveform: Option<Vec<f32>>,
+    pub recorded_waveform: Option<Vec<f32>>,
+    pub pending_recording_path: Option<PathBuf>,
+    pub keyboard_layout: KeyboardLayout,
+    pub recording: bool,
+    pub recording_secs: u64,
 }
 ```
 
-`StripState` is the real workhorse — it contains everything:
+`InstrumentState` (formerly StripState) contains the instruments:
 
 ```rust
-// src/state/strip_state.rs
-pub struct StripState {
-    pub strips: Vec<Strip>,
+// src/state/instrument_state.rs
+pub struct InstrumentState {
+    pub instruments: Vec<Instrument>,
     pub selected: Option<usize>,
-    pub next_id: StripId,
+    pub next_id: InstrumentId,
+    pub next_sampler_buffer_id: u32,
+}
+```
+
+`SessionState` contains global settings and other state:
+
+```rust
+// src/state/session.rs
+pub struct SessionState {
     pub buses: Vec<MixerBus>,
     pub master_level: f32,
     pub master_mute: bool,
@@ -33,42 +48,40 @@ pub struct StripState {
 }
 ```
 
-There is no separate `MixerState` — mixer controls are split between `StripState` (buses, master) and individual `Strip` structs (per-strip level, pan, mute, solo, output target, sends).
+## The Instrument Model
 
-## The Strip Model
-
-A `Strip` is the fundamental unit — it combines what were previously separate rack modules (oscillator, filter, effects, output) into a single entity:
+An `Instrument` (formerly Strip) is the fundamental unit — it combines what were previously separate rack modules (oscillator, filter, effects, output) into a single entity:
 
 ```rust
-// src/state/strip.rs
-pub struct Strip {
-    pub id: StripId,
+// src/state/instrument.rs
+pub struct Instrument {
+    pub id: InstrumentId,
     pub name: String,
-    pub source: OscType,           // Saw, Sin, Sqr, Tri, AudioIn, Sampler, Custom
+    pub source: SourceType,        // Saw, Sin, Sqr, Tri, AudioIn, BusIn, PitchedSampler, Kit, Custom
     pub source_params: Vec<Param>,
     pub filter: Option<FilterConfig>,
     pub effects: Vec<EffectSlot>,
     pub lfo: LfoConfig,
     pub amp_envelope: EnvConfig,
     pub polyphonic: bool,
-    pub has_track: bool,           // whether this strip has a piano roll track
     // Integrated mixer controls
     pub level: f32,
     pub pan: f32,
     pub mute: bool,
     pub solo: bool,
+    pub active: bool,
     pub output_target: OutputTarget,  // Master or Bus(1-8)
     pub sends: Vec<MixerSend>,
     pub sampler_config: Option<SamplerConfig>,
+    pub drum_sequencer: Option<DrumSequencerState>,
 }
 ```
 
-When a strip is added via `StripState::add_strip(OscType)`:
-- A piano roll track is auto-created (unless `AudioIn` source)
-- Sampler strips get a default `SamplerConfig`
-- Custom synthdef strips get params from the registry
-
-When a strip is removed, its piano roll track is also removed.
+When an instrument is added:
+- A piano roll track is auto-created
+- Sampler instruments get a default `SamplerConfig`
+- Kit instruments get a `DrumSequencerState`
+- Custom synthdef instruments get params from the registry
 
 ## Pane Trait & Rendering
 
@@ -87,20 +100,20 @@ pub trait Pane {
 }
 ```
 
-Every pane receives `&AppState` for both input handling and rendering. There is no `render_with_state()` workaround — the refactor moved state out of panes and into `AppState`, eliminating the borrow checker issue.
+Every pane receives `&AppState` for both input handling and rendering.
 
 ### Registered Panes
 
 | ID | Pane | Key | Purpose |
 |----|------|-----|---------|
-| `strip` | `StripPane` | `1` | Main view — list of strips with params |
+| `instrument` | `InstrumentPane` | `1` | Main view — list of instruments with params |
 | `piano_roll` | `PianoRollPane` | `2` | Note grid editor with playback |
-| `sequencer` | `SequencerPane` | `3` | Song structure (minimal currently) |
+| `sequencer` | `SequencerPane` | `3` | Drum sequencer / song structure |
 | `mixer` | `MixerPane` | `4` | Mixer channels, buses, master |
 | `server` | `ServerPane` | `5` | SuperCollider server status/control |
 | `home` | `HomePane` | — | Welcome screen |
-| `add` | `AddPane` | — | Strip creation menu |
-| `strip_edit` | `StripEditPane` | — | Edit strip params/effects/filter |
+| `add` | `AddPane` | — | Instrument creation menu |
+| `instrument_edit` | `InstrumentEditPane` | — | Edit instrument params/effects/filter |
 | `frame_edit` | `FrameEditPane` | — | Session settings (BPM, key, etc.) |
 | `file_browser` | `FileBrowserPane` | — | File selection for imports |
 | `help` | `HelpPane` | `?` | Context-sensitive keybinding help |
@@ -109,7 +122,7 @@ Every pane receives `&AppState` for both input handling and rendering. There is 
 
 Panes communicate exclusively through `Action` values. A pane's `handle_input()` returns an `Action`, which is dispatched by `dispatch::dispatch_action()` in `src/dispatch.rs`. This function receives `&mut AppState`, `&mut PaneManager`, `&mut AudioEngine`, etc. and can mutate anything.
 
-For cross-pane data passing (e.g., opening the strip editor with a specific strip's data), the dispatch function uses `PaneManager::get_pane_mut::<T>()` to downcast and configure the target pane before switching to it.
+For cross-pane data passing (e.g., opening the editor with a specific instrument's data), the dispatch function uses `PaneManager::get_pane_mut::<T>()` to downcast and configure the target pane before switching to it.
 
 ## Borrow Patterns
 
@@ -117,12 +130,12 @@ When dispatch needs data from one pane to configure another:
 
 ```rust
 // Extract data first, then use — the two borrows don't overlap
-let strip_data = state.strip.strip(*id).cloned();
-if let Some(strip) = strip_data {
-    if let Some(edit) = panes.get_pane_mut::<StripEditPane>("strip_edit") {
-        edit.set_strip(&strip);
+let inst_id = state.instruments.selected.map(|idx| state.instruments.instruments[idx].id);
+if let Some(id) = inst_id {
+    if let Some(edit) = panes.get_pane_mut::<InstrumentEditPane>("instrument_edit") {
+        edit.set_instrument(id);
     }
-    panes.switch_to("strip_edit", state);
+    panes.switch_to("instrument_edit", state);
 }
 ```
 
@@ -140,7 +153,7 @@ User Input
   → mutates AppState / calls AudioEngine / configures panes
 ```
 
-The `dispatch_action()` function (`src/dispatch.rs`) handles all ~50 action variants. It returns `bool` — `true` means quit.
+The `dispatch_action()` function (`src/dispatch.rs`) handles all action variants. It returns `bool` — `true` means quit.
 
 ## Audio Engine
 
@@ -148,7 +161,7 @@ Located in `src/audio/`. Communicates with SuperCollider (scsynth) via OSC over 
 
 ### Key Components
 
-- `AudioEngine` (`engine.rs`) — manages synth nodes, bus allocation, routing
+- `AudioEngine` (`engine.rs`) — manages synth nodes, bus allocation, routing, voice allocation
 - `OscClient` (`osc_client.rs`) — OSC message/bundle sending
 - `BusAllocator` (`bus_allocator.rs`) — audio/control bus allocation
 
@@ -158,11 +171,16 @@ Located in `src/audio/`. Communicates with SuperCollider (scsynth) via OSC over 
 GROUP_SOURCES    = 100  — all source synths (oscillators, samplers)
 GROUP_PROCESSING = 200  — filters, effects, mixer processing
 GROUP_OUTPUT     = 300  — output synths
+GROUP_RECORD     = 400  — recording nodes
 ```
 
-### Strip → Synth Mapping
+### Instrument → Synth Mapping
 
-Each strip maps to multiple SuperCollider synth nodes (source, filter, effects, output, LFO, envelope). `AudioEngine::rebuild_strip_routing()` tears down and rebuilds the full signal chain when strips change.
+Instruments map to SuperCollider nodes in two ways:
+1. **Persistent Nodes:** `AudioIn` and `BusIn` instruments have static source nodes.
+2. **Polyphonic Voices:** Oscillator and Sampler instruments spawn a new "voice chain" (group containing source + midi control node) for every note-on event.
+
+Filters and effects are currently static per-instrument nodes (shared by all polyphonic voices), though the architecture allows for per-voice effects in the future.
 
 ### OSC Communication
 
@@ -181,8 +199,8 @@ Lives in `src/playback.rs`, called from the main event loop every frame (~16ms):
 2. Convert to ticks: `seconds * (bpm / 60) * ticks_per_beat`
 3. Advance playhead, handle loop wrapping
 4. Scan all tracks for notes starting in the elapsed tick range
-5. Send note-on bundles with sub-frame timestamps via OSC
-6. Decrement active note durations, send note-off when expired
+5. Call `AudioEngine::spawn_voice()` for note-ons (sends OSC bundles)
+6. Track active notes and call `AudioEngine::release_voice()` when expired
 
 Tick resolution: 480 ticks per beat. Notes are sent as OSC bundles with NTP timetags for sample-accurate scheduling.
 
@@ -193,22 +211,25 @@ SQLite database via `rusqlite`. Implementation in `src/state/persistence.rs`.
 ### What's Persisted
 
 Comprehensive — the full state survives save/load:
-- Strips (source type, name, filter, LFO, envelope, polyphonic, mixer controls)
+- Instruments (source type, name, filter, LFO, envelope, polyphonic, mixer controls)
 - Source parameters (with type: float/int/bool)
 - Effects chain (type, params, enabled, ordering)
-- Sends (per-strip bus sends with level and enabled)
-- Filter modulation sources (LFO, envelope, or strip-param cross-modulation)
+- Sends (per-instrument bus sends with level and enabled)
+- Filter modulation sources (LFO, envelope, or instrument-param cross-modulation)
 - Mixer buses (name, level, pan, mute, solo)
 - Master level and mute
 - Piano roll tracks and notes
 - Musical settings (BPM, time signature, key, scale, tuning, loop points)
 - Automation lanes and points (with curve types)
 - Sampler configs (buffer, loop mode, slices)
+- Drum Sequencer state (pads, patterns, steps)
+- Chopper state
+- MIDI recording settings and mappings
 - Custom synthdef registry (name, params, source path)
 
 ### What's NOT Persisted
 
-- UI selection state (strip selection, mixer selection)
+- UI selection state (instrument selection, mixer selection) is partially saved in `session` table
 - Playback position
-- MIDI recording state
 - Audio engine state (rebuilt on connect)
+- Audio waveforms (regenerated on load/record)

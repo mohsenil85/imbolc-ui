@@ -159,3 +159,32 @@ Action dispatch extracted to `dispatch.rs`, playback tick logic extracted to `pl
 
 ### Linter cleanup — PARTIALLY DONE (FEATURES #7)
 Global `#![allow(dead_code)]` removed, 4 dead items removed, targeted annotations added. Further dead code cleanup remains as a task (see UNWIRED inventory).
+
+---
+
+## Recent Feature Work
+
+### Drum Sequencer — DONE
+Implemented 16-step drum sequencer with per-pad samples, velocity, pattern length cycling, playback tick integration, and UI controls.
+
+**Files:** `src/panes/sequencer_pane.rs`, `src/state/drum_sequencer.rs`, `src/playback.rs`, `src/dispatch.rs`, `src/ui/pane.rs`
+
+### Sample Chopper Pane — DONE
+Implemented sample chopper with waveform peaks, slice editing, and pad assignment for drum machines.
+
+**Files:** `src/panes/sample_chopper_pane.rs`, `src/state/drum_sequencer.rs`, `src/dispatch.rs`, `src/ui/pane.rs`, `Cargo.toml`
+
+### Audio Device Selection in Server Pane — DONE (core)
+Server pane lists input/output devices, persists selection to `audio_devices.json`, and starts scsynth with the selected devices.
+
+**Files:** `src/panes/server_pane.rs`, `src/audio/devices.rs`, `src/audio/engine.rs`
+
+### Frame Master Meter — DONE
+Added master level meter rendering in the frame border.
+
+**Files:** `src/ui/frame.rs`
+
+### Server Status UI — DONE
+Server pane displays connection status and messages; frame no longer renders a bottom console.
+
+**Files:** `src/panes/server_pane.rs`, `src/ui/frame.rs`

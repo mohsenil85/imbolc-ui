@@ -109,8 +109,8 @@ cloned), not a reference into `pane_a`.
 ### Where this applies
 
 Any `dispatch_action()` handler that needs to read from one pane and
-configure another. For example, `EditStrip` clones strip data from
-`AppState`, then passes it to `StripEditPane`. Any future cross-pane
+configure another. For example, `EditInstrument` clones instrument data from
+`AppState`, then passes it to `InstrumentEditPane`. Any future cross-pane
 interaction follows the same pattern.
 
 ## 3. Build Verification
@@ -164,7 +164,7 @@ safety net.
 
 ### Previous problem (now resolved)
 
-Previously, state was owned by `RackPane`, requiring a
+Previously, state was owned by `InstrumentPane` (formerly RackPane), requiring a
 `render_with_state()` workaround for panes that needed access. This
 caused silent failures when new panes forgot the special case.
 

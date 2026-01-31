@@ -14,7 +14,7 @@ See TASKS_DONE.md for completed work.
 
 `FrameEditPane` (`src/panes/frame_edit_pane.rs`) has several issues:
 
-1. **Escape goes to `"rack"`** (line 214) instead of returning to the previous pane. Should use `PopPane` or navigate back to wherever the user came from.
+1. **Escape goes to `"instrument"`** instead of returning to the previous pane. Should use `PopPane` or navigate back to wherever the user came from.
 2. **Confirm behavior is inconsistent:** Enter on BPM/Tuning enters text edit mode, but Enter on Key/Scale/TimeSig/Snap immediately fires `UpdateSession` and presumably should return to the previous pane.
 3. **No visible "save and return" flow:** Left/Right changes may not propagate if the user presses Escape.
 
@@ -27,20 +27,15 @@ See TASKS_DONE.md for completed work.
 
 ---
 
-### Strip deletion broken + rename + fix "rack" pane ID
+### Instrument deletion may be broken
 
-**Sources:** R2 #12
+**Sources:** R2 #12 (originally "strip deletion")
 
-Two issues:
+Pressing `d` in `InstrumentPane` dispatches `InstrumentAction::Delete` which calls
+`AppState::remove_instrument()` and `audio_engine.rebuild_instrument_routing()`.
+If deletion is still flaky, verify selection index updates and audio graph rebuild.
 
-1. **Delete strip broken:** Pressing `d` in StripPane dispatches `Delete(strip_id)` which calls `state.remove_strip()` and `audio_engine.rebuild_strip_routing()`. Something in this chain is failing — possibly the strip index goes stale after deletion, the audio graph rebuild crashes, or the selected index isn't adjusted.
-2. **Rename "Strips" to "Oscillators":** StripPane title should say "Oscillators" to better reflect the musical purpose.
-3. **Fix `"rack"` pane ID mismatch:** Three files reference a non-existent pane ID `"rack"` but StripPane's actual ID is `"strip"`:
-   - `src/panes/home_pane.rs:25` (`pane_id: "rack"`)
-   - `src/panes/frame_edit_pane.rs:214` (`SwitchPane("rack")`)
-   - `src/panes/help_pane.rs:31` (`return_to: "rack"`)
-
-**Files:** `src/panes/strip_pane.rs`, `src/dispatch.rs`, `src/state/strip_state.rs`, `src/panes/home_pane.rs`, `src/panes/frame_edit_pane.rs`, `src/panes/help_pane.rs`
+**Files:** `src/panes/instrument_pane.rs`, `src/dispatch.rs`, `src/state/instrument_state.rs`, `src/state/mod.rs`, `src/audio/engine.rs`
 
 ---
 
@@ -69,23 +64,13 @@ self.selected = (self.selected + self.entries.len() - 1) % self.entries.len(); /
 
 ---
 
-### `remove_strip` doesn't clean up automation lanes
+### `remove_instrument` doesn't clean up automation lanes
 
 **Sources:** UNWIRED #5
 
-`AppState::remove_strip()` (`state/mod.rs`) removes from strip list and piano roll tracks but does NOT call `self.session.automation.remove_lanes_for_strip(id)`. Orphaned automation lanes will accumulate.
+`AppState::remove_instrument()` (`state/mod.rs`) removes from instrument list and piano roll tracks but does NOT call `self.session.automation.remove_lanes_for_instrument(id)`. Orphaned automation lanes will accumulate.
 
 **Files:** `src/state/mod.rs`
-
----
-
-### Serde derives unused on StripState
-
-**Sources:** R1 2.10
-
-`StripState` derives `Serialize`/`Deserialize`, but persistence uses SQLite (not serde). The `#[serde(skip)]` annotations on `mixer` and `piano_roll` only exist to prevent compile errors from types that don't implement `Serialize`. The serde derives themselves are unused — remove them.
-
-**Files:** `src/state/strip_state.rs`
 
 ---
 
@@ -101,7 +86,7 @@ HomePane (`src/panes/home_pane.rs`) is a 3-item menu (Rack, Mixer, Server) that'
 2. Remove registration from `main.rs`
 3. Change default pane on startup from `"home"` to `"strip"`
 4. Remove any `SwitchPane("home")` references
-5. Clean up `"rack"` pane ID references (overlaps with strip deletion bug above)
+5. Remove the `home` keybindings layer in `keybindings.toml`
 
 **Files:** `src/panes/home_pane.rs` (delete), `src/panes/mod.rs`, `src/main.rs`
 
@@ -189,7 +174,7 @@ ilex --version          # version string
 
 **Sources:** R2 #3
 
-SQLite persistence uses `CREATE TABLE IF NOT EXISTS` with no migration system. Schema changes break old files.
+SQLite persistence uses `CREATE TABLE IF NOT EXISTS` and writes `schema_version`, but does not check or migrate on load. Schema changes break old files.
 
 1. Add a `schema_version` table (single row, integer version)
 2. On load, check version and run migrations sequentially
@@ -216,22 +201,6 @@ No structured logging. Debug output goes through `Frame::push_message()` or `epr
 6. Log key events: OSC messages, voice allocation, file operations, errors
 
 **Files:** `Cargo.toml`, `src/main.rs`, throughout codebase
-
----
-
-### Move console log to Server pane
-
-**Sources:** R2 #6
-
-The `Frame` bottom console isn't updating properly. Move all logging to the Server pane:
-
-1. Remove the bottom console rendering from `Frame::render()` / `main.rs`
-2. Add a scrollable log viewer to `ServerPane`
-3. Keep `Frame::push_message()` API intact
-4. Reclaim the 4 lines of screen real estate for pane content
-5. Master meter at bottom-right can remain
-
-**Files:** `src/ui/frame.rs`, `src/main.rs`, `src/panes/server_pane.rs`
 
 ---
 
@@ -327,113 +296,6 @@ Add a level meter to the outer frame (off to the right) showing real-time audio 
 
 ## Features
 
-### Sample Chopper Pane
-
-**Sources:** SAMPLER.md (full plan), NEXT_STEPS #3
-
-MPC-style sample chopper for the drum machine. Load a long sample (drum break), visually chop it into slices, assign slices to the 12 drum pads.
-
-**Files to modify:**
-
-| File | Change |
-|------|--------|
-| `Cargo.toml` | Add `hound = "3"` for WAV reading |
-| `src/state/drum_sequencer.rs` | Add `ChopperState`, add `slice_start`/`slice_end` to `DrumPad` |
-| `src/ui/pane.rs` | Add `ChopperAction` enum, `Chopper(ChopperAction)` variant to `Action`, `LoadChopperSample` to `FileSelectAction` |
-| `src/panes/sample_chopper_pane.rs` | **New file** — the chopper pane |
-| `src/panes/mod.rs` | Register `sample_chopper_pane` module |
-| `src/panes/sequencer_pane.rs` | Rebind `c` → open chopper, move "clear pad" to `x` |
-| `src/dispatch.rs` | Add `dispatch_chopper()`, update `dispatch_sequencer`, update `play_drum_hit_to_strip` calls |
-| `src/main.rs` | Register `SampleChopperPane` |
-| `src/audio/engine.rs` | Update `play_drum_hit_to_strip()` to accept `sliceStart`/`sliceEnd` |
-
-**State changes:**
-
-```rust
-// DrumPad — add slice boundaries
-pub struct DrumPad {
-    pub buffer_id: Option<BufferId>,
-    pub path: Option<String>,
-    pub name: String,
-    pub level: f32,
-    pub slice_start: f32,  // 0.0-1.0, default 0.0
-    pub slice_end: f32,    // 0.0-1.0, default 1.0
-}
-
-// ChopperState — new struct in drum_sequencer.rs
-pub struct ChopperState {
-    pub buffer_id: Option<BufferId>,
-    pub path: Option<String>,
-    pub name: String,
-    pub slices: Vec<Slice>,
-    pub selected_slice: usize,
-    pub next_slice_id: SliceId,
-    pub waveform_peaks: Vec<f32>,  // pre-computed for display (~90 values)
-    pub duration_secs: f32,
-}
-
-// DrumSequencerState — add chopper field
-pub chopper: Option<ChopperState>,
-```
-
-**Action enum:**
-
-```rust
-pub enum ChopperAction {
-    LoadSample,
-    LoadSampleResult(PathBuf),
-    AddSlice,
-    RemoveSlice,
-    AssignToPad(usize),
-    AutoSlice(usize),
-    PreviewSlice,
-}
-```
-
-**Pane layout (97x29 box):**
-
-```
-+--------------------- Sample Chopper ---------------------------------------+
-| break_160bpm.wav                                        4.2s   8 slices    |
-|                                                                            |
-| ...waveform display using Unicode block elements...                        |
-| |   1   |   2   |   3   |   4   |   5   |   6   |   7   |   8   |         |
-|      ^ cursor                                                              |
-|                                                                            |
-|  > 1  0.000-0.125  -> Pad 1                                               |
-|    2  0.125-0.250  -> Pad 2                                                |
-|    3  0.250-0.375  -> ----                                                 |
-|    ...                                                                     |
-|                                                                            |
-| s:load  Enter:chop  x:del  1-9,0,-,=:assign  n:auto  Space:preview        |
-+----------------------------------------------------------------------------+
-```
-
-**Key bindings:** h/l or Left/Right: cursor, j/k or Up/Down: slice selection, Shift+Left/Right: nudge slice boundary, Enter: chop at cursor, x: delete slice, 1-9/0/-/=: assign to pad, n: auto-slice (cycles 4/8/12/16), s: load sample, Space: preview, Escape: back to sequencer.
-
-**Waveform peaks:** Use `hound` crate to read WAV, compute peak per column, render with `▁▂▃▄▅▆▇█`.
-
----
-
-### Drum Sequencer
-
-**Sources:** R1 Part 4 (2.9 + design), R2 #28 (context)
-
-Replace the placeholder `SequencerPane` with a 16-step drum sequencer. MPC/SP-1200 workflow.
-
-**Core features:**
-- 16-step grid, 12 pads — toggle steps with Enter, cursor navigates
-- Sample-per-pad via file browser
-- Transport synced to global BPM
-- Velocity per step (Up/Down adjusts)
-- Pattern length adjustable (8, 16, 32, 64)
-
-**State:** `DrumPattern` (steps, velocities, pad-sample mapping), `DrumSequencerState` in `StripState`, SQLite tables for patterns and pad configs.
-
-**Actions:** `ToggleStep`, `SetVelocity`, `SelectPad`, `LoadSample`, `SetPatternLength`, `PlayStop`, `EnterChopperMode`, `SetSlice`, `AssignSliceToPad`
-
----
-
 ### Click track and recording countdown
 
 **Sources:** R2 #29
@@ -494,12 +356,12 @@ Connect hardware MIDI controllers. Requires `midir` crate.
 
 | Need | Status |
 |------|--------|
-| MIDI device input | Not implemented (needs `midir`) |
+| MIDI device input | Partially implemented (`src/midi/mod.rs`), not wired into app |
 | Note triggering | Voice allocation exists — hook to spawn_voice |
 | CC mapping | Not implemented — `MidiRecordingState`, `MidiCcMapping` defined but unwired |
 | Pitch bend | Not implemented — map to sampler rate (scratching) |
 
-Note: `SessionState.midi_recording` field exists but is never read. The entire `state/midi_recording.rs` module is defined but unused.
+Note: `SessionState.midi_recording` exists but is never read. `src/midi/mod.rs` is not integrated into the main loop or UI.
 
 ---
 
@@ -590,27 +452,22 @@ Proposed widgets:
 
 ---
 
-### Audio I/O Management Pane
+### Audio I/O Management Pane (partial)
 
 **Sources:** User request
 
 Pane for selecting and configuring audio hardware devices — choose DAC, set headphones as output, configure input devices, sample rate, and block size.
 
-**Feasibility:** Works on both macOS and Linux. SuperCollider's `scsynth` accepts `-H <device_name>` to select hardware. Currently launched with only `-u 57110` (port), defaulting to system device.
+**Status:** Output/input device selection UI exists in `ServerPane`, and `AudioEngine` starts scsynth with selected devices. Device config is persisted to `~/.config/ilex/audio_devices.json`.
 
 **Device enumeration options:**
 1. **scsynth -H ?** — prints available devices to stdout. Parse output. No new deps.
 2. **cpal crate** — cross-platform device enumeration. More control, but adds a dependency.
 
-**Core features:**
-- List available output devices (DAC, headphones, HDMI, etc.)
-- List available input devices (built-in mic, audio interface, etc.)
-- Select active output and input device
-- Configure sample rate (44100, 48000, 96000)
-- Configure block size (64, 128, 256, 512, 1024)
-- Show device capabilities (supported sample rates, channel counts)
-- Persist device preferences in SQLite
-- Restart scsynth with new device settings on change
+**Remaining work:**
+- Add sample rate + block size selection, and pass `-S`/`-Z` to scsynth
+- Show device capabilities (sample rates, channel counts)
+- Persist device preferences in SQLite (currently JSON)
 
 **Implementation notes:**
 - Pass `-H <device>`, `-S <sample_rate>`, `-Z <block_size>`, `-i <num_inputs>`, `-o <num_outputs>` to scsynth on startup
@@ -645,7 +502,7 @@ Pane for selecting and configuring audio hardware devices — choose DAC, set he
 
 **Key bindings:** j/k or Up/Down: navigate, Enter: select device, Left/Right: adjust sample rate/block size, r: restart server with new settings, Escape: back.
 
-**Files:** New `src/panes/audio_io_pane.rs`, `src/panes/mod.rs`, `src/main.rs`, `src/audio/engine.rs` (add device args to `start_server()`), `src/state/persistence.rs` (device prefs table), `src/ui/pane.rs` (new action variants)
+**Files:** `src/panes/server_pane.rs`, `src/audio/devices.rs`, `src/audio/engine.rs`, `src/state/persistence.rs` (for SQLite prefs)
 
 ---
 

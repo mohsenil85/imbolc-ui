@@ -62,14 +62,14 @@ When a text input is focused, all keys type characters except:
 
 Each pane can define additional keys. Use `?` to see the current pane's keymap.
 
-### Rack Pane (planned)
+### Rack Pane
 | Key | Action |
 |-----|--------|
 | `a` | Add module |
 | `d` | Delete module |
 | `.` | Panic (silence all) |
 
-### Mixer Pane (planned)
+### Mixer Pane
 | Key | Action |
 |-----|--------|
 | `m` | toggle Mute channel |
@@ -79,7 +79,7 @@ Each pane can define additional keys. Use `?` to see the current pane's keymap.
 | `</>` | Pan left/right |
 | `+/-` | Volume up/down |
 
-### Sequencer Pane (planned)
+### Sequencer Pane
 | Key | Action |
 |-----|--------|
 | `Space` | Play/pause |

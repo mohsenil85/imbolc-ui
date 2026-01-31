@@ -4,7 +4,7 @@ Guide for AI agents working on this codebase.
 
 ## What This Is
 
-A terminal-based DAW (Digital Audio Workstation) in Rust. Uses ratatui for TUI rendering and SuperCollider via OSC for audio synthesis. Strips combine an oscillator source, filter, effects chain, LFO, envelope, and mixer controls into a single instrument unit. Strips are sequenced via piano roll.
+A terminal-based DAW (Digital Audio Workstation) in Rust. Uses ratatui for TUI rendering and SuperCollider via OSC for audio synthesis. Instruments combine an oscillator source, filter, effects chain, LFO, envelope, and mixer controls into a single unit. Instruments are sequenced via piano roll.
 
 ## Directory Structure
 
@@ -18,8 +18,9 @@ src/
   scd_parser.rs    — SuperCollider .scd file parser
   state/           — All application state
     mod.rs           — AppState (top-level), re-exports
-    strip.rs         — Strip, StripId, OscType, FilterType, EffectType, LFO, envelope types
-    strip_state.rs   — StripState (strips, buses, mixer, persistence methods)
+    instrument.rs    — Instrument, InstrumentId, SourceType, FilterType, EffectType, LFO, envelope types
+    instrument_state.rs — InstrumentState (instruments, selection, persistence helpers)
+    session.rs       — SessionState (mixer, global settings, automation)
     persistence.rs   — SQLite save/load implementation
     piano_roll.rs    — PianoRollState, Track, Note
     automation.rs    — AutomationState, lanes, points, curve types
@@ -39,10 +40,11 @@ src/
 | Type | Location | What It Is |
 |------|----------|------------|
 | `AppState` | `state/mod.rs` | Top-level state, owned by `main.rs`, passed to panes as `&AppState` |
-| `StripState` | `state/strip_state.rs` | All strips, buses, piano roll, automation, custom synthdefs |
-| `Strip` | `state/strip.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
-| `StripId` | `state/strip.rs` | `u32` — unique identifier for strips |
-| `OscType` | `state/strip.rs` | Oscillator source: Saw, Sin, Sqr, Tri, AudioIn, Sampler, Custom |
+| `InstrumentState` | `state/instrument_state.rs` | Collection of instruments and selection state |
+| `SessionState` | `state/session.rs` | Global session data: buses, mixer, piano roll, automation |
+| `Instrument` | `state/instrument.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
+| `InstrumentId` | `state/instrument.rs` | `u32` — unique identifier for instruments |
+| `SourceType` | `state/instrument.rs` | Oscillator/Source: Saw, Sin, Sqr, Tri, AudioIn, BusIn, PitchedSampler, Kit, Custom |
 | `Action` | `ui/pane.rs` | ~50-variant enum for all user-dispatchable actions |
 | `Pane` | `ui/pane.rs` | Trait: `id()`, `handle_input()`, `render()`, `keymap()` |
 | `PaneManager` | `ui/pane.rs` | Owns all panes, manages active pane, dispatches input |
@@ -62,7 +64,7 @@ When adding a new action:
 
 ### Navigation
 
-Number keys switch panes (when not in exclusive input mode): `1`=strip, `2`=piano_roll, `3`=sequencer, `4`=mixer, `5`=server. `` ` ``/`~` for back/forward. `?` for context-sensitive help.
+Number keys switch panes (when not in exclusive input mode): `1`=instrument, `2`=piano_roll, `3`=sequencer, `4`=mixer, `5`=server. `` ` ``/`~` for back/forward. `?` for context-sensitive help.
 
 ### Pane Registration
 
@@ -117,9 +119,9 @@ Musical defaults (`[defaults]` section): `bpm`, `key`, `scale`, `tuning_a4`, `ti
 ## Persistence
 
 - Format: SQLite database (`.ilex` / `.sqlite`)
-- Save/load: `StripState::save()` / `StripState::load()` in `src/state/persistence.rs`
+- Save/load: `save_project()` / `load_project()` in `src/state/persistence.rs`
 - Default path: `~/.config/ilex/default.sqlite`
-- Persists: strips, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs
+- Persists: instruments, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs, drum sequencer, midi settings
 
 ## LSP Integration (CCLSP)
 
@@ -127,14 +129,14 @@ Configured as MCP server (`cclsp.json` + `.mcp.json`). Provides rust-analyzer ac
 
 ## Detailed Documentation
 
-- [docs/architecture.md](docs/architecture.md) — state ownership, strip model, pane rendering, action dispatch, borrow patterns
+- [docs/architecture.md](docs/architecture.md) — state ownership, instrument model, pane rendering, action dispatch, borrow patterns
 - [docs/audio-routing.md](docs/audio-routing.md) — bus model, insert vs send, node ordering
 - [docs/keybindings.md](docs/keybindings.md) — keybinding philosophy and conventions
 - [docs/ai-coding-affordances.md](docs/ai-coding-affordances.md) — patterns that help AI agents work faster
 - [docs/sc-engine-architecture.md](docs/sc-engine-architecture.md) — SuperCollider engine modules
 - [docs/polyphonic-voice-allocation.md](docs/polyphonic-voice-allocation.md) — voice allocation design
 - [docs/custom-synthdef-plan.md](docs/custom-synthdef-plan.md) — custom SynthDef import system
-- [docs/sqlite-persistence.md](docs/sqlite-persistence.md) — original schema design (partially outdated)
+- [docs/sqlite-persistence.md](docs/sqlite-persistence.md) — persistence schema design
 - [docs/ai-integration.md](docs/ai-integration.md) — planned Haiku integration
 
 ## Plans

@@ -17,10 +17,10 @@ Save is a full snapshot: delete everything, then insert current state. No partia
 ```
 save_project(path, session, instruments)
   1. Open connection
-  2. Run tolerant v2->v3 renames (idempotent)
+  2. Run tolerant renames (if needed)
   3. CREATE TABLE IF NOT EXISTS for all tables
   4. DELETE FROM all data tables
-  5. INSERT schema_version (3)
+  5. INSERT schema_version (5)
   6. INSERT session (metadata + selected_instrument + selected_automation_lane)
   7. save_instruments          — instruments table
   8. save_source_params        — instrument_source_params
@@ -39,7 +39,7 @@ save_project(path, session, instruments)
 
 Load is the reverse. Playback state (`playing`, `playhead`, `current_step`, `step_accumulator`) is intentionally transient and resets on load.
 
-## Schema (v3)
+## Schema (v5)
 
 ### Session & Metadata
 
@@ -67,7 +67,7 @@ CREATE TABLE instruments (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     position INTEGER NOT NULL,
-    source_type TEXT NOT NULL,      -- saw, sin, sqr, tri, audio_in, sample, kit, custom:N
+    source_type TEXT NOT NULL,      -- saw, sin, sqr, tri, audio_in, bus_in, sample, kit, custom:N
     filter_type TEXT,               -- lpf, hpf, bpf (nullable = no filter)
     filter_cutoff REAL,
     filter_resonance REAL,
@@ -81,11 +81,11 @@ CREATE TABLE instruments (
     amp_sustain REAL NOT NULL,
     amp_release REAL NOT NULL,
     polyphonic INTEGER NOT NULL,
-    has_track INTEGER NOT NULL,
     level REAL NOT NULL,
     pan REAL NOT NULL,
     mute INTEGER NOT NULL,
     solo INTEGER NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
     output_target TEXT NOT NULL     -- "master" or "bus:N"
 );
 
@@ -102,7 +102,7 @@ CREATE TABLE instrument_source_params (
 CREATE TABLE instrument_effects (
     instrument_id INTEGER NOT NULL,
     position INTEGER NOT NULL,
-    effect_type TEXT NOT NULL,     -- delay, reverb
+    effect_type TEXT NOT NULL,     -- delay, reverb, gate, tape_comp, sidechain_comp
     enabled INTEGER NOT NULL,
     PRIMARY KEY (instrument_id, position)
 );
@@ -198,6 +198,7 @@ CREATE TABLE musical_settings (
 CREATE TABLE sampler_configs (
     instrument_id INTEGER PRIMARY KEY,
     buffer_id INTEGER,
+    sample_name TEXT,
     loop_mode INTEGER NOT NULL,
     pitch_tracking INTEGER NOT NULL,
     next_slice_id INTEGER NOT NULL,
@@ -359,6 +360,7 @@ CREATE TABLE midi_pitch_bend_configs (
 | `audio_in_waveform` | Runtime visualization data |
 | `waveform_peaks` (chopper) | Regenerated from audio buffer at runtime |
 | `record_mode` | Always starts as `Off` |
+| `scsynth_process` | Audio engine state rebuilt on connect |
 
 ## Known Issues
 

@@ -1,3 +1,7 @@
+> **Status: Implemented**
+>
+> Custom SynthDef support has been implemented in `src/state/custom_synthdef.rs`, `src/scd_parser.rs`, and `src/audio/engine.rs`.
+
 # Plan: Custom SynthDef Instruments
 
 ## Overview
@@ -151,14 +155,14 @@ const INTERNAL_PARAMS: &[&str] = &[
 
 pub fn parse_scd_file(content: &str) -> Result<ParsedSynthDef, String> {
     // Find SynthDef name: SynthDef(\name, ... or SynthDef("name", ...
-    let name_re = Regex::new(r#"SynthDef\s*\(\s*[\\"](\w+)"#).unwrap();
+    let name_re = Regex::new(r"SynthDef\s*\(\s*[\\\"](\w+)").unwrap();
     let name = name_re.captures(content)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
         .ok_or("Could not find SynthDef name")?;
 
     // Find args: { |arg1=val1, arg2=val2, ...|
-    let args_re = Regex::new(r"\{\s*\|([^|]+)\|").unwrap();
+    let args_re = Regex::new(r"\{\s*\|([^|]+)\|`).unwrap();
     let args_str = args_re.captures(content)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str())
@@ -509,8 +513,8 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 
 ## Files to Modify/Create
 
-| File | Action | Description |
-|------|--------|-------------|
+| File |
+|------|
 | `src/state/custom_synthdef.rs` | CREATE | CustomSynthDef, ParamSpec, Registry types |
 | `src/scd_parser.rs` | CREATE | Parse .scd files for name and params |
 | `src/panes/file_browser_pane.rs` | CREATE | File selection UI |
@@ -585,10 +589,10 @@ A full-featured code editor pane for writing and editing SuperCollider SynthDefs
 │                    SCLANG EDITOR PANE                         │
 │                                                               │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │ SynthDef(\my_synth, { |out=0, freq=440, amp=0.5|       │  │
+│  │ SynthDef(\*my_synth, { |out=0, freq=440, amp=0.5|       │  │
 │  │     var sig = SinOsc.ar(freq) * amp;                   │  │
 │  │     Out.ar(out, sig ! 2);                              │  │
-│  │ }).writeDefFile(dir);                                   │  │
+│  }).writeDefFile(dir);                                   │  │
 │  └────────────────────────────────────────────────────────┘  │
 │  Line 3, Col 12 | SCLang | Modified                          │
 │  [C-x C-s] Save  [C-x C-c] Close  [C-c C-c] Compile          │
@@ -953,8 +957,8 @@ fn render(&self, g: &mut dyn Graphics) {
 
 ## Files to Add (Phase 2)
 
-| File | Description |
-|------|-------------|
+| File |
+|------|
 | `src/editor/mod.rs` | Editor module root |
 | `src/editor/buffer.rs` | Text buffer with undo/redo |
 | `src/editor/highlighting.rs` | Tree-sitter syntax highlighting |
@@ -975,7 +979,7 @@ tree-sitter-supercollider = { git = "https://github.com/madskjeldgaard/tree-sitt
 Users should follow this pattern for compatibility:
 
 ```supercollider
-SynthDef(\my_custom_synth, {
+SynthDef(\*my_custom_synth, { 
     // Required inputs (handled by strip system)
     |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1),
     // Standard envelope (handled by strip ADSR section)
@@ -996,4 +1000,6 @@ SynthDef(\my_custom_synth, {
 
     Out.ar(out, (sig * env) ! 2);
 }).writeDefFile(thisProcess.nowExecutingPath.dirname);
+```
+
 ```
