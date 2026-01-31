@@ -130,7 +130,32 @@ pub fn enumerate_devices() -> Vec<AudioDevice> {
         }
     }
 
+    // Filter out devices that crash scsynth (iPhone/iPad continuity devices)
+    devices.retain(|d| !is_blacklisted_device(&d.name));
+
     devices
+}
+
+/// Devices known to crash scsynth during audio initialization.
+/// These are typically iOS continuity devices that expose incompatible
+/// CoreAudio stream formats.
+fn is_blacklisted_device(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("iphone") || lower.contains("ipad")
+}
+
+/// Resolve the default output and input device names.
+/// Used to always pass explicit `-H` to scsynth so it never probes
+/// problematic devices.
+pub fn default_device_names() -> (Option<String>, Option<String>) {
+    let devices = enumerate_devices();
+    let output = devices.iter()
+        .find(|d| d.is_default_output)
+        .map(|d| d.name.clone());
+    let input = devices.iter()
+        .find(|d| d.is_default_input)
+        .map(|d| d.name.clone());
+    (output, input)
 }
 
 fn config_path() -> PathBuf {

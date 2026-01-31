@@ -162,7 +162,18 @@ impl AudioEngine {
         // Build args: base port + optional device flags
         let mut args: Vec<String> = vec!["-u".to_string(), "57110".to_string()];
 
-        match (input_device, output_device) {
+        // Resolve "System Default" to actual device names so we always
+        // pass -H to scsynth. Without -H, scsynth probes all devices
+        // and can crash on incompatible ones (e.g. iPhone continuity mic).
+        let (default_output, default_input) = super::devices::default_device_names();
+        let resolved_input = input_device
+            .map(|s| s.to_string())
+            .or(default_input);
+        let resolved_output = output_device
+            .map(|s| s.to_string())
+            .or(default_output);
+
+        match (resolved_input.as_deref(), resolved_output.as_deref()) {
             (Some(inp), Some(out)) if inp != out => {
                 args.push("-H".to_string());
                 args.push(inp.to_string());
@@ -180,13 +191,28 @@ impl AudioEngine {
             (None, None) => {}
         }
 
+        // Redirect scsynth output to a log file for crash diagnostics
+        let log_path = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ilex")
+            .join("scsynth.log");
+        let _ = fs::create_dir_all(log_path.parent().unwrap());
+        let stdout_file = fs::File::create(&log_path).ok();
+        let stderr_file = stdout_file.as_ref().and_then(|f| f.try_clone().ok());
+
         let mut child = None;
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         for path in &scsynth_paths {
             match Command::new(path)
                 .args(&arg_refs)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(stdout_file.as_ref()
+                    .and_then(|f| f.try_clone().ok())
+                    .map(Stdio::from)
+                    .unwrap_or_else(Stdio::null))
+                .stderr(stderr_file.as_ref()
+                    .and_then(|f| f.try_clone().ok())
+                    .map(Stdio::from)
+                    .unwrap_or_else(Stdio::null))
                 .spawn()
             {
                 Ok(c) => {
@@ -198,16 +224,55 @@ impl AudioEngine {
         }
 
         match child {
-            Some(c) => {
-                self.scsynth_process = Some(c);
+            Some(mut c) => {
                 self.server_status = ServerStatus::Running;
                 thread::sleep(Duration::from_millis(500));
-                Ok(())
+
+                // Verify scsynth didn't crash during startup
+                match c.try_wait() {
+                    Ok(Some(status)) => {
+                        self.server_status = ServerStatus::Error;
+                        Err(format!(
+                            "scsynth crashed ({}) — see {}",
+                            status, log_path.display()
+                        ))
+                    }
+                    _ => {
+                        self.scsynth_process = Some(c);
+                        Ok(())
+                    }
+                }
             }
             None => {
                 self.server_status = ServerStatus::Error;
                 Err("Could not find scsynth. Install SuperCollider.".to_string())
             }
+        }
+    }
+
+    /// Check if the scsynth child process has exited unexpectedly.
+    /// Returns `Some(message)` if it died, `None` if healthy.
+    pub fn check_server_health(&mut self) -> Option<String> {
+        if let Some(ref mut child) = self.scsynth_process {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    self.scsynth_process = None;
+                    self.is_running = false;
+                    self.client = None;
+                    self.server_status = ServerStatus::Error;
+                    self.groups_created = false;
+                    Some(format!("scsynth exited ({})", status))
+                }
+                _ => None,
+            }
+        } else if self.is_running {
+            // is_running but no process — stale state
+            self.is_running = false;
+            self.server_status = ServerStatus::Error;
+            self.groups_created = false;
+            Some("scsynth process lost".to_string())
+        } else {
+            None
         }
     }
 

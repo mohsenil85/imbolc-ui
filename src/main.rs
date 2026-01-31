@@ -207,6 +207,14 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             }
         }
 
+        // Check scsynth process health
+        if let Some(msg) = audio_engine.check_server_health() {
+            if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                server.set_status(audio_engine.status(), &msg);
+                server.set_server_running(false);
+            }
+        }
+
         // Piano roll playback tick
         {
             let now = Instant::now();
