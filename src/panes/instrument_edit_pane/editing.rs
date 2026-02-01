@@ -2,10 +2,58 @@ use super::{InstrumentEditPane, Section};
 use crate::state::{Param, ParamValue};
 use crate::ui::{Action, InstrumentAction, InstrumentUpdate};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AdjustMode {
+    Tiny,
+    Normal,
+    Big,
+    Musical,
+}
+
+/// Check if a parameter name represents a frequency-type parameter
+fn is_freq_param(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("freq") || lower.contains("cutoff") || lower.contains("formant") || lower.contains("bw")
+}
+
+/// Move a frequency value by one semitone up or down
+fn adjust_freq_semitone(value: f32, increase: bool, tuning_a4: f32, min: f32, max: f32) -> f32 {
+    let midi = 69.0 + 12.0 * (value / tuning_a4).ln() / 2.0_f32.ln();
+    let new_midi = if increase { midi.round() + 1.0 } else { midi.round() - 1.0 };
+    (tuning_a4 * 2.0_f32.powf((new_midi - 69.0) / 12.0)).clamp(min, max)
+}
+
+/// Snap to nearest "nice" step based on param range
+fn adjust_musical_step(value: f32, increase: bool, min: f32, max: f32) -> f32 {
+    let range = max - min;
+    let step = if range <= 1.0 {
+        0.1
+    } else if range <= 10.0 {
+        0.5
+    } else if range <= 100.0 {
+        1.0
+    } else {
+        10.0
+    };
+    let snapped = (value / step).round() * step;
+    let new_val = if increase { snapped + step } else { snapped - step };
+    new_val.clamp(min, max)
+}
+
 impl InstrumentEditPane {
     pub(super) fn adjust_value(&mut self, increase: bool, big: bool) {
+        let mode = if big { AdjustMode::Big } else { AdjustMode::Normal };
+        self.adjust_value_with_mode(increase, mode, 440.0);
+    }
+
+    pub(super) fn adjust_value_with_mode(&mut self, increase: bool, mode: AdjustMode, tuning_a4: f32) {
         let (section, local_idx) = self.row_info(self.selected_row);
-        let fraction = if big { 0.10 } else { 0.05 };
+        let fraction = match mode {
+            AdjustMode::Tiny => 0.01,
+            AdjustMode::Normal => 0.05,
+            AdjustMode::Big => 0.10,
+            AdjustMode::Musical => 0.05, // fallback, overridden per-section
+        };
 
         match section {
             Section::Source => {
@@ -16,7 +64,11 @@ impl InstrumentEditPane {
                     local_idx
                 };
                 if let Some(param) = self.source_params.get_mut(param_idx) {
-                    adjust_param(param, increase, fraction);
+                    if mode == AdjustMode::Musical {
+                        adjust_param_musical(param, increase, tuning_a4);
+                    } else {
+                        adjust_param(param, increase, fraction);
+                    }
                 }
             }
             Section::Filter => {
@@ -24,16 +76,24 @@ impl InstrumentEditPane {
                     match local_idx {
                         0 => {} // type - use 't' to cycle
                         1 => {
-                            let range = f.cutoff.max - f.cutoff.min;
-                            let delta = range * fraction;
-                            if increase { f.cutoff.value = (f.cutoff.value + delta).min(f.cutoff.max); }
-                            else { f.cutoff.value = (f.cutoff.value - delta).max(f.cutoff.min); }
+                            if mode == AdjustMode::Musical {
+                                f.cutoff.value = adjust_freq_semitone(f.cutoff.value, increase, tuning_a4, f.cutoff.min, f.cutoff.max);
+                            } else {
+                                let range = f.cutoff.max - f.cutoff.min;
+                                let delta = range * fraction;
+                                if increase { f.cutoff.value = (f.cutoff.value + delta).min(f.cutoff.max); }
+                                else { f.cutoff.value = (f.cutoff.value - delta).max(f.cutoff.min); }
+                            }
                         }
                         2 => {
-                            let range = f.resonance.max - f.resonance.min;
-                            let delta = range * fraction;
-                            if increase { f.resonance.value = (f.resonance.value + delta).min(f.resonance.max); }
-                            else { f.resonance.value = (f.resonance.value - delta).max(f.resonance.min); }
+                            if mode == AdjustMode::Musical {
+                                f.resonance.value = adjust_musical_step(f.resonance.value, increase, f.resonance.min, f.resonance.max);
+                            } else {
+                                let range = f.resonance.max - f.resonance.min;
+                                let delta = range * fraction;
+                                if increase { f.resonance.value = (f.resonance.value + delta).min(f.resonance.max); }
+                                else { f.resonance.value = (f.resonance.value - delta).max(f.resonance.min); }
+                            }
                         }
                         _ => {}
                     }
@@ -42,7 +102,11 @@ impl InstrumentEditPane {
             Section::Effects => {
                 if let Some(effect) = self.effects.get_mut(local_idx) {
                     if let Some(param) = effect.params.first_mut() {
-                        adjust_param(param, increase, fraction);
+                        if mode == AdjustMode::Musical {
+                            adjust_param_musical(param, increase, tuning_a4);
+                        } else {
+                            adjust_param(param, increase, fraction);
+                        }
                     }
                 }
             }
@@ -51,13 +115,22 @@ impl InstrumentEditPane {
                     0 => {} // enabled - use 'l' to toggle
                     1 => {
                         // rate: 0.1 to 32 Hz
-                        let delta = if big { 2.0 } else { 0.5 };
+                        let delta = match mode {
+                            AdjustMode::Tiny => 0.1,
+                            AdjustMode::Musical => 1.0,
+                            AdjustMode::Big => 2.0,
+                            AdjustMode::Normal => 0.5,
+                        };
                         if increase { self.lfo.rate = (self.lfo.rate + delta).min(32.0); }
                         else { self.lfo.rate = (self.lfo.rate - delta).max(0.1); }
                     }
                     2 => {
                         // depth: 0 to 1
-                        let delta = fraction;
+                        let delta = match mode {
+                            AdjustMode::Tiny => 0.01,
+                            AdjustMode::Musical => 0.1,
+                            _ => fraction,
+                        };
                         if increase { self.lfo.depth = (self.lfo.depth + delta).min(1.0); }
                         else { self.lfo.depth = (self.lfo.depth - delta).max(0.0); }
                     }
@@ -66,7 +139,12 @@ impl InstrumentEditPane {
                 }
             }
             Section::Envelope => {
-                let delta = if big { 0.1 } else { 0.05 };
+                let delta = match mode {
+                    AdjustMode::Tiny => 0.01,
+                    AdjustMode::Musical => 0.1,
+                    AdjustMode::Normal => 0.05,
+                    AdjustMode::Big => 0.1,
+                };
                 let val = match local_idx {
                     0 => &mut self.amp_envelope.attack,
                     1 => &mut self.amp_envelope.decay,
@@ -231,6 +309,25 @@ impl InstrumentEditPane {
             }
             _ => String::new(),
         }
+    }
+}
+
+fn adjust_param_musical(param: &mut Param, increase: bool, tuning_a4: f32) {
+    match &mut param.value {
+        ParamValue::Float(ref mut v) => {
+            if is_freq_param(&param.name) {
+                *v = adjust_freq_semitone(*v, increase, tuning_a4, param.min, param.max);
+            } else {
+                *v = adjust_musical_step(*v, increase, param.min, param.max);
+            }
+        }
+        ParamValue::Int(ref mut v) => {
+            let range = param.max - param.min;
+            let step = if range <= 10.0 { 1 } else if range <= 100.0 { 5 } else { 10 };
+            if increase { *v = (*v + step).min(param.max as i32); }
+            else { *v = (*v - step).max(param.min as i32); }
+        }
+        ParamValue::Bool(ref mut v) => { *v = !*v; }
     }
 }
 

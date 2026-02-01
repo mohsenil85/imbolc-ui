@@ -14,6 +14,8 @@ pub struct TextInput {
     focused: bool,
     /// Label shown before the input
     label: String,
+    /// Whether all text is selected (next char typed replaces all)
+    selected_all: bool,
 }
 
 impl TextInput {
@@ -24,6 +26,7 @@ impl TextInput {
             placeholder: String::new(),
             focused: false,
             label: label.to_string(),
+            selected_all: false,
         }
     }
 
@@ -47,6 +50,13 @@ impl TextInput {
     pub fn set_value(&mut self, value: &str) {
         self.value = value.to_string();
         self.cursor = self.value.len();
+        self.selected_all = false;
+    }
+
+    /// Select all text — next typed character replaces everything
+    pub fn select_all(&mut self) {
+        self.selected_all = true;
+        self.cursor = self.value.len();
     }
 
     pub fn set_focused(&mut self, focused: bool) {
@@ -66,41 +76,45 @@ impl TextInput {
 
         match event.key {
             KeyCode::Char(ch) if !event.modifiers.ctrl && !event.modifiers.alt => {
+                if self.selected_all {
+                    self.value.clear();
+                    self.cursor = 0;
+                    self.selected_all = false;
+                }
                 self.value.insert(self.cursor, ch);
                 self.cursor += 1;
                 true
             }
             KeyCode::Backspace => {
-                if self.cursor > 0 {
+                if self.selected_all {
+                    self.value.clear();
+                    self.cursor = 0;
+                    self.selected_all = false;
+                } else if self.cursor > 0 {
                     self.cursor -= 1;
                     self.value.remove(self.cursor);
                 }
                 true
             }
             KeyCode::Delete => {
-                if self.cursor < self.value.len() {
+                if self.selected_all {
+                    self.value.clear();
+                    self.cursor = 0;
+                    self.selected_all = false;
+                } else if self.cursor < self.value.len() {
                     self.value.remove(self.cursor);
                 }
                 true
             }
-            KeyCode::Left => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
+            KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End => {
+                self.selected_all = false;
+                match event.key {
+                    KeyCode::Left => { if self.cursor > 0 { self.cursor -= 1; } }
+                    KeyCode::Right => { if self.cursor < self.value.len() { self.cursor += 1; } }
+                    KeyCode::Home => { self.cursor = 0; }
+                    KeyCode::End => { self.cursor = self.value.len(); }
+                    _ => {}
                 }
-                true
-            }
-            KeyCode::Right => {
-                if self.cursor < self.value.len() {
-                    self.cursor += 1;
-                }
-                true
-            }
-            KeyCode::Home => {
-                self.cursor = 0;
-                true
-            }
-            KeyCode::End => {
-                self.cursor = self.value.len();
                 true
             }
             _ => false,
@@ -142,6 +156,14 @@ impl TextInput {
             for (j, ch) in self.placeholder.chars().take(content_width).enumerate() {
                 if let Some(cell) = buf.cell_mut((content_x + j as u16, y)) {
                     cell.set_char(ch).set_style(ph_style);
+                }
+            }
+        } else if self.focused && self.selected_all && !self.value.is_empty() {
+            // Draw all text with selection highlight
+            let sel_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
+            for (j, ch) in self.value.chars().take(content_width).enumerate() {
+                if let Some(cell) = buf.cell_mut((content_x + j as u16, y)) {
+                    cell.set_char(ch).set_style(sel_style);
                 }
             }
         } else {

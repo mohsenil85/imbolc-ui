@@ -40,6 +40,7 @@ pub struct InstrumentEditPane {
     pub(crate) selected_row: usize,
     editing: bool,
     edit_input: TextInput,
+    edit_backup_value: Option<String>,
     piano: PianoKeyboard,
     pad_keyboard: PadKeyboard,
 }
@@ -62,6 +63,7 @@ impl InstrumentEditPane {
             selected_row: 0,
             editing: false,
             edit_input: TextInput::new(""),
+            edit_backup_value: None,
             piano: PianoKeyboard::new(),
             pad_keyboard: PadKeyboard::new(),
         }

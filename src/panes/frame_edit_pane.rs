@@ -202,6 +202,7 @@ impl Pane for FrameEditPane {
                         _ => unreachable!(),
                     };
                     self.edit_input.set_value(&val);
+                    self.edit_input.select_all();
                     self.edit_input.set_focused(true);
                     self.editing = true;
                     Action::PushLayer("text_edit")

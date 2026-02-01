@@ -1,3 +1,4 @@
+use super::editing::AdjustMode;
 use super::{InstrumentEditPane, Section};
 use crate::state::{
     AppState, EffectSlot, EffectType, FilterConfig, FilterType, ParamValue,
@@ -94,12 +95,54 @@ impl InstrumentEditPane {
                 }
                 self.editing = false;
                 self.edit_input.set_focused(false);
+                self.edit_backup_value = None;
                 self.emit_update()
             }
             "text:cancel" => {
+                // Restore backup value if we have one
+                if let Some(ref backup) = self.edit_backup_value.take() {
+                    let (section, local_idx) = self.row_info(self.selected_row);
+                    match section {
+                        Section::Source => {
+                            let param_idx = if self.source.is_sample() {
+                                if local_idx == 0 { 0 } else { local_idx - 1 }
+                            } else {
+                                local_idx
+                            };
+                            if let Some(param) = self.source_params.get_mut(param_idx) {
+                                if let Ok(v) = backup.parse::<f32>() {
+                                    param.value = ParamValue::Float(v.clamp(param.min, param.max));
+                                }
+                            }
+                        }
+                        Section::Filter => {
+                            if let Some(ref mut f) = self.filter {
+                                match local_idx {
+                                    1 => if let Ok(v) = backup.parse::<f32>() { f.cutoff.value = v.clamp(f.cutoff.min, f.cutoff.max); },
+                                    2 => if let Ok(v) = backup.parse::<f32>() { f.resonance.value = v.clamp(f.resonance.min, f.resonance.max); },
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Section::Envelope => {
+                            if let Ok(v) = backup.parse::<f32>() {
+                                let max = if local_idx == 2 { 1.0 } else { 5.0 };
+                                let val = v.clamp(0.0, max);
+                                match local_idx {
+                                    0 => self.amp_envelope.attack = val,
+                                    1 => self.amp_envelope.decay = val,
+                                    2 => self.amp_envelope.sustain = val,
+                                    3 => self.amp_envelope.release = val,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 self.editing = false;
                 self.edit_input.set_focused(false);
-                Action::None
+                self.emit_update()
             }
             // Normal pane actions
             "done" => {
@@ -135,6 +178,22 @@ impl InstrumentEditPane {
                 self.adjust_value(false, true);
                 self.emit_update()
             }
+            "increase_tiny" => {
+                self.adjust_value_with_mode(true, AdjustMode::Tiny, state.session.tuning_a4);
+                self.emit_update()
+            }
+            "decrease_tiny" => {
+                self.adjust_value_with_mode(false, AdjustMode::Tiny, state.session.tuning_a4);
+                self.emit_update()
+            }
+            "increase_musical" => {
+                self.adjust_value_with_mode(true, AdjustMode::Musical, state.session.tuning_a4);
+                self.emit_update()
+            }
+            "decrease_musical" => {
+                self.adjust_value_with_mode(false, AdjustMode::Musical, state.session.tuning_a4);
+                self.emit_update()
+            }
             "enter_edit" => {
                 // On the sample row, trigger load_sample instead of text edit
                 if self.source.is_sample() {
@@ -146,9 +205,11 @@ impl InstrumentEditPane {
                         return Action::None;
                     }
                 }
+                self.edit_backup_value = Some(self.current_value_string());
                 self.editing = true;
                 let current_val = self.current_value_string();
                 self.edit_input.set_value(&current_val);
+                self.edit_input.select_all();
                 self.edit_input.set_focused(true);
                 Action::PushLayer("text_edit")
             }
