@@ -1,6 +1,12 @@
 > **Status: Implemented**
 >
-> Custom SynthDef support has been implemented in `src/state/custom_synthdef.rs`, `src/scd_parser.rs`, and `src/audio/engine.rs`.
+> Custom SynthDef support lives in `ilex-core/src/state/custom_synthdef.rs`, `ilex-core/src/scd_parser.rs`, and `ilex-core/src/audio/engine/voices.rs`/`routing.rs`.
+> This plan predates the ilex-core split and strip->instrument rename; read "strip" as "instrument" and update paths accordingly.
+
+Path mapping (current code):
+- `src/state/strip.rs` -> `ilex-core/src/state/instrument.rs`
+- `src/state/strip_state.rs` -> `ilex-core/src/state/instrument_state.rs`
+- `src/dispatch.rs` -> `ilex-core/src/dispatch/mod.rs`
 
 # Plan: Custom SynthDef Instruments
 
@@ -8,7 +14,7 @@
 
 Add support for user-defined SuperCollider SynthDefs as instrument sources. Users can:
 1. Import `.scd` files containing custom SynthDefs
-2. Use them as strip source types
+2. Use them as instrument source types
 3. Edit dynamically-discovered parameters
 
 ## Architecture

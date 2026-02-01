@@ -42,7 +42,7 @@ In our layout:
 
 SuperCollider processes synths in order on the server. A synth reading from a bus must come **after** the synth writing to it, otherwise it reads stale data from the previous cycle (one-sample delay).
 
-We handle this with **topological sort** - modules are ordered so that sources always come before destinations in the signal chain.
+We handle this with **groups + deterministic creation order**: sources, then processing, then output. This guarantees bus writers run before readers within the same audio block.
 
 ```
 Execution order:
@@ -54,7 +54,7 @@ Execution order:
 
 ## Insert vs Send Routing
 
-### Insert (What We Have Now)
+### Insert (Implemented)
 
 An insert is a **serial** connection. The signal passes through each module in sequence:
 
@@ -64,7 +64,7 @@ Osc ──> Filter ──> Delay ──> Output
 
 Each module's output is the next module's input. The entire signal goes through the chain. This is what our connection system does.
 
-### Send (Not Yet Implemented)
+### Send (Implemented)
 
 A send is a **parallel** copy. The signal goes to its main destination AND a copy goes to an effects bus:
 
@@ -85,7 +85,7 @@ Key differences from inserts:
 
 This is how real mixers work - you don't put a separate reverb on every channel. You have one reverb on a bus, and each channel sends a portion of its signal to it.
 
-### How Sends Would Work in SuperCollider
+### How Sends Work in SuperCollider
 
 A send is just an additional `Out.ar` in the source synth:
 
@@ -99,6 +99,8 @@ SynthDef(\osc_with_send, { |out=16, send_bus=20, send_level=0|
 ```
 
 The reverb on bus 20 processes whatever lands there, and its output goes to the main bus. Because `Out.ar` sums, multiple channels sending to bus 20 all mix together into one reverb.
+
+In ilex, each instrument has per-bus send levels (`instrument.sends`). The audio engine creates `ilex_send` nodes that tap the instrument's source bus and write into the target bus before the bus output stage.
 
 ## Mixer Architecture
 
@@ -143,7 +145,7 @@ effective_mute  = channel.mute OR master.mute
 
 These are set via OSC `/n_set` messages to the Output synth's `level` and `mute` controls.
 
-### Solo Logic (Not Yet Implemented)
+### Solo Logic (Implemented)
 
 Solo is more complex. When any channel is soloed:
 - Soloed channels play normally
@@ -174,14 +176,14 @@ This is important for:
 - Mixing multiple sources into one effect
 - Send buses receiving from multiple channels
 
-## Groups (Future)
+## Groups (Implemented)
 
-SuperCollider has **groups** - containers for synths that control execution order. Right now we create individual synths and rely on creation order for execution. Groups would let us:
+SuperCollider has **groups** - containers for synths that control execution order. ilex uses fixed groups to guarantee ordering:
 
-- Bundle a whole module chain (MIDI → Osc → Filter → Output) into one group
-- Free the entire chain at once instead of node by node
-- Reorder chains relative to each other
-- Ensure sends are processed after their sources but before effects
+- Group 100: sources (oscillators, samplers, audio in)
+- Group 200: processing (filters, insert FX, mixer processing)
+- Group 300: output (instrument outputs, bus outputs, sends)
+- Group 400: recording nodes
 
 ```
 Group 1 (sources):

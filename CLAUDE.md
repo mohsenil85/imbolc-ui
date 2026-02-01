@@ -10,17 +10,25 @@ A terminal-based DAW (Digital Audio Workstation) in Rust. Uses ratatui for TUI r
 
 ```
 src/
-  main.rs          — Event loop, global keybindings, render loop
-  config.rs        — TOML config loading (musical defaults)
-  dispatch.rs      — Action handler (all state mutation happens here)
+  main.rs          — Binary event loop, global keybindings, render loop
+  panes/           — UI views (see docs/architecture.md for full list)
+  ui/              — TUI framework (pane trait, keymap, input, style, widgets)
   setup.rs         — Auto-startup for SuperCollider
+
+ilex-core/src/
+  action.rs        — Action enums + DispatchResult
+  audio/           — SuperCollider OSC client and audio engine
+    handle.rs        — AudioHandle (main-thread interface) and AudioThread (audio thread)
+    commands.rs      — AudioCmd and AudioFeedback enums
+  config.rs        — TOML config loading (musical defaults)
+  dispatch/        — Action handler (all state mutation happens here)
   scd_parser.rs    — SuperCollider .scd file parser
   state/           — All application state
     mod.rs           — AppState (top-level), re-exports
     instrument.rs    — Instrument, InstrumentId, SourceType, FilterType, EffectType, LFO, envelope types
     instrument_state.rs — InstrumentState (instruments, selection, persistence helpers)
     session.rs       — SessionState (mixer, global settings, automation)
-    persistence.rs   — SQLite save/load implementation
+    persistence/     — SQLite save/load implementation
     piano_roll.rs    — PianoRollState, Track, Note
     automation.rs    — AutomationState, lanes, points, curve types
     sampler.rs       — SamplerConfig, SampleRegistry, slices
@@ -28,11 +36,6 @@ src/
     music.rs         — Key, Scale, musical theory types
     midi_recording.rs — MIDI recording state, CC mappings
     param.rs         — Param, ParamValue (Float/Int/Bool)
-  panes/           — UI views (see docs/architecture.md for full list)
-  ui/              — TUI framework (pane trait, keymap, input, style, widgets)
-  audio/           — SuperCollider OSC client and audio engine
-    handle.rs        — AudioHandle (main-thread interface) and AudioThread (dedicated audio thread)
-    commands.rs      — AudioCmd and AudioFeedback enums for cross-thread communication
   midi/            — MIDI utilities
 ```
 
@@ -40,16 +43,16 @@ src/
 
 | Type | Location | What It Is |
 |------|----------|------------|
-| `AppState` | `state/mod.rs` | Top-level state, owned by `main.rs`, passed to panes as `&AppState` |
-| `InstrumentState` | `state/instrument_state.rs` | Collection of instruments and selection state |
-| `SessionState` | `state/session.rs` | Global session data: buses, mixer, piano roll, automation |
-| `Instrument` | `state/instrument.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
-| `InstrumentId` | `state/instrument.rs` | `u32` — unique identifier for instruments |
-| `SourceType` | `state/instrument.rs` | Oscillator/Source: Saw, Sin, Sqr, Tri, AudioIn, BusIn, PitchedSampler, Kit, Custom |
-| `Action` | `ui/pane.rs` | ~50-variant enum for all user-dispatchable actions |
-| `Pane` | `ui/pane.rs` | Trait: `id()`, `handle_action()`, `handle_raw_input()`, `handle_mouse()`, `render()`, `keymap()` |
-| `PaneManager` | `ui/pane.rs` | Owns all panes, manages active pane, coordinates input |
-| `AudioHandle` | `audio/handle.rs` | Main-thread interface; sends AudioCmd via MPSC channel to audio thread |
+| `AppState` | `ilex-core/src/state/mod.rs` | Top-level state, owned by `main.rs`, passed to panes as `&AppState` |
+| `InstrumentState` | `ilex-core/src/state/instrument_state.rs` | Collection of instruments and selection state |
+| `SessionState` | `ilex-core/src/state/session.rs` | Global session data: buses, mixer, piano roll, automation |
+| `Instrument` | `ilex-core/src/state/instrument.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
+| `InstrumentId` | `ilex-core/src/state/instrument.rs` | `u32` — unique identifier for instruments |
+| `SourceType` | `ilex-core/src/state/instrument.rs` | Oscillator/Source types (Saw/Sin/etc, AudioIn, BusIn, PitchedSampler, Kit, Custom, VST) |
+| `Action` | `ilex-core/src/action.rs` | Action enum (re-exported in `src/ui/pane.rs`) |
+| `Pane` | `src/ui/pane.rs` | Trait: `id()`, `handle_action()`, `handle_raw_input()`, `handle_mouse()`, `render()`, `keymap()` |
+| `PaneManager` | `src/ui/pane.rs` | Owns all panes, manages active pane, coordinates input |
+| `AudioHandle` | `ilex-core/src/audio/handle.rs` | Main-thread interface; sends AudioCmd via MPSC channel to audio thread |
 
 ## Critical Patterns
 
@@ -57,16 +60,16 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture, stat
 
 ### Action Dispatch
 
-Panes return `Action` values from `handle_action()` / `handle_raw_input()`. `dispatch.rs` matches on them and mutates state. Panes never mutate state directly.
+Panes return `Action` values from `handle_action()` / `handle_raw_input()`. `ilex-core/src/dispatch/` matches on them and mutates state. Panes never mutate state directly.
 
 When adding a new action:
-1. Add variant to `Action` enum in `src/ui/pane.rs`
+1. Add variant to `Action` enum in `ilex-core/src/action.rs`
 2. Return it from the pane's `handle_action()` (or `handle_raw_input()` if it bypasses layers)
-3. Handle it in `dispatch::dispatch_action()` in `src/dispatch.rs`
+3. Handle it in `dispatch::dispatch_action()` in `ilex-core/src/dispatch/mod.rs`
 
 ### Navigation
 
-Pane switching uses function keys: `F1`=instrument, `F2`=piano roll / sequencer / waveform (context-driven), `F3`=track, `F4`=mixer, `F5`=server, `F6`=logo. `` ` ``/`~` for back/forward. `?` for context-sensitive help. `Ctrl+f` opens the frame settings.
+Pane switching uses function keys: `F1`=instrument, `F2`=piano roll / sequencer / waveform (context-driven), `F3`=track, `F4`=mixer, `F5`=server, `F6`=logo, `F7`=automation. `` ` ``/`~` for back/forward. `?` for context-sensitive help. `Ctrl+f` opens the frame settings.
 
 Number keys select instruments: `1`-`9` select instruments 1-9, `0` selects 10, `_` enters two-digit instrument selection.
 
@@ -116,7 +119,7 @@ TOML-based configuration system with embedded defaults and optional user overrid
 
 - **Musical defaults:** `config.toml` (embedded) + `~/.config/ilex/config.toml` (user override)
 - **Keybindings:** `keybindings.toml` (embedded) + `~/.config/ilex/keybindings.toml` (user override)
-- Config loading: `src/config.rs` — `Config::load()` parses embedded defaults, layers user overrides
+- Config loading: `ilex-core/src/config.rs` — `Config::load()` parses embedded defaults, layers user overrides
 - Keybinding loading: `src/ui/keybindings.rs` — same embedded + user override pattern
 - User override files are optional; missing fields fall back to embedded defaults
 
@@ -125,7 +128,7 @@ Musical defaults (`[defaults]` section): `bpm`, `key`, `scale`, `tuning_a4`, `ti
 ## Persistence
 
 - Format: SQLite database (`.ilex` / `.sqlite`)
-- Save/load: `save_project()` / `load_project()` in `src/state/persistence.rs`
+- Save/load: `save_project()` / `load_project()` in `ilex-core/src/state/persistence/mod.rs`
 - Default path: `~/.config/ilex/default.sqlite`
 - Persists: instruments, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs, drum sequencer, midi settings
 

@@ -1,6 +1,6 @@
 > **Status: Implemented**
 >
-> This plan has been implemented in `src/audio/engine.rs` (Option 2).
+> Implemented in `ilex-core/src/audio/engine/voices.rs` + `ilex-core/src/audio/engine/routing.rs` (Option 2). This document predates the strip/module refactor; read "module/strip" as "instrument".
 
 # Polyphonic Voice Allocation
 

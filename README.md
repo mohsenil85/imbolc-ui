@@ -7,7 +7,7 @@ ilex is a terminal-based digital audio workstation (DAW) built in Rust. The UI i
 ## Highlights
 
 - Instrument strips with a source, filter, FX chain, and output routing.
-- Built-in sources: Saw/Sine/Square/Triangle, Audio In, Bus In, Pitched Sampler, Kit (12-pad drum machine), plus custom SynthDefs.
+- Built-in sources: classic waves plus noise, pulse, supersaw, FM, phase mod, pluck, formant, gendy, chaos, additive, wavetable; Audio In, Bus In, Pitched Sampler, Kit (12-pad drum machine), custom SynthDefs, and VST instruments.
 - Filters: low-pass, high-pass, band-pass. Effects: delay, reverb, gate, tape comp, sidechain comp.
 - Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat, plus a step sequencer for kits and a sample chopper for slicing/assigning pads.
 - Mixer with level/pan/mute/solo, 8 buses, sends, and master control.
@@ -30,6 +30,13 @@ cargo run --release
 
 ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devices, compile/load synthdefs, or restart the server.
 
+## Low-latency timing
+
+- Dedicated audio thread ticks at ~1ms and never waits on UI render/input.
+- The sequencer converts tick offsets to seconds and sends OSC bundles with NTP timetags, so scsynth schedules notes sample-accurately ahead of time.
+- Jitter in the UI thread does not affect playback timing; the audio thread advances based on elapsed time and schedules notes accordingly.
+- Input polling runs at 2 ms and rendering at ~60 fps, but audio scheduling is not gated on either.
+
 ## UI tour
 
 - F1 - Instruments: list and manage instruments, press Enter to edit.
@@ -41,6 +48,7 @@ ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devi
 - F4 - Mixer: instrument and bus levels, sends, mute/solo.
 - F5 - Server: scsynth status, device selection, synthdef build/load, master recording.
 - F6 - Logo.
+- F7 - Automation: lanes and point editing.
 - Ctrl+f - Frame Edit: BPM, time signature, tuning, key/scale, snap.
 - ? - Context help for the active pane.
 - Ctrl+s / Ctrl+l - Save/load the default project.
@@ -74,12 +82,12 @@ ilex uses an MVU-inspired architecture adapted for a TUI with a dedicated audio 
 
 - AppState: single source of truth (SessionState, InstrumentState, and UI-related state).
 - Panes: stateless views that render from AppState and emit Action enums.
-- dispatch.rs: central event handler; mutates AppState and drives AudioHandle (command interface to the audio thread).
+- dispatch module (`ilex-core/src/dispatch`): central event handler; mutates AppState and drives AudioHandle (command interface to the audio thread).
 - AudioEngine: manages scsynth and mirrors InstrumentState into a concrete DSP graph. Runs on a dedicated audio thread, communicated via MPSC commands.
 
 ### Data flow
 
-User input -> Pane::handle_input -> Action -> dispatch -> mutate state / AudioHandle -> [MPSC channel] -> AudioThread -> send OSC -> render
+User input -> Pane::handle_action / Pane::handle_raw_input -> Action -> dispatch -> mutate state / AudioHandle -> [MPSC channel] -> AudioThread -> send OSC -> render
 
 ## Audio engine details
 
@@ -110,7 +118,7 @@ Source -> Filter -> FX Chain -> Output (Master or Bus)
 ### Modulation
 
 - SynthDefs expose *_mod_in inputs; LFOs write to control buses and are selected via `Select.kr` inside SynthDefs.
-- The audio engine currently wires LFOs to filter cutoff; additional targets are outlined in `src/state/instrument.rs`.
+- The audio engine currently wires LFOs to filter cutoff; additional targets are outlined in `ilex-core/src/state/instrument.rs`.
 
 ## Persistence
 

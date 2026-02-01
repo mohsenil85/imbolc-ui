@@ -8,44 +8,51 @@ For VST3 plans and UI targets, see `docs/vst3-support-roadmap.md`.
 All state lives in `AppState`, owned by `main.rs` and passed to panes by reference:
 
 ```rust
-// src/state/mod.rs
+// ilex-core/src/state/mod.rs
 pub struct AppState {
     pub session: SessionState,
     pub instruments: InstrumentState,
-    pub audio_in_waveform: Option<Vec<f32>>,
-    pub recorded_waveform: Option<Vec<f32>>,
     pub pending_recording_path: Option<PathBuf>,
     pub keyboard_layout: KeyboardLayout,
     pub recording: bool,
     pub recording_secs: u64,
+    pub automation_recording: bool,
 }
 ```
 
 `InstrumentState` (formerly StripState) contains the instruments:
 
 ```rust
-// src/state/instrument_state.rs
+// ilex-core/src/state/instrument_state.rs
 pub struct InstrumentState {
     pub instruments: Vec<Instrument>,
     pub selected: Option<usize>,
     pub next_id: InstrumentId,
     pub next_sampler_buffer_id: u32,
+    pub editing_instrument_id: Option<InstrumentId>,
 }
 ```
 
 `SessionState` contains global settings and other state:
 
 ```rust
-// src/state/session.rs
+// ilex-core/src/state/session.rs
 pub struct SessionState {
-    pub buses: Vec<MixerBus>,
-    pub master_level: f32,
-    pub master_mute: bool,
+    pub key: Key,
+    pub scale: Scale,
+    pub bpm: u16,
+    pub tuning_a4: f32,
+    pub snap: bool,
+    pub time_signature: (u8, u8),
     pub piano_roll: PianoRollState,
-    pub mixer_selection: MixerSelection,
     pub automation: AutomationState,
     pub midi_recording: MidiRecordingState,
     pub custom_synthdefs: CustomSynthDefRegistry,
+    pub vst_plugins: VstPluginRegistry,
+    pub buses: Vec<MixerBus>,
+    pub master_level: f32,
+    pub master_mute: bool,
+    pub mixer_selection: MixerSelection,
 }
 ```
 
@@ -54,11 +61,11 @@ pub struct SessionState {
 An `Instrument` (formerly Strip) is the fundamental unit — it combines what were previously separate rack modules (oscillator, filter, effects, output) into a single entity:
 
 ```rust
-// src/state/instrument.rs
+// ilex-core/src/state/instrument.rs
 pub struct Instrument {
     pub id: InstrumentId,
     pub name: String,
-    pub source: SourceType,        // Saw, Sin, Sqr, Tri, AudioIn, BusIn, PitchedSampler, Kit, Custom
+    pub source: SourceType,        // Saw/Sin/Sqr/Tri, Noise/Pulse/SuperSaw/etc, AudioIn, BusIn, PitchedSampler, Kit, Custom, VST
     pub source_params: Vec<Param>,
     pub filter: Option<FilterConfig>,
     pub effects: Vec<EffectSlot>,
@@ -121,6 +128,7 @@ is called only when the layer stack resolves a key to an action string; otherwis
 | `server` | `ServerPane` | `F5` | SuperCollider server status/control |
 | `track` | `TrackPane` | `F3` | Timeline overview (WIP) |
 | `logo` | `LogoPane` | `F6` | Logo splash |
+| `automation` | `AutomationPane` | `F7` | Automation lanes and point editing |
 | `waveform` | `WaveformPane` | `F2` (context) | Recorded/input waveform view |
 | `home` | `HomePane` | — | Welcome screen |
 | `add` | `AddPane` | — | Instrument creation menu |
@@ -134,8 +142,9 @@ is called only when the layer stack resolves a key to an action string; otherwis
 
 Panes communicate exclusively through `Action` values. A pane's `handle_action()` or
 `handle_raw_input()` returns an `Action`, which is dispatched by
-`dispatch::dispatch_action()` in `src/dispatch.rs`. This function receives
-`&mut AppState`, `&mut PaneManager`, `&mut AudioHandle`, etc. and can mutate anything.
+`dispatch::dispatch_action()` in `ilex-core/src/dispatch/mod.rs`. This function receives
+`&mut AppState` and `&mut AudioHandle`, mutates state, sends audio commands, and returns a
+`DispatchResult` (nav/status/audio-dirty) that `main.rs` applies.
 
 For cross-pane data passing (e.g., opening the editor with a specific instrument's data), the dispatch function uses `PaneManager::get_pane_mut::<T>()` to downcast and configure the target pane before switching to it.
 
@@ -166,23 +175,25 @@ User Input
   → Pane::handle_action(action, event, state) OR Pane::handle_raw_input(event, state)
   → returns Action
   → dispatch::dispatch_action() matches on Action
-  → mutates AppState / sends commands via AudioHandle / configures panes
+  → mutates AppState / sends commands via AudioHandle
+  → returns DispatchResult (quit/nav/status/audio_dirty)
+  → main.rs applies nav/status + audio flush
 ```
 
-The `dispatch_action()` function (`src/dispatch.rs`) handles all action variants. It returns `bool` — `true` means quit.
+The `dispatch_action()` function (`ilex-core/src/dispatch/mod.rs`) handles all action variants and returns a `DispatchResult` (including quit + nav intents).
 
 ## Audio Engine
 
-Located in `src/audio/`. Communicates with SuperCollider (scsynth) via OSC over UDP. `AudioEngine` runs on a dedicated audio thread; the main thread communicates with it via MPSC command/feedback channels through `AudioHandle`.
+Located in `ilex-core/src/audio/`. Communicates with SuperCollider (scsynth) via OSC over UDP. `AudioEngine` runs on a dedicated audio thread; the main thread communicates with it via MPSC command/feedback channels through `AudioHandle`.
 
 ### Key Components
 
-- `AudioHandle` (`handle.rs`) — main-thread interface; sends `AudioCmd` to audio thread, receives `AudioFeedback`
-- `AudioThread` (`handle.rs`) — dedicated thread; owns `AudioEngine`, runs tick loop at ~1ms resolution
-- `AudioCmd` / `AudioFeedback` (`commands.rs`) — command and feedback enums for cross-thread communication
-- `AudioEngine` (`engine.rs`) — manages synth nodes, bus allocation, routing, voice allocation (lives on audio thread)
-- `OscClient` (`osc_client.rs`) — OSC message/bundle sending
-- `BusAllocator` (`bus_allocator.rs`) — audio/control bus allocation
+- `AudioHandle` (`audio/handle.rs`) — main-thread interface; sends `AudioCmd` to audio thread, receives `AudioFeedback`
+- `AudioThread` (`audio/handle.rs`) — dedicated thread; owns `AudioEngine`, runs tick loop at ~1ms resolution
+- `AudioCmd` / `AudioFeedback` (`audio/commands.rs`) — command and feedback enums for cross-thread communication
+- `AudioEngine` (`audio/engine/mod.rs`) — manages synth nodes, bus allocation, routing, voice allocation (lives on audio thread)
+- `OscClient` (`audio/osc_client.rs`) — OSC message/bundle sending
+- `BusAllocator` (`audio/bus_allocator.rs`) — audio/control bus allocation
 
 ### SuperCollider Groups
 
@@ -198,6 +209,7 @@ GROUP_RECORD     = 400  — recording nodes
 Instruments map to SuperCollider nodes in two ways:
 1. **Persistent Nodes:** `AudioIn` and `BusIn` instruments have static source nodes.
 2. **Polyphonic Voices:** Oscillator and Sampler instruments spawn a new "voice chain" (group containing source + midi control node) for every note-on event.
+3. **VST Instruments:** Persistent node hosts the VSTPlugin UGen; note-on/off is sent via `/u_cmd` MIDI messages.
 
 Filters and effects are currently static per-instrument nodes (shared by all polyphonic voices), though the architecture allows for per-voice effects in the future.
 
@@ -212,7 +224,7 @@ Use bundles for timing-sensitive operations (note events). Individual messages a
 
 ## Playback Engine
 
-Lives on the dedicated audio thread (`AudioThread::tick_playback` in `handle.rs`), ticking at ~1ms resolution independently of the UI frame rate:
+Lives on the dedicated audio thread (`AudioThread::tick_playback` in `ilex-core/src/audio/handle.rs`), ticking at ~1ms resolution independently of the UI frame rate:
 
 1. Compute elapsed real time since last tick
 2. Convert to ticks: `seconds * (bpm / 60) * ticks_per_beat`
@@ -225,7 +237,7 @@ Tick resolution: 480 ticks per beat. Notes are sent as OSC bundles with NTP time
 
 ## Persistence
 
-SQLite database via `rusqlite`. Implementation in `src/state/persistence.rs`.
+SQLite database via `rusqlite`. Implementation in `ilex-core/src/state/persistence/`.
 
 ### What's Persisted
 
@@ -245,10 +257,11 @@ Comprehensive — the full state survives save/load:
 - Chopper state
 - MIDI recording settings and mappings
 - Custom synthdef registry (name, params, source path)
+- VST plugin registry (name, path, params)
 
 ### What's NOT Persisted
 
 - UI selection state (instrument selection, mixer selection) is partially saved in `session` table
 - Playback position
 - Audio engine state (rebuilt on connect)
-- Audio waveforms (regenerated on load/record)
+- Audio monitor waveforms (regenerated on load/record)

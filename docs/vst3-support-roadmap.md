@@ -12,7 +12,7 @@ Implemented in the Rust codebase and SC engine:
 
 - VSTPlugin wrapper SynthDefs exist: `synthdefs/compile_vst.scd` generates
   `ilex_vst_instrument` and `ilex_vst_effect`.
-- VST registry data model exists (`src/state/vst_plugin.rs`) and is persisted in
+- VST registry data model exists (`ilex-core/src/state/vst_plugin.rs`) and is persisted in
   SQLite (`vst_plugins`, `vst_plugin_params`).
 - Add pane can import a `.vst` / `.vst3` bundle as a VST instrument. The file
   browser treats bundle directories as selectable.

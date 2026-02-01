@@ -7,7 +7,7 @@ This document details the internal architecture of Ilex, focusing on the low-lat
 Ilex follows a strict separation of concerns between the **UI (Main Thread)** and the **Audio Engine (Audio Thread)**.
 
 *   **Main Thread:** Runs the TUI (Ratatui), handles user input, manages the "source of truth" `AppState`, and renders the interface.
-*   **Audio Thread:** A dedicated high-priority thread that runs the sequencer clock, manages the SuperCollider server (scsynth), and handles all real-time audio logic.
+*   **Audio Thread:** A dedicated thread that runs the sequencer clock, manages the SuperCollider server (scsynth), and handles all real-time audio logic.
 *   **SuperCollider (scsynth):** Runs as a subprocess. Performs the actual DSP (Digital Signal Processing). Communications happen via Open Sound Control (OSC) over UDP.
 
 ```mermaid
@@ -22,7 +22,7 @@ graph TD
 
 ## The Audio Thread & Low Latency
 
-The core of Ilex's timing stability lies in the `AudioThread` loop (`src/audio/handle.rs`).
+The core of Ilex's timing stability lies in the `AudioThread` loop (`ilex-core/src/audio/handle.rs`).
 
 ### 1. The Tick Loop
 The audio thread does not rely on the UI framerate. It runs a tight loop that:
@@ -40,13 +40,13 @@ To prevent audible jitter caused by the 1ms sleep interval or OS scheduling, Ile
 When a note is triggered:
 1.  The sequencer determines the note starts at `tick X`.
 2.  It calculates the exact offset in seconds from "now" (`ticks_from_now * secs_per_tick`).
-3.  It calls `osc_time_from_now(offset)` (`src/audio/osc_client.rs`), which computes an NTP timestamp (UTC).
+3.  It calls `osc_time_from_now(offset)` (`ilex-core/src/audio/osc_client.rs`), which computes an NTP timestamp (UTC).
 4.  This timestamp is attached to the OSC bundle sent to SuperCollider.
 
 **Result:** SuperCollider receives the message *before* the sound needs to play and schedules it for the *exact* sample frame requested. This yields sample-accurate timing independent of Rust thread jitter.
 
 ```rust
-// src/audio/osc_client.rs
+// ilex-core/src/audio/osc_client.rs
 pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)...;
     // Add offset and convert to NTP (1900 epoch)
@@ -59,7 +59,7 @@ pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
 State sharing is minimized to prevent locking on the critical path.
 
 ### Command / Feedback Pattern
-*   **Main -> Audio:** `Sender<AudioCmd>`. Commands like `SpawnVoice`, `UpdateState`, `SetBpm`. The audio thread has its own "shadow copy" of relevant state (`InstrumentSnapshot`, `SessionSnapshot`) which is updated via these commands. This avoids `Mutex` contention on complex state objects.
+*   **Main -> Audio:** `Sender<AudioCmd>`. Commands like `SpawnVoice`, `UpdateState`, `SetBpm`. The audio thread has its own "shadow copy" of relevant state (`InstrumentSnapshot`, `SessionSnapshot`, `PianoRollSnapshot`, `AutomationSnapshot`) which is updated via these commands. This avoids `Mutex` contention on complex state objects.
 *   **Audio -> Main:** `Sender<AudioFeedback>`. Events like `PlayheadPosition`, `ServerStatus`, `RecordingState`. The main thread drains this queue every frame to update the UI.
 
 ### Shared Monitoring State
@@ -72,7 +72,7 @@ For high-frequency visual data (meters, waveforms) where occasional dropped fram
 Ilex acts as a "driver" for `scsynth`.
 
 ### Node Management
-The `AudioEngine` (`src/audio/engine/mod.rs`) maps high-level Ilex concepts to SuperCollider nodes.
+The `AudioEngine` (`ilex-core/src/audio/engine/mod.rs`) maps high-level Ilex concepts to SuperCollider nodes.
 
 *   **Instruments:** Represented by a group of nodes. Static nodes (like Filters/FX on a track) are always running.
 *   **Voices:** Polyphonic notes spawn temporary "Voice Chains" (Source -> Envelope). These are dynamic and managed via a voice allocator.
@@ -90,7 +90,7 @@ Synth definitions (`.scsyndef`) are compiled from SuperCollider source files (`s
 
 ## Key Files Guide
 
-*   `src/audio/handle.rs`: The `AudioThread` loop and `AudioHandle` interface.
-*   `src/audio/osc_client.rs`: UDP socket management and NTP timestamp calculation.
-*   `src/audio/engine/mod.rs`: The central `AudioEngine` struct managing the server state.
-*   `src/dispatch/`: Handles converting UI actions into `AudioCmd`s.
+*   `ilex-core/src/audio/handle.rs`: The `AudioThread` loop and `AudioHandle` interface.
+*   `ilex-core/src/audio/osc_client.rs`: UDP socket management and NTP timestamp calculation.
+*   `ilex-core/src/audio/engine/mod.rs`: The central `AudioEngine` struct managing the server state.
+*   `ilex-core/src/dispatch/`: Handles converting UI actions into `AudioCmd`s.

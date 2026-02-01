@@ -1,10 +1,10 @@
-> **Status: Implemented**
+> **Status: Partially implemented**
 >
-> All targets listed below have been implemented in `src/state/strip.rs` (LfoTarget enum) and wired up in `src/audio/engine.rs`.
+> The `LfoTarget` enum lives in `ilex-core/src/state/instrument.rs`. Only `FilterCutoff` is wired today (in `ilex-core/src/audio/engine/routing.rs`); the remaining targets are defined but not yet routed.
 
 # LFO Target Implementation Plan
 
-This document outlines how to wire up each of the 15 LFO targets defined in `src/state/strip.rs`.
+This document outlines how to wire up each of the 15 LFO targets defined in `ilex-core/src/state/instrument.rs`.
 
 ## Current Status
 
@@ -29,13 +29,13 @@ SynthDef(\ilex_example, { |out=1024, some_param=0.5, some_param_mod_in=(-1)|
 }).writeDefFile(dir);
 ```
 
-### 2. Rust Audio Engine (src/audio/engine.rs)
+### 2. Rust Audio Engine (ilex-core/src/audio/engine/routing.rs)
 
-In `rebuild_strip_routing()`, connect the LFO bus to the target:
+In `rebuild_instrument_routing()`, connect the LFO bus to the target:
 
 ```rust
 // When spawning the target synth, check if LFO targets it
-if strip.lfo.enabled && strip.lfo.target == LfoTarget::SomeParam {
+if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::SomeParam {
     if let Some(bus) = lfo_control_bus {
         params.push(("some_param_mod_in".to_string(), bus as f32));
     }
@@ -226,7 +226,7 @@ var sig = Pulse.ar(freqSig, finalWidth) * amp * velSig;
 
 ## Rust Wiring Pattern
 
-In `src/audio/engine.rs`, the `rebuild_strip_routing()` function spawns synths. For each target:
+In `ilex-core/src/audio/engine/routing.rs`, the `rebuild_instrument_routing()` function spawns synths. For each target:
 
 ```rust
 // Example: Adding amplitude modulation to oscillators
@@ -273,7 +273,7 @@ For targets that affect multiple synth types (like Amplitude affecting all oscil
 
 For each target:
 
-1. Create a strip with appropriate source (e.g., square wave for PulseWidth)
+1. Create an instrument with appropriate source (e.g., square wave for PulseWidth)
 2. Enable LFO, set target
 3. Start with slow rate (0.5 Hz), moderate depth (0.5)
 4. Play notes and verify modulation is audible
@@ -319,7 +319,7 @@ Some parameters have different ranges:
 The LFO depth should be scaled appropriately. Currently, depth is 0-1 and the mod signal is -depth to +depth. Targets may need internal scaling.
 
 ### Per-Voice vs Global
-Currently LFO is per-strip, affecting all voices. For per-voice LFO (each note gets its own), we'd need to spawn LFO synths per voice. That's a larger architectural change - defer for now.
+Currently LFO is per-instrument, affecting all voices. For per-voice LFO (each note gets its own), we'd need to spawn LFO synths per voice. That's a larger architectural change - defer for now.
 
 ---
 
@@ -329,10 +329,10 @@ For each target, update:
 
 - [ ] `synthdefs/compile.scd` - Add `*_mod_in` param to relevant SynthDef(s)
 - [ ] Run compile.scd in SuperCollider to regenerate .scsyndef files
-- [ ] `src/audio/engine.rs` - Wire LFO bus when target matches
+- [ ] `ilex-core/src/audio/engine/routing.rs` - Wire LFO bus when target matches
 - [ ] Test with actual audio
 
 No changes needed to:
-- `src/state/strip.rs` - Targets already defined
-- `src/panes/strip_edit_pane.rs` - UI already shows all targets
-- `src/state/persistence.rs` - Already saves/loads all targets
+- `ilex-core/src/state/instrument.rs` - Targets already defined
+- `src/panes/instrument_edit_pane` - UI already shows all targets
+- `ilex-core/src/state/persistence/mod.rs` - Already saves/loads all targets

@@ -32,9 +32,10 @@ save_project(path, session, instruments)
   14. save_sampler_configs     — sampler_configs + sampler_slices
   15. save_automation          — automation_lanes + automation_points
   16. save_custom_synthdefs    — custom_synthdefs + custom_synthdef_params
-  17. save_drum_sequencers     — drum_pads + drum_patterns + drum_steps
-  18. save_chopper_states      — chopper_states + chopper_slices
-  19. save_midi_recording      — midi_recording_settings + midi_cc_mappings + midi_pitch_bend_configs
+  17. save_vst_plugins         — vst_plugins + vst_plugin_params
+  18. save_drum_sequencers     — drum_pads + drum_patterns + drum_steps
+  19. save_chopper_states      — chopper_states + chopper_slices
+  20. save_midi_recording      — midi_recording_settings + midi_cc_mappings + midi_pitch_bend_configs
 ```
 
 Load is the reverse. Playback state (`playing`, `playhead`, `current_step`, `step_accumulator`) is intentionally transient and resets on load.
@@ -214,6 +215,27 @@ CREATE TABLE sampler_slices (
     name TEXT NOT NULL,
     root_note INTEGER NOT NULL,
     PRIMARY KEY (instrument_id, slice_id)
+);
+```
+
+### VST Plugins
+
+```sql
+CREATE TABLE vst_plugins (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    plugin_path TEXT NOT NULL,
+    kind TEXT NOT NULL
+);
+
+CREATE TABLE vst_plugin_params (
+    plugin_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    param_index INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    default_val REAL NOT NULL,
+    PRIMARY KEY (plugin_id, position),
+    FOREIGN KEY (plugin_id) REFERENCES vst_plugins(id)
 );
 ```
 

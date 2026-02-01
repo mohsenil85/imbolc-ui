@@ -23,6 +23,7 @@ document as a guide to intent and conventions, not an exhaustive list.
 | `F4` | Mixer |
 | `F5` | Server |
 | `F6` | Logo |
+| `F7` | Automation |
 | `` ` `` / `~` | Back / Forward |
 | `Ctrl+f` | Frame edit (session settings) |
 | `?` | Context help |
