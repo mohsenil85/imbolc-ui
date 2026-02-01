@@ -8,6 +8,41 @@ use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 /// Maximum number of waveform samples to keep per audio input instrument
 const WAVEFORM_BUFFER_SIZE: usize = 100;
 
+/// Shared meter + waveform data accessible from both threads.
+#[derive(Clone, Default)]
+pub struct AudioMonitor {
+    meter_data: Arc<Mutex<(f32, f32)>>,
+    audio_in_waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
+}
+
+impl AudioMonitor {
+    pub fn new() -> Self {
+        Self {
+            meter_data: Arc::new(Mutex::new((0.0_f32, 0.0_f32))),
+            audio_in_waveforms: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn meter_peak(&self) -> (f32, f32) {
+        self.meter_data
+            .lock()
+            .map(|data| *data)
+            .unwrap_or((0.0, 0.0))
+    }
+
+    pub fn audio_in_waveform(&self, instrument_id: u32) -> Vec<f32> {
+        self.audio_in_waveforms
+            .lock()
+            .map(|waveforms| {
+                waveforms
+                    .get(&instrument_id)
+                    .map(|buffer| buffer.iter().copied().collect())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default()
+    }
+}
+
 pub struct OscClient {
     socket: UdpSocket,
     server_addr: String,
@@ -182,9 +217,14 @@ fn handle_osc_packet(
 
 impl OscClient {
     pub fn new(server_addr: &str) -> std::io::Result<Self> {
+        let monitor = AudioMonitor::new();
+        Self::new_with_monitor(server_addr, monitor)
+    }
+
+    pub fn new_with_monitor(server_addr: &str, monitor: AudioMonitor) -> std::io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
-        let meter_data = Arc::new(Mutex::new((0.0_f32, 0.0_f32)));
-        let audio_in_waveforms = Arc::new(Mutex::new(HashMap::new()));
+        let meter_data = Arc::clone(&monitor.meter_data);
+        let audio_in_waveforms = Arc::clone(&monitor.audio_in_waveforms);
 
         // Clone socket for receive thread
         let recv_socket = socket.try_clone()?;
@@ -214,6 +254,14 @@ impl OscClient {
             audio_in_waveforms,
             _recv_thread: Some(handle),
         })
+    }
+
+    #[allow(dead_code)]
+    pub fn monitor(&self) -> AudioMonitor {
+        AudioMonitor {
+            meter_data: Arc::clone(&self.meter_data),
+            audio_in_waveforms: Arc::clone(&self.audio_in_waveforms),
+        }
     }
 
     /// Get current peak levels (left, right) from the meter synth

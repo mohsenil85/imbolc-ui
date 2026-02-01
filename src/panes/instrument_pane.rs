@@ -11,10 +11,11 @@ use crate::ui::{Action, NavAction, InstrumentAction, SessionAction, Color, Input
 
 fn source_color(source: SourceType) -> Color {
     match source {
-        SourceType::Saw => Color::OSC_COLOR,
-        SourceType::Sin => Color::OSC_COLOR,
-        SourceType::Sqr => Color::OSC_COLOR,
-        SourceType::Tri => Color::OSC_COLOR,
+        SourceType::Saw | SourceType::Sin | SourceType::Sqr | SourceType::Tri
+        | SourceType::Noise | SourceType::Pulse | SourceType::SuperSaw | SourceType::Sync
+        | SourceType::Ring | SourceType::FBSin | SourceType::FM | SourceType::PhaseMod
+        | SourceType::Pluck | SourceType::Formant | SourceType::Gendy | SourceType::Chaos
+        | SourceType::Additive | SourceType::Wavetable => Color::OSC_COLOR,
         SourceType::AudioIn => Color::AUDIO_IN_COLOR,
         SourceType::PitchedSampler => Color::SAMPLE_COLOR,
         SourceType::Kit => Color::KIT_COLOR,

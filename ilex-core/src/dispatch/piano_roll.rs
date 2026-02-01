@@ -14,8 +14,10 @@ pub(super) fn dispatch_piano_roll(
         PianoRollAction::PlayStop => {
             let pr = &mut state.session.piano_roll;
             pr.playing = !pr.playing;
+            audio.set_playing(pr.playing);
             if !pr.playing {
                 pr.playhead = 0;
+                audio.reset_playhead();
                 if audio.is_running() {
                     audio.release_all_voices();
                 }
@@ -30,12 +32,15 @@ pub(super) fn dispatch_piano_roll(
             if !is_playing {
                 // Start playing + recording
                 state.session.piano_roll.playing = true;
+                audio.set_playing(true);
                 state.session.piano_roll.recording = true;
             } else {
                 // Stop playing + recording
                 let pr = &mut state.session.piano_roll;
                 pr.playing = false;
                 pr.playhead = 0;
+                audio.set_playing(false);
+                audio.reset_playhead();
                 if audio.is_running() {
                     audio.release_all_voices();
                 }

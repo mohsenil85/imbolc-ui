@@ -7,3 +7,4 @@ pub mod osc_client;
 
 pub use engine::{AudioEngine, ServerStatus};
 pub use handle::AudioHandle;
+pub use osc_client::AudioMonitor;

@@ -45,7 +45,7 @@ pub fn dispatch_action(
     state: &mut AppState,
     audio: &mut AudioHandle,
 ) -> DispatchResult {
-    match action {
+    let result = match action {
         Action::Quit => DispatchResult::with_quit(),
         Action::Nav(_) => DispatchResult::none(), // Handled by PaneManager
         Action::Instrument(a) => instrument::dispatch_instrument(a, state, audio),
@@ -59,5 +59,19 @@ pub fn dispatch_action(
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),
+    };
+
+    match action {
+        Action::Nav(_)
+        | Action::None
+        | Action::ExitPerformanceMode
+        | Action::PushLayer(_)
+        | Action::PopLayer(_)
+        | Action::Quit => {}
+        _ => {
+            audio.sync_state(state);
+        }
     }
+
+    result
 }

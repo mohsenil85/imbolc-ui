@@ -101,13 +101,15 @@ a command layer.
 **Files:** created `src/audio/commands.rs`, `src/audio/handle.rs`;
 modified `src/dispatch.rs`, `src/main.rs`, `src/audio/mod.rs`
 
-### Phase 2: Move playback into AudioHandle [IN PROGRESS]
-Move `tick_playback` and `tick_drum_sequencer` behind the AudioHandle
-interface. Move `active_notes` into AudioHandle. Introduce feedback
-for playhead/BPM/drum steps. Remove direct playback calls from main
-loop.
+### Phase 2: Move playback into AudioHandle [DONE]
+Moved `tick_playback` and `tick_drum_sequencer` into `AudioHandle` as
+private methods, exposed via `AudioHandle::tick()`. Moved
+`active_notes` into `AudioHandle`. Eliminated `src/playback.rs`.
+Main loop now calls only `audio.tick(&mut state, elapsed)`. Feedback
+types (`AudioFeedback`) defined but not yet wired -- channel plumbing
+deferred to Phase 3.
 
-**Files:** `src/audio/handle.rs`, `src/main.rs`, `src/playback.rs`,
+**Files:** `src/audio/handle.rs`, `src/main.rs`,
 `src/dispatch/mod.rs`, `src/dispatch/instrument.rs`,
 `src/dispatch/piano_roll.rs`
 

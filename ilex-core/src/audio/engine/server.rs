@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::{AudioEngine, ServerStatus, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, GROUP_RECORD};
-use crate::audio::osc_client::OscClient;
+use crate::audio::osc_client::{AudioMonitor, OscClient};
 
 impl AudioEngine {
     #[allow(dead_code)]
@@ -227,6 +227,15 @@ impl AudioEngine {
 
     pub fn connect(&mut self, server_addr: &str) -> std::io::Result<()> {
         let client = OscClient::new(server_addr)?;
+        client.send_message("/notify", vec![rosc::OscType::Int(1)])?;
+        self.client = Some(Box::new(client));
+        self.is_running = true;
+        self.server_status = ServerStatus::Connected;
+        Ok(())
+    }
+
+    pub fn connect_with_monitor(&mut self, server_addr: &str, monitor: AudioMonitor) -> std::io::Result<()> {
+        let client = OscClient::new_with_monitor(server_addr, monitor)?;
         client.send_message("/notify", vec![rosc::OscType::Int(1)])?;
         self.client = Some(Box::new(client));
         self.is_running = true;

@@ -53,6 +53,167 @@ SynthDef(\ilex_tri, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=4
     Out.ar(out, (sig * env) ! 2);
 }).writeDefFile(dir);
 
+// Noise — White/Pink/Brown/Crackle/Dust selectable via color param
+SynthDef(\ilex_noise, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, color=0, density=20, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var sig = Select.ar(color, [WhiteNoise.ar, PinkNoise.ar, BrownNoise.ar, Crackle.ar(1.5), Dust.ar(density)]);
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * amp * velSig * env) ! 2);
+}).writeDefFile(dir);
+
+// Pulse — Variable pulse width oscillator (PWM)
+SynthDef(\ilex_pulse, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, width=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var sig = Pulse.ar(freqSig, width) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// SuperSaw — 7x detuned saw stack spread stereo
+SynthDef(\ilex_supersaw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, detune=0.3, mix=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var center = Saw.ar(freqSig);
+    var detuneAmt = detune * 0.02; // max ~2% detune
+    var detuned = Array.fill(6, { |i|
+        var offset = ((i - 2.5) / 2.5) * detuneAmt;
+        Saw.ar(freqSig * (1 + offset));
+    });
+    var spread = Splay.ar(detuned);
+    var sig = ((center * (1 - mix)) + (spread * mix)) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, sig * env);
+}).writeDefFile(dir);
+
+// Sync — Hard-sync oscillator
+SynthDef(\ilex_sync, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, sync_ratio=2.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var sig = SyncSaw.ar(freqSig, freqSig * sync_ratio) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Ring — Ring modulator (carrier × modulator)
+SynthDef(\ilex_ring, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, mod_ratio=2.0, mod_depth=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var carrier = SinOsc.ar(freqSig);
+    var modulator = SinOsc.ar(freqSig * mod_ratio);
+    var sig = ((carrier * (1 - mod_depth)) + (carrier * modulator * mod_depth)) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// FBSin — Self-modulating feedback sine
+SynthDef(\ilex_fbsin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, feedback=0.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var sig = SinOscFB.ar(freqSig, feedback) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// FM — 2-operator FM synthesis (DX7 style)
+SynthDef(\ilex_fm, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, ratio=2.0, index=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var modFreq = freqSig * ratio;
+    var modulator = SinOsc.ar(modFreq) * index * freqSig;
+    var sig = SinOsc.ar(freqSig + modulator) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// PhaseMod — Phase distortion synthesis (Casio CZ style)
+SynthDef(\ilex_phasemod, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, ratio=2.0, index=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var modulator = SinOsc.ar(freqSig * ratio) * index;
+    var sig = SinOsc.ar(freqSig, modulator) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Pluck — Karplus-Strong string synthesis
+SynthDef(\ilex_pluck, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, decay=2.0, coef=0.3, attack=0.01, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var maxDelay = 20.reciprocal; // 20 Hz lowest pitch
+    var sig = Pluck.ar(WhiteNoise.ar, gateSig, maxDelay, freqSig.reciprocal, decay, coef) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, 0.0, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Formant — Vocal formant synthesis
+SynthDef(\ilex_formant, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, formant=800, bw=200, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var sig = Formant.ar(freqSig, formant, bw) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Gendy — Xenakis dynamic stochastic synthesis
+SynthDef(\ilex_gendy, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, ampdist=1, durdist=1, minfreq=100, maxfreq=1000, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var sig = Gendy1.ar(ampdist, durdist, 1.0, 1.0, minfreq, maxfreq) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Chaos — Chaotic attractor oscillators (Henon/Lorenz)
+SynthDef(\ilex_chaos, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, model=0, chaos_freq=8000, chaos_param=1.3, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var henon = HenonN.ar(chaos_freq, chaos_param, 0.3);
+    var lorenz = LorenzL.ar(chaos_freq, chaos_param.linlin(0, 2, 8, 14));
+    var sig = Select.ar(model, [henon, lorenz]) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Additive — Harmonic series synthesis
+SynthDef(\ilex_additive, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, harmonics=8, rolloff=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    // Build 32 harmonics, gate amplitude on whether index < harmonics
+    var sig = Mix.fill(32, { |i|
+        var n = i + 1;
+        var harmAmp = (n <= harmonics) * (n ** rolloff.neg);
+        SinOsc.ar(freqSig * n, 0, harmAmp);
+    });
+    sig = sig * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
+// Wavetable — Morphing wavetable oscillator using VOsc
+SynthDef(\ilex_wavetable, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, position=0.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+    var freqSig = Select.kr(freq_in >= 0, [freq, In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    // VOsc morphs between adjacent buffer pairs; position 0-1 maps to bufnum range
+    // Expects wavetable buffers loaded at bufnums 100-107 (8 tables)
+    var bufpos = position.linlin(0, 1, 100, 106.99);
+    var sig = VOsc.ar(bufpos, freqSig) * amp * velSig;
+    var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    Out.ar(out, (sig * env) ! 2);
+}).writeDefFile(dir);
+
 // ============================================================================
 // Audio Input - Live audio from hardware input
 // ============================================================================

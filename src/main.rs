@@ -14,6 +14,7 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioHandle;
+use audio::commands::AudioFeedback;
 use panes::{AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
@@ -77,8 +78,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     layer_stack.set_pane_layer(panes.active().id());
 
     let mut audio = AudioHandle::new();
+    audio.sync_state(&state);
     let mut app_frame = Frame::new();
-    let mut last_frame_time = Instant::now();
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
 
@@ -207,42 +208,54 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame);
         }
 
-        // Poll for background compile completion
-        if let Some(result) = audio.poll_compile_result() {
-            if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
-                match result {
-                    Ok(msg) => server.set_status(audio.status(), &msg),
-                    Err(e) => server.set_status(audio.status(), &e),
+        // Drain audio feedback
+        for feedback in audio.drain_feedback() {
+            match feedback {
+                AudioFeedback::PlayheadPosition(playhead) => {
+                    state.session.piano_roll.playhead = playhead;
                 }
-            }
-        }
-
-        // Check scsynth process health
-        if let Some(msg) = audio.check_server_health() {
-            if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
-                server.set_status(audio.status(), &msg);
-                server.set_server_running(false);
-            }
-        }
-
-        // Piano roll playback tick
-        {
-            let now = Instant::now();
-            let elapsed = now.duration_since(last_frame_time);
-            last_frame_time = now;
-            audio.tick(&mut state, elapsed);
-        }
-
-        // Deferred recording buffer free + waveform load
-        // Wait for scsynth to flush the WAV file before reading it
-        if audio.poll_pending_buffer_free() {
-            if let Some(path) = state.pending_recording_path.take() {
-                let peaks = dispatch::compute_waveform_peaks(&path.to_string_lossy()).0;
-                if !peaks.is_empty() {
-                    if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
-                        wf.recorded_waveform = Some(peaks);
+                AudioFeedback::BpmUpdate(bpm) => {
+                    state.session.piano_roll.bpm = bpm;
+                }
+                AudioFeedback::DrumSequencerStep { instrument_id, step } => {
+                    if let Some(inst) = state.instruments.instrument_mut(instrument_id) {
+                        if let Some(seq) = inst.drum_sequencer.as_mut() {
+                            seq.current_step = step;
+                            seq.last_played_step = Some(step);
+                        }
                     }
-                    panes.switch_to("waveform", &state);
+                }
+                AudioFeedback::ServerStatus { status, message, server_running } => {
+                    if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                        server.set_status(status, &message);
+                        server.set_server_running(server_running);
+                    }
+                }
+                AudioFeedback::RecordingState { is_recording, elapsed_secs } => {
+                    state.recording = is_recording;
+                    state.recording_secs = elapsed_secs;
+                }
+                AudioFeedback::RecordingStopped(path) => {
+                    state.pending_recording_path = Some(path);
+                }
+                AudioFeedback::CompileResult(result) => {
+                    if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                        match result {
+                            Ok(msg) => server.set_status(audio.status(), &msg),
+                            Err(e) => server.set_status(audio.status(), &e),
+                        }
+                    }
+                }
+                AudioFeedback::PendingBufferFreed => {
+                    if let Some(path) = state.pending_recording_path.take() {
+                        let peaks = dispatch::compute_waveform_peaks(&path.to_string_lossy()).0;
+                        if !peaks.is_empty() {
+                            if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
+                                wf.recorded_waveform = Some(peaks);
+                            }
+                            panes.switch_to("waveform", &state);
+                        }
+                    }
                 }
             }
         }
