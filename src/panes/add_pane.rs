@@ -21,6 +21,7 @@ pub enum AddOption {
 pub struct AddPane {
     keymap: Keymap,
     selected: usize,
+    scroll_offset: usize,
     /// Cached options list - rebuilt on each render_with_registry call
     cached_options: Vec<AddOption>,
 }
@@ -30,6 +31,7 @@ impl AddPane {
         Self {
             keymap,
             selected: 0,
+            scroll_offset: 0,
             cached_options: Self::build_options_static(),
         }
     }
@@ -91,6 +93,7 @@ impl AddPane {
     /// Update cached options from registries
     pub fn update_options(&mut self, custom_registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) {
         self.cached_options = self.build_options(custom_registry, vst_registry);
+        self.scroll_offset = 0;
         // Clamp selection
         if self.selected >= self.cached_options.len() {
             self.selected = self.cached_options.len().saturating_sub(1);
@@ -110,6 +113,7 @@ impl AddPane {
             next = (next + 1) % len;
         }
         self.selected = next;
+        self.adjust_scroll();
     }
 
     /// Move to previous selectable item
@@ -129,6 +133,23 @@ impl AddPane {
             prev = if prev == 0 { len - 1 } else { prev - 1 };
         }
         self.selected = prev;
+        self.adjust_scroll();
+    }
+
+    /// Adjust scroll_offset so the selected item stays visible.
+    /// Uses the dialog's fixed height (29) to estimate visible rows.
+    fn adjust_scroll(&mut self) {
+        // Dialog is 29 tall, border=1 each side, padding=1 top, title line, gap = list starts at +5
+        // Bottom border + help line + gap = 3 rows reserved at bottom
+        // visible_rows ≈ 29 - 2 (borders) - 1 (padding) - 1 (title) - 1 (gap) - 2 (help+border) = ~22
+        // But the exact value is computed in render from inner rect.
+        // Use a conservative estimate here; render will correct if needed.
+        let visible_rows = 22usize;
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        } else if self.selected >= self.scroll_offset + visible_rows {
+            self.scroll_offset = self.selected - visible_rows + 1;
+        }
     }
 
     /// Render with registries for custom synthdef and VST plugin names
@@ -155,12 +176,31 @@ impl AddPane {
         let list_y = content_y + 2;
         let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
 
-        for (i, option) in self.cached_options.iter().enumerate() {
-            let y = list_y + i as u16;
-            if y >= inner.y + inner.height {
-                break;
+        // Scroll offset: keep selected item visible
+        let visible_rows = (inner.y + inner.height).saturating_sub(list_y) as usize;
+        let mut eff_scroll = self.scroll_offset;
+        if self.selected < eff_scroll {
+            eff_scroll = self.selected;
+        } else if visible_rows > 0 && self.selected >= eff_scroll + visible_rows {
+            eff_scroll = self.selected - visible_rows + 1;
+        }
+
+        // Scroll indicator: items hidden above
+        if eff_scroll > 0 {
+            let arrow_y = list_y.saturating_sub(1);
+            if arrow_y >= inner.y {
+                let arrow_x = inner.x + inner.width.saturating_sub(2);
+                if let Some(cell) = buf.cell_mut((arrow_x, arrow_y)) {
+                    cell.set_char('▲').set_style(
+                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
+                    );
+                }
             }
-            let is_selected = i == self.selected;
+        }
+
+        for (i, option) in self.cached_options.iter().skip(eff_scroll).take(visible_rows).enumerate() {
+            let y = list_y + i as u16;
+            let is_selected = eff_scroll + i == self.selected;
 
             match option {
                 AddOption::Separator(label) => {
@@ -282,6 +322,19 @@ impl AddPane {
             }
         }
 
+        // Scroll indicator: items hidden below
+        if eff_scroll + visible_rows < self.cached_options.len() {
+            let arrow_y = list_y + visible_rows as u16;
+            if arrow_y < inner.y + inner.height {
+                let arrow_x = inner.x + inner.width.saturating_sub(2);
+                if let Some(cell) = buf.cell_mut((arrow_x, arrow_y)) {
+                    cell.set_char('▼').set_style(
+                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
+                    );
+                }
+            }
+        }
+
         // Help text
         let help_y = rect.y + rect.height - 2;
         if help_y < area.y + area.height {
@@ -347,12 +400,13 @@ impl Pane for AddPane {
         let inner_y = rect.y + 2;
         let content_y = inner_y + 1;
         let list_y = content_y + 2;
+        let visible_rows = (rect.y + rect.height).saturating_sub(1).saturating_sub(list_y) as usize;
 
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let row = event.row;
-                if row >= list_y {
-                    let idx = (row - list_y) as usize;
+                if row >= list_y && (row - list_y) < visible_rows as u16 {
+                    let idx = self.scroll_offset + (row - list_y) as usize;
                     if idx < self.cached_options.len() {
                         // Skip separators
                         if matches!(self.cached_options.get(idx), Some(AddOption::Separator(_))) {
