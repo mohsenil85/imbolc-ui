@@ -844,6 +844,29 @@ impl AudioThread {
 
     fn poll_engine(&mut self) {
         if let Some(result) = self.engine.poll_compile_result() {
+            let result = match result {
+                Ok(msg) => {
+                    // Auto-reload synthdefs after successful compile
+                    let mut reload_msg = msg;
+                    let builtin_dir = Path::new("synthdefs");
+                    if builtin_dir.exists() {
+                        match self.engine.load_synthdefs(builtin_dir) {
+                            Ok(()) => reload_msg += " — reloaded",
+                            Err(e) => reload_msg += &format!(" — reload failed: {e}"),
+                        }
+                    }
+                    // Also reload custom synthdefs from config dir
+                    if let Some(home) = std::env::var_os("HOME") {
+                        let config_dir = std::path::PathBuf::from(home)
+                            .join(".config/ilex/synthdefs");
+                        if config_dir.exists() {
+                            let _ = self.engine.load_synthdefs(&config_dir);
+                        }
+                    }
+                    Ok(reload_msg)
+                }
+                Err(e) => Err(e),
+            };
             let _ = self.feedback_tx.send(AudioFeedback::CompileResult(result));
         }
 

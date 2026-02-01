@@ -167,6 +167,14 @@ impl AudioEngine {
             return Err(format!("File not found: {}", scd_path.display()));
         }
 
+        if Self::synthdefs_are_fresh(scd_path) {
+            let (tx, rx) = mpsc::channel();
+            self.compile_receiver = Some(rx);
+            self.is_compiling = true;
+            let _ = tx.send(Ok("Synthdefs up-to-date, skipped compilation".to_string()));
+            return Ok(());
+        }
+
         let path = scd_path.to_path_buf();
         let (tx, rx) = mpsc::channel();
         self.compile_receiver = Some(rx);
@@ -178,6 +186,42 @@ impl AudioEngine {
         });
 
         Ok(())
+    }
+
+    /// Check if all `.scsyndef` files in the same directory as `scd_path` are
+    /// newer than `scd_path` itself. Returns `true` if compilation can be skipped.
+    fn synthdefs_are_fresh(scd_path: &Path) -> bool {
+        let dir = match scd_path.parent() {
+            Some(d) => d,
+            None => return false,
+        };
+
+        let scd_mtime = match fs::metadata(scd_path).and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+
+        let mut found_any = false;
+        let entries = match fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "scsyndef") {
+                found_any = true;
+                let def_mtime = match fs::metadata(&path).and_then(|m| m.modified()) {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+                if def_mtime <= scd_mtime {
+                    return false;
+                }
+            }
+        }
+
+        found_any
     }
 
     pub fn poll_compile_result(&mut self) -> Option<Result<String, String>> {
