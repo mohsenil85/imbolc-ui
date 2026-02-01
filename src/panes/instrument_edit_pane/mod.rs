@@ -12,7 +12,7 @@ use crate::state::{
     Param, SourceType,
 };
 use crate::ui::widgets::TextInput;
-use crate::ui::{Action, InputEvent, Keymap, MouseEvent, Pane, PianoKeyboard, ToggleResult};
+use crate::ui::{Action, InputEvent, Keymap, MouseEvent, PadKeyboard, Pane, PianoKeyboard, ToggleResult};
 
 /// Which section a row belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +41,7 @@ pub struct InstrumentEditPane {
     editing: bool,
     edit_input: TextInput,
     piano: PianoKeyboard,
+    pad_keyboard: PadKeyboard,
 }
 
 impl InstrumentEditPane {
@@ -62,10 +63,10 @@ impl InstrumentEditPane {
             editing: false,
             edit_input: TextInput::new(""),
             piano: PianoKeyboard::new(),
+            pad_keyboard: PadKeyboard::new(),
         }
     }
 
-    #[allow(dead_code)]
     pub fn set_instrument(&mut self, instrument: &Instrument) {
         self.instrument_id = Some(instrument.id);
         self.instrument_name = instrument.name.clone();
@@ -216,14 +217,28 @@ impl Pane for InstrumentEditPane {
         &self.keymap
     }
 
-    fn toggle_performance_mode(&mut self, _state: &AppState) -> ToggleResult {
-        if self.piano.is_active() {
+    fn on_enter(&mut self, state: &AppState) {
+        if let Some(inst) = state.instruments.selected_instrument() {
+            self.set_instrument(inst);
+        }
+    }
+
+    fn toggle_performance_mode(&mut self, state: &AppState) -> ToggleResult {
+        if self.pad_keyboard.is_active() {
+            self.pad_keyboard.deactivate();
+            ToggleResult::Deactivated
+        } else if self.piano.is_active() {
             self.piano.handle_escape();
             if self.piano.is_active() {
                 ToggleResult::CycledLayout
             } else {
                 ToggleResult::Deactivated
             }
+        } else if state.instruments.selected_instrument()
+            .map_or(false, |s| s.source.is_kit())
+        {
+            self.pad_keyboard.activate();
+            ToggleResult::ActivatedPad
         } else {
             self.piano.activate();
             ToggleResult::ActivatedPiano
@@ -232,10 +247,17 @@ impl Pane for InstrumentEditPane {
 
     fn activate_piano(&mut self) {
         if !self.piano.is_active() { self.piano.activate(); }
+        self.pad_keyboard.deactivate();
+    }
+
+    fn activate_pad(&mut self) {
+        if !self.pad_keyboard.is_active() { self.pad_keyboard.activate(); }
+        self.piano.deactivate();
     }
 
     fn deactivate_performance(&mut self) {
         self.piano.deactivate();
+        self.pad_keyboard.deactivate();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

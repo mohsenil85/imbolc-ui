@@ -1,4 +1,4 @@
-use crate::audio::AudioEngine;
+use crate::audio::AudioHandle;
 use crate::state::drum_sequencer::DrumPattern;
 use crate::state::sampler::Slice;
 use crate::state::AppState;
@@ -9,7 +9,7 @@ use super::helpers::compute_waveform_peaks;
 pub(super) fn dispatch_sequencer(
     action: &SequencerAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     match action {
         SequencerAction::ToggleStep(pad_idx, step_idx) => {
@@ -126,8 +126,8 @@ pub(super) fn dispatch_sequencer(
                 let buffer_id = seq.next_buffer_id;
                 seq.next_buffer_id += 1;
 
-                if audio_engine.is_running() {
-                    let _ = audio_engine.load_sample(buffer_id, &path_str);
+                if audio.is_running() {
+                    let _ = audio.load_sample(buffer_id, &path_str);
                 }
 
                 if let Some(pad) = seq.pads.get_mut(*pad_idx) {
@@ -145,7 +145,7 @@ pub(super) fn dispatch_sequencer(
 pub(super) fn dispatch_chopper(
     action: &ChopperAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     match action {
         ChopperAction::LoadSample => {
@@ -165,8 +165,8 @@ pub(super) fn dispatch_chopper(
                 let buffer_id = seq.next_buffer_id;
                 seq.next_buffer_id += 1;
 
-                if audio_engine.is_running() {
-                    let _ = audio_engine.load_sample(buffer_id, &path_str);
+                if audio.is_running() {
+                    let _ = audio.load_sample(buffer_id, &path_str);
                 }
 
                 let initial_slice = Slice::full(0);
@@ -266,8 +266,8 @@ pub(super) fn dispatch_chopper(
                     if let Some(chopper) = &seq.chopper {
                         if let Some(slice) = chopper.slices.get(chopper.selected_slice) {
                             if let Some(buffer_id) = chopper.buffer_id {
-                                if audio_engine.is_running() {
-                                    let _ = audio_engine.play_drum_hit_to_instrument(
+                                if audio.is_running() {
+                                    let _ = audio.play_drum_hit_to_instrument(
                                         buffer_id, 0.8, instrument.id,
                                         slice.start, slice.end,
                                     );

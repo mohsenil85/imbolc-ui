@@ -10,7 +10,7 @@ mod session;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::audio::AudioEngine;
+use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::action::{Action, DispatchResult};
 
@@ -43,20 +43,19 @@ fn recording_path(prefix: &str) -> PathBuf {
 pub fn dispatch_action(
     action: &Action,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
-    active_notes: &mut Vec<(u32, u8, u32)>,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     match action {
         Action::Quit => DispatchResult::with_quit(),
         Action::Nav(_) => DispatchResult::none(), // Handled by PaneManager
-        Action::Instrument(a) => instrument::dispatch_instrument(a, state, audio_engine, active_notes),
-        Action::Mixer(a) => { mixer::dispatch_mixer(a, state, audio_engine); DispatchResult::none() }
-        Action::PianoRoll(a) => piano_roll::dispatch_piano_roll(a, state, audio_engine, active_notes),
-        Action::Server(a) => server::dispatch_server(a, state, audio_engine),
-        Action::Session(a) => session::dispatch_session(a, state, audio_engine),
-        Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio_engine),
-        Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio_engine),
-        Action::Automation(a) => { automation::dispatch_automation(a, state, audio_engine); DispatchResult::none() }
+        Action::Instrument(a) => instrument::dispatch_instrument(a, state, audio),
+        Action::Mixer(a) => { mixer::dispatch_mixer(a, state, audio); DispatchResult::none() }
+        Action::PianoRoll(a) => piano_roll::dispatch_piano_roll(a, state, audio),
+        Action::Server(a) => server::dispatch_server(a, state, audio),
+        Action::Session(a) => session::dispatch_session(a, state, audio),
+        Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio),
+        Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio),
+        Action::Automation(a) => { automation::dispatch_automation(a, state, audio); DispatchResult::none() }
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),

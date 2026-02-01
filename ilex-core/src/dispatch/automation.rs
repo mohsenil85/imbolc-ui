@@ -1,4 +1,4 @@
-use crate::audio::AudioEngine;
+use crate::audio::AudioHandle;
 use crate::state::automation::AutomationTarget;
 use crate::state::AppState;
 use crate::action::AutomationAction;
@@ -11,7 +11,7 @@ const RECORD_MIN_TICK_DELTA: u32 = 48;
 pub(super) fn dispatch_automation(
     action: &AutomationAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
 ) {
     match action {
         AutomationAction::AddLane(target) => {
@@ -71,11 +71,11 @@ pub(super) fn dispatch_automation(
                 lane.add_point(playhead, *value);
             }
             // Apply immediately for audio feedback
-            if audio_engine.is_running() {
+            if audio.is_running() {
                 // Map normalized value to actual range
                 let (min, max) = target.default_range();
                 let actual_value = min + value * (max - min);
-                let _ = audio_engine.apply_automation(target, actual_value, &state.instruments, &state.session);
+                let _ = audio.apply_automation(target, actual_value, &state.instruments, &state.session);
             }
         }
     }

@@ -43,8 +43,13 @@ impl InstrumentEditPane {
                 .render(RatatuiRect::new(active_x, rect.y, active_str.len() as u16, 1), buf);
         }
 
-        // Piano mode indicator
-        if self.piano.is_active() {
+        // Piano/Pad mode indicator
+        if self.pad_keyboard.is_active() {
+            let pad_str = self.pad_keyboard.status_label();
+            let pad_style = ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::KIT_COLOR));
+            Paragraph::new(Line::from(Span::styled(pad_str.clone(), pad_style)))
+                .render(RatatuiRect::new(rect.x + 1, rect.y, pad_str.len() as u16, 1), buf);
+        } else if self.piano.is_active() {
             let piano_str = self.piano.status_label();
             let piano_style = ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::PINK));
             Paragraph::new(Line::from(Span::styled(piano_str.clone(), piano_style)))
@@ -287,10 +292,12 @@ impl InstrumentEditPane {
 
         // Help text
         let help_y = rect.y + rect.height - 2;
-        let help_text = if self.piano.is_active() {
+        let help_text = if self.pad_keyboard.is_active() {
+            "R T Y U / F G H J / V B N M: trigger pads | /: cycle | Esc: exit"
+        } else if self.piano.is_active() {
             "Play keys | [/]: octave | \u{2190}/\u{2192}: adjust | \\: zero | /: cycle | Esc: exit"
         } else {
-            "\u{2191}/\u{2193}: move | Tab/S-Tab: section | \u{2190}/\u{2192}: adjust | \\: zero | /: piano | Esc: done"
+            "\u{2191}/\u{2193}: move | Tab/S-Tab: section | \u{2190}/\u{2192}: adjust | \\: zero | /: piano"
         };
         Paragraph::new(Line::from(Span::styled(
             help_text,

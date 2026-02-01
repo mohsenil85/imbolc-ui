@@ -1,26 +1,25 @@
-use crate::audio::AudioEngine;
+use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::action::{DispatchResult, InstrumentAction, NavIntent};
 
 pub(super) fn dispatch_instrument(
     action: &InstrumentAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
-    active_notes: &mut Vec<(u32, u8, u32)>,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     match action {
         InstrumentAction::Add(osc_type) => {
             state.add_instrument(*osc_type);
-            if audio_engine.is_running() {
-                let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+            if audio.is_running() {
+                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
             }
             DispatchResult::with_nav(NavIntent::SwitchTo("instrument"))
         }
         InstrumentAction::Delete(inst_id) => {
             let inst_id = *inst_id;
             state.remove_instrument(inst_id);
-            if audio_engine.is_running() {
-                let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+            if audio.is_running() {
+                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
             }
             DispatchResult::none()
         }
@@ -38,8 +37,8 @@ pub(super) fn dispatch_instrument(
                 instrument.polyphonic = update.polyphonic;
                 instrument.active = update.active;
             }
-            if audio_engine.is_running() {
-                let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+            if audio.is_running() {
+                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
             }
             // Don't switch pane - stay in edit
             DispatchResult::none()
@@ -52,8 +51,8 @@ pub(super) fn dispatch_instrument(
                 }
             }
             // Update audio engine in real-time
-            if audio_engine.is_running() {
-                let _ = audio_engine.set_source_param(*instrument_id, param, *value);
+            if audio.is_running() {
+                let _ = audio.set_source_param(*instrument_id, param, *value);
             }
             DispatchResult::none()
         }
@@ -63,11 +62,10 @@ pub(super) fn dispatch_instrument(
             let instrument_info: Option<u32> = state.instruments.selected_instrument().map(|s| s.id);
 
             if let Some(instrument_id) = instrument_info {
-                if audio_engine.is_running() {
+                if audio.is_running() {
                     let vel_f = velocity as f32 / 127.0;
-                    let _ = audio_engine.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                    let duration_ticks = 240;
-                    active_notes.push((instrument_id, pitch, duration_ticks));
+                    let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
+                    audio.push_active_note(instrument_id, pitch, 240);
                 }
             }
             DispatchResult::none()
@@ -77,11 +75,11 @@ pub(super) fn dispatch_instrument(
             let instrument_info: Option<u32> = state.instruments.selected_instrument().map(|s| s.id);
 
             if let Some(instrument_id) = instrument_info {
-                if audio_engine.is_running() {
+                if audio.is_running() {
                     let vel_f = velocity as f32 / 127.0;
                     for &pitch in pitches {
-                        let _ = audio_engine.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                        active_notes.push((instrument_id, pitch, 240));
+                        let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
+                        audio.push_active_note(instrument_id, pitch, 240);
                     }
                 }
             }
@@ -119,8 +117,8 @@ pub(super) fn dispatch_instrument(
                     if let Some(pad) = seq.pads.get(*pad_idx) {
                         if let (Some(buffer_id), instrument_id) = (pad.buffer_id, instrument.id) {
                             let amp = pad.level;
-                            if audio_engine.is_running() {
-                                let _ = audio_engine.play_drum_hit_to_instrument(
+                            if audio.is_running() {
+                                let _ = audio.play_drum_hit_to_instrument(
                                     buffer_id, amp, instrument_id,
                                     pad.slice_start, pad.slice_end,
                                 );
@@ -140,8 +138,8 @@ pub(super) fn dispatch_instrument(
             let buffer_id = state.instruments.next_sampler_buffer_id;
             state.instruments.next_sampler_buffer_id += 1;
 
-            if audio_engine.is_running() {
-                let _ = audio_engine.load_sample(buffer_id, &path_str);
+            if audio.is_running() {
+                let _ = audio.load_sample(buffer_id, &path_str);
             }
 
             if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {

@@ -1,4 +1,4 @@
-use crate::audio::AudioEngine;
+use crate::audio::AudioHandle;
 use crate::scd_parser;
 use crate::state::{AppState, CustomSynthDef, ParamSpec};
 use crate::action::{DispatchResult, NavIntent, SessionAction};
@@ -9,7 +9,7 @@ use super::default_rack_path;
 pub(super) fn dispatch_session(
     action: &SessionAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     let mut result = DispatchResult::none();
 
@@ -109,13 +109,13 @@ pub(super) fn dispatch_session(
                             }
 
                             // Compile and load the synthdef
-                            match compile_and_load_synthdef(path, &config_dir, &synthdef_name, audio_engine) {
+                            match compile_and_load_synthdef(path, &config_dir, &synthdef_name, audio) {
                                 Ok(_) => {
-                                    result.push_status(audio_engine.status(), &format!("Loaded custom synthdef: {}", synthdef_name));
+                                    result.push_status(audio.status(), &format!("Loaded custom synthdef: {}", synthdef_name));
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to compile/load synthdef: {}", e);
-                                    result.push_status(audio_engine.status(), &format!("Import error: {}", e));
+                                    result.push_status(audio.status(), &format!("Import error: {}", e));
                                 }
                             }
 
@@ -154,7 +154,7 @@ pub(super) fn dispatch_session(
 
             let _id = state.session.vst_plugins.add(plugin);
 
-            result.push_status(audio_engine.status(), &format!("Imported VST: {}", name));
+            result.push_status(audio.status(), &format!("Imported VST: {}", name));
 
             result.push_nav(NavIntent::Pop);
         }

@@ -1,12 +1,11 @@
-use crate::audio::AudioEngine;
+use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::action::{DispatchResult, PianoRollAction};
 
 pub(super) fn dispatch_piano_roll(
     action: &PianoRollAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
-    active_notes: &mut Vec<(u32, u8, u32)>,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     match action {
         PianoRollAction::ToggleNote { pitch, tick, duration, velocity, track } => {
@@ -17,10 +16,10 @@ pub(super) fn dispatch_piano_roll(
             pr.playing = !pr.playing;
             if !pr.playing {
                 pr.playhead = 0;
-                if audio_engine.is_running() {
-                    audio_engine.release_all_voices();
+                if audio.is_running() {
+                    audio.release_all_voices();
                 }
-                active_notes.clear();
+                audio.clear_active_notes();
             }
             // Clear recording if stopping via normal play/stop
             state.session.piano_roll.recording = false;
@@ -37,10 +36,10 @@ pub(super) fn dispatch_piano_roll(
                 let pr = &mut state.session.piano_roll;
                 pr.playing = false;
                 pr.playhead = 0;
-                if audio_engine.is_running() {
-                    audio_engine.release_all_voices();
+                if audio.is_running() {
+                    audio.release_all_voices();
                 }
-                active_notes.clear();
+                audio.clear_active_notes();
                 state.session.piano_roll.recording = false;
             }
         }
@@ -74,11 +73,11 @@ pub(super) fn dispatch_piano_roll(
             let instrument_id = *instrument_id;
             let track = *track;
 
-            if audio_engine.is_running() {
+            if audio.is_running() {
                 let vel_f = velocity as f32 / 127.0;
-                let _ = audio_engine.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
+                let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
                 let duration_ticks = 240; // Half beat for staccato feel
-                active_notes.push((instrument_id, pitch, duration_ticks));
+                audio.push_active_note(instrument_id, pitch, duration_ticks);
             }
 
             // Record note if recording
@@ -93,11 +92,11 @@ pub(super) fn dispatch_piano_roll(
             let instrument_id = *instrument_id;
             let track = *track;
 
-            if audio_engine.is_running() {
+            if audio.is_running() {
                 let vel_f = velocity as f32 / 127.0;
                 for &pitch in pitches {
-                    let _ = audio_engine.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                    active_notes.push((instrument_id, pitch, 240));
+                    let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
+                    audio.push_active_note(instrument_id, pitch, 240);
                 }
             }
 

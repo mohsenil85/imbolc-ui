@@ -4,7 +4,6 @@ pub use ilex_core::audio;
 pub use ilex_core::config;
 pub use ilex_core::dispatch;
 pub use ilex_core::midi;
-pub use ilex_core::playback;
 pub use ilex_core::scd_parser;
 pub use ilex_core::state;
 
@@ -14,7 +13,7 @@ mod ui;
 
 use std::time::{Duration, Instant};
 
-use audio::AudioEngine;
+use audio::AudioHandle;
 use panes::{AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
@@ -55,10 +54,10 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     // file_browser keymap is used by both FileBrowserPane and SampleChopperPane's internal browser
     let file_browser_km = keymaps.get("file_browser").cloned().unwrap_or_else(Keymap::new);
 
-    let mut panes = PaneManager::new(Box::new(InstrumentPane::new(pane_keymap(&mut keymaps, "instrument"))));
+    let mut panes = PaneManager::new(Box::new(InstrumentEditPane::new(pane_keymap(&mut keymaps, "instrument_edit"))));
     panes.add_pane(Box::new(HomePane::new(pane_keymap(&mut keymaps, "home"))));
     panes.add_pane(Box::new(AddPane::new(pane_keymap(&mut keymaps, "add"))));
-    panes.add_pane(Box::new(InstrumentEditPane::new(pane_keymap(&mut keymaps, "instrument_edit"))));
+    panes.add_pane(Box::new(InstrumentPane::new(pane_keymap(&mut keymaps, "instrument"))));
     panes.add_pane(Box::new(ServerPane::new(pane_keymap(&mut keymaps, "server"))));
     panes.add_pane(Box::new(MixerPane::new(pane_keymap(&mut keymaps, "mixer"))));
     panes.add_pane(Box::new(HelpPane::new(pane_keymap(&mut keymaps, "help"))));
@@ -77,16 +76,15 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     layer_stack.push("global");
     layer_stack.set_pane_layer(panes.active().id());
 
-    let mut audio_engine = AudioEngine::new();
+    let mut audio = AudioHandle::new();
     let mut app_frame = Frame::new();
     let mut last_frame_time = Instant::now();
     let mut last_render_time = Instant::now();
-    let mut active_notes: Vec<(u32, u8, u32)> = Vec::new();
     let mut select_mode = InstrumentSelectMode::Normal;
 
     // Auto-start SuperCollider and apply status events
     {
-        let startup_events = setup::auto_start_sc(&mut audio_engine, &state);
+        let startup_events = setup::auto_start_sc(&mut audio, &state);
         apply_status_events(&startup_events, &mut panes);
     }
 
@@ -141,9 +139,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 action,
                                 &mut state,
                                 &mut panes,
-                                &mut audio_engine,
+                                &mut audio,
                                 &mut app_frame,
-                                &mut active_notes,
                                 &mut select_mode,
                                 &mut layer_stack,
                             ) {
@@ -203,7 +200,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
-            let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio_engine, &mut active_notes);
+            let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio);
             if dispatch_result.quit {
                 break;
             }
@@ -211,19 +208,19 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         }
 
         // Poll for background compile completion
-        if let Some(result) = audio_engine.poll_compile_result() {
+        if let Some(result) = audio.poll_compile_result() {
             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
                 match result {
-                    Ok(msg) => server.set_status(audio_engine.status(), &msg),
-                    Err(e) => server.set_status(audio_engine.status(), &e),
+                    Ok(msg) => server.set_status(audio.status(), &msg),
+                    Err(e) => server.set_status(audio.status(), &e),
                 }
             }
         }
 
         // Check scsynth process health
-        if let Some(msg) = audio_engine.check_server_health() {
+        if let Some(msg) = audio.check_server_health() {
             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
-                server.set_status(audio_engine.status(), &msg);
+                server.set_status(audio.status(), &msg);
                 server.set_server_running(false);
             }
         }
@@ -233,13 +230,12 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             let now = Instant::now();
             let elapsed = now.duration_since(last_frame_time);
             last_frame_time = now;
-            playback::tick_playback(&mut state, &mut audio_engine, &mut active_notes, elapsed);
-            playback::tick_drum_sequencer(&mut state, &mut audio_engine, elapsed);
+            audio.tick(&mut state, elapsed);
         }
 
         // Deferred recording buffer free + waveform load
         // Wait for scsynth to flush the WAV file before reading it
-        if audio_engine.poll_pending_buffer_free() {
+        if audio.poll_pending_buffer_free() {
             if let Some(path) = state.pending_recording_path.take() {
                 let peaks = dispatch::compute_waveform_peaks(&path.to_string_lossy()).0;
                 if !peaks.is_empty() {
@@ -258,8 +254,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
             // Update master meter from real audio peak
             {
-                let peak = if audio_engine.is_running() {
-                    audio_engine.master_peak()
+                let peak = if audio.is_running() {
+                    audio.master_peak()
                 } else {
                     0.0
                 };
@@ -268,8 +264,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             }
 
             // Update recording state
-            state.recording = audio_engine.is_recording();
-            state.recording_secs = audio_engine.recording_elapsed()
+            state.recording = audio.is_recording();
+            state.recording_secs = audio.recording_elapsed()
                 .map(|d| d.as_secs()).unwrap_or(0);
             app_frame.recording = state.recording;
             app_frame.recording_secs = state.recording_secs;
@@ -280,7 +276,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     if wf.recorded_waveform.is_none() {
                         wf.audio_in_waveform = state.instruments.selected_instrument()
                             .filter(|s| s.source.is_audio_input() || s.source.is_bus_in())
-                            .map(|s| audio_engine.audio_in_waveform(s.id));
+                            .map(|s| audio.audio_in_waveform(s.id));
                     }
                 }
             } else {
@@ -315,6 +311,7 @@ fn select_instrument(number: usize, state: &mut AppState, panes: &mut PaneManage
     if idx < state.instruments.instruments.len() {
         state.instruments.selected = Some(idx);
         sync_piano_roll_to_selection(state, panes);
+        sync_instrument_edit(state, panes);
     }
 }
 
@@ -358,6 +355,17 @@ fn sync_piano_roll_to_selection(state: &mut AppState, panes: &mut PaneManager) {
     }
 }
 
+/// If the instrument edit pane is active, reload it with the currently selected instrument.
+fn sync_instrument_edit(state: &AppState, panes: &mut PaneManager) {
+    if panes.active().id() == "instrument_edit" {
+        if let Some(inst) = state.instruments.selected_instrument() {
+            if let Some(edit_pane) = panes.get_pane_mut::<InstrumentEditPane>("instrument_edit") {
+                edit_pane.set_instrument(inst);
+            }
+        }
+    }
+}
+
 /// Sync layer stack pane layer and performance mode state after pane switch.
 fn sync_pane_layer(panes: &mut PaneManager, layer_stack: &mut LayerStack) {
     let had_piano = layer_stack.has_layer("piano_mode");
@@ -375,9 +383,8 @@ fn handle_global_action(
     action: &str,
     state: &mut AppState,
     panes: &mut PaneManager,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
     app_frame: &mut Frame,
-    active_notes: &mut Vec<(u32, u8, u32)>,
     select_mode: &mut InstrumentSelectMode,
     layer_stack: &mut LayerStack,
 ) -> GlobalResult {
@@ -421,25 +428,25 @@ fn handle_global_action(
     match action {
         "quit" => return GlobalResult::Quit,
         "save" => {
-            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio_engine, active_notes);
+            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "load" => {
-            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio_engine, active_notes);
+            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "master_mute" => {
             state.session.master_mute = !state.session.master_mute;
-            if audio_engine.is_running() {
-                let _ = audio_engine.update_all_instrument_mixer_params(&state.instruments, &state.session);
+            if audio.is_running() {
+                let _ = audio.update_all_instrument_mixer_params(&state.instruments, &state.session);
             }
         }
         "record_master" => {
-            let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio_engine, active_notes);
+            let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "switch:instrument" => {
-            switch_to_pane("instrument", panes, state, app_frame, layer_stack);
+            switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack);
         }
         "switch:piano_roll_or_sequencer" => {
             let target = if let Some(inst) = state.instruments.selected_instrument() {
@@ -559,10 +566,12 @@ fn handle_global_action(
         "select_prev_instrument" => {
             state.instruments.select_prev();
             sync_piano_roll_to_selection(state, panes);
+            sync_instrument_edit(state, panes);
         }
         "select_next_instrument" => {
             state.instruments.select_next();
             sync_piano_roll_to_selection(state, panes);
+            sync_instrument_edit(state, panes);
         }
         "select_two_digit" => {
             *select_mode = InstrumentSelectMode::WaitingFirstDigit;
@@ -581,6 +590,18 @@ fn handle_global_action(
                     layer_stack.pop("pad_mode");
                 }
                 ToggleResult::CycledLayout | ToggleResult::NotSupported => {}
+            }
+        }
+        "add_instrument" => {
+            switch_to_pane("add", panes, state, app_frame, layer_stack);
+        }
+        "delete_instrument" => {
+            if let Some(instrument) = state.instruments.selected_instrument() {
+                let id = instrument.id;
+                let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio);
+                apply_dispatch_result(r, state, panes, app_frame);
+                // Re-sync edit pane after deletion
+                sync_instrument_edit(state, panes);
             }
         }
         "escape" => {

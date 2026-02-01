@@ -33,6 +33,8 @@ bindings = [
   { key = "/", action = "toggle_piano_mode", description = "Toggle piano keyboard" },
   { key = "Ctrl+r", action = "record_master", description = "Toggle master recording" },
   { key = "Escape", action = "escape", description = "Escape" },
+  { key = "Ctrl+a", action = "add_instrument", description = "Add instrument" },
+  { key = "Ctrl+d", action = "delete_instrument", description = "Delete instrument" },
 ]
 
 [layers.instrument]
@@ -125,7 +127,6 @@ bindings = [
 
 [layers.instrument_edit]
 bindings = [
-  { key = "Escape", action = "done", description = "Done editing" },
   { key = "Down", action = "next", description = "Next item" },
   { key = "Up", action = "prev", description = "Previous item" },
   { key = "Tab", action = "next_section", description = "Next section" },

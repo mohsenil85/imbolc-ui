@@ -2,7 +2,7 @@ use super::{InstrumentEditPane, Section};
 use crate::state::{
     AppState, EffectSlot, EffectType, FilterConfig, FilterType, ParamValue,
 };
-use crate::ui::{Action, FileSelectAction, InputEvent, KeyCode, InstrumentAction, SessionAction, translate_key};
+use crate::ui::{Action, FileSelectAction, InputEvent, InstrumentAction, KeyCode, SessionAction, translate_key};
 
 impl InstrumentEditPane {
     pub(super) fn handle_action_impl(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
@@ -28,6 +28,20 @@ impl InstrumentEditPane {
                         } else {
                             return Action::Instrument(InstrumentAction::PlayNotes(pitches.clone(), 100));
                         }
+                    }
+                }
+                Action::None
+            }
+            // Pad layer actions
+            "pad:escape" => {
+                self.pad_keyboard.deactivate();
+                Action::ExitPerformanceMode
+            }
+            "pad:key" => {
+                if let KeyCode::Char(c) = event.key {
+                    let c = translate_key(c, state.keyboard_layout);
+                    if let Some(pad_idx) = self.pad_keyboard.key_to_pad(c) {
+                        return Action::Instrument(InstrumentAction::PlayDrumPad(pad_idx));
                     }
                 }
                 Action::None

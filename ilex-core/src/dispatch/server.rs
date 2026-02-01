@@ -1,29 +1,29 @@
 use std::path::PathBuf;
 
-use crate::audio::{self, AudioEngine};
+use crate::audio::{self, AudioHandle};
 use crate::state::AppState;
 use crate::action::{DispatchResult, ServerAction};
 
 pub(super) fn dispatch_server(
     action: &ServerAction,
     state: &mut AppState,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
 ) -> DispatchResult {
     let mut result = DispatchResult::none();
 
     match action {
         ServerAction::Connect => {
-            let connect_result = audio_engine.connect("127.0.0.1:57110");
+            let connect_result = audio.connect("127.0.0.1:57110");
             match connect_result {
                 Ok(()) => {
                     // Load built-in synthdefs
                     let synthdef_dir = std::path::Path::new("synthdefs");
-                    let builtin_result = audio_engine.load_synthdefs(synthdef_dir);
+                    let builtin_result = audio.load_synthdefs(synthdef_dir);
 
                     // Also load custom synthdefs from config dir
                     let config_dir = config_synthdefs_dir();
                     let custom_result = if config_dir.exists() {
-                        audio_engine.load_synthdefs(&config_dir)
+                        audio.load_synthdefs(&config_dir)
                     } else {
                         Ok(())
                     };
@@ -34,7 +34,7 @@ pub(super) fn dispatch_server(
                             for pad in &seq.pads {
                                 if let Some(buffer_id) = pad.buffer_id {
                                     if let Some(ref path) = pad.path {
-                                        let _ = audio_engine.load_sample(buffer_id, path);
+                                        let _ = audio.load_sample(buffer_id, path);
                                     }
                                 }
                             }
@@ -59,15 +59,15 @@ pub(super) fn dispatch_server(
             }
         }
         ServerAction::Disconnect => {
-            audio_engine.disconnect();
+            audio.disconnect();
             result.push_status_with_running(
-                audio_engine.status(),
+                audio.status(),
                 "Disconnected",
-                audio_engine.server_running(),
+                audio.server_running(),
             );
         }
         ServerAction::Start { input_device, output_device } => {
-            let start_result = audio_engine.start_server_with_devices(
+            let start_result = audio.start_server_with_devices(
                 input_device.as_deref(),
                 output_device.as_deref(),
             );
@@ -89,7 +89,7 @@ pub(super) fn dispatch_server(
             }
         }
         ServerAction::Stop => {
-            audio_engine.stop_server();
+            audio.stop_server();
             result.push_status_with_running(
                 audio::ServerStatus::Stopped,
                 "Server stopped",
@@ -98,97 +98,97 @@ pub(super) fn dispatch_server(
         }
         ServerAction::CompileSynthDefs => {
             let scd_path = std::path::Path::new("synthdefs/compile.scd");
-            match audio_engine.compile_synthdefs_async(scd_path) {
+            match audio.compile_synthdefs_async(scd_path) {
                 Ok(()) => {
-                    result.push_status(audio_engine.status(), "Compiling synthdefs...");
+                    result.push_status(audio.status(), "Compiling synthdefs...");
                 }
                 Err(e) => {
-                    result.push_status(audio_engine.status(), &e);
+                    result.push_status(audio.status(), &e);
                 }
             }
         }
         ServerAction::LoadSynthDefs => {
             // Load built-in synthdefs
             let synthdef_dir = std::path::Path::new("synthdefs");
-            let builtin_result = audio_engine.load_synthdefs(synthdef_dir);
+            let builtin_result = audio.load_synthdefs(synthdef_dir);
 
             // Also load custom synthdefs from config dir
             let config_dir = config_synthdefs_dir();
             let custom_result = if config_dir.exists() {
-                audio_engine.load_synthdefs(&config_dir)
+                audio.load_synthdefs(&config_dir)
             } else {
                 Ok(())
             };
 
             match (builtin_result, custom_result) {
                 (Ok(()), Ok(())) => {
-                    result.push_status(audio_engine.status(), "Synthdefs loaded (built-in + custom)");
+                    result.push_status(audio.status(), "Synthdefs loaded (built-in + custom)");
                 }
                 (Err(e), _) => {
-                    result.push_status(audio_engine.status(), &format!("Error loading built-in: {}", e));
+                    result.push_status(audio.status(), &format!("Error loading built-in: {}", e));
                 }
                 (_, Err(e)) => {
-                    result.push_status(audio_engine.status(), &format!("Error loading custom: {}", e));
+                    result.push_status(audio.status(), &format!("Error loading custom: {}", e));
                 }
             }
         }
         ServerAction::RecordMaster => {
-            if audio_engine.is_recording() {
-                if let Some(path) = audio_engine.stop_recording() {
+            if audio.is_recording() {
+                if let Some(path) = audio.stop_recording() {
                     // Auto-deactivate AudioIn instrument on stop
                     if let Some(inst) = state.instruments.selected_instrument_mut() {
                         if inst.source.is_audio_input() && inst.active {
                             inst.active = false;
-                            let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+                            let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
                         }
                     }
                     // Defer waveform load — scsynth needs time to flush the WAV
                     state.pending_recording_path = Some(path.clone());
                     result.push_status(
-                        audio_engine.status(),
+                        audio.status(),
                         &format!("Recording saved: {}", path.display()),
                     );
                 }
-            } else if audio_engine.is_running() {
+            } else if audio.is_running() {
                 // Auto-activate AudioIn instrument on start
                 if let Some(inst) = state.instruments.selected_instrument_mut() {
                     if inst.source.is_audio_input() && !inst.active {
                         inst.active = true;
-                        let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+                        let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
                     }
                 }
                 let path = super::recording_path("master");
-                match audio_engine.start_recording(0, &path) {
+                match audio.start_recording(0, &path) {
                     Ok(()) => {
                         result.push_status(
-                            audio_engine.status(),
+                            audio.status(),
                             &format!("Recording to {}", path.display()),
                         );
                     }
                     Err(e) => {
-                        result.push_status(audio_engine.status(), &format!("Record error: {}", e));
+                        result.push_status(audio.status(), &format!("Record error: {}", e));
                     }
                 }
             }
         }
         ServerAction::RecordInput => {
-            if audio_engine.is_recording() {
-                if let Some(path) = audio_engine.stop_recording() {
+            if audio.is_recording() {
+                if let Some(path) = audio.stop_recording() {
                     // Auto-deactivate AudioIn instrument on stop
                     if let Some(inst) = state.instruments.selected_instrument_mut() {
                         if inst.source.is_audio_input() && inst.active {
                             inst.active = false;
-                            let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+                            let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
                         }
                     }
                     // Defer waveform load — scsynth needs time to flush the WAV
                     state.pending_recording_path = Some(path.clone());
                     result.push_status(
-                        audio_engine.status(),
+                        audio.status(),
                         &format!("Recording saved: {}", path.display()),
                     );
                 }
-            } else if audio_engine.is_running() {
+            } else if audio.is_running() {
                 // Record from the selected instrument's source_out bus
                 if let Some(inst) = state.instruments.selected_instrument() {
                     let inst_id = inst.id;
@@ -197,20 +197,20 @@ pub(super) fn dispatch_server(
                         if let Some(inst_mut) = state.instruments.instrument_mut(inst_id) {
                             inst_mut.active = true;
                         }
-                        let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+                        let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
                     }
                     let path = super::recording_path(&format!("input_{}", inst_id));
                     // Bus 0 is hardware out; for instrument recording we use bus 0
                     // since instruments route through output to bus 0
-                    match audio_engine.start_recording(0, &path) {
+                    match audio.start_recording(0, &path) {
                         Ok(()) => {
                             result.push_status(
-                                audio_engine.status(),
+                                audio.status(),
                                 &format!("Recording to {}", path.display()),
                             );
                         }
                         Err(e) => {
-                            result.push_status(audio_engine.status(), &format!("Record error: {}", e));
+                            result.push_status(audio.status(), &format!("Record error: {}", e));
                         }
                     }
                 }
@@ -218,7 +218,7 @@ pub(super) fn dispatch_server(
         }
         ServerAction::Restart { input_device, output_device } => {
             // Stop
-            audio_engine.stop_server();
+            audio.stop_server();
             result.push_status_with_running(
                 audio::ServerStatus::Stopped,
                 "Restarting server...",
@@ -226,7 +226,7 @@ pub(super) fn dispatch_server(
             );
 
             // Start with selected devices
-            let start_result = audio_engine.start_server_with_devices(
+            let start_result = audio.start_server_with_devices(
                 input_device.as_deref(),
                 output_device.as_deref(),
             );
@@ -239,17 +239,17 @@ pub(super) fn dispatch_server(
                     );
 
                     // Connect
-                    let connect_result = audio_engine.connect("127.0.0.1:57110");
+                    let connect_result = audio.connect("127.0.0.1:57110");
                     match connect_result {
                         Ok(()) => {
                             // Load built-in synthdefs
                             let synthdef_dir = std::path::Path::new("synthdefs");
-                            let builtin_result = audio_engine.load_synthdefs(synthdef_dir);
+                            let builtin_result = audio.load_synthdefs(synthdef_dir);
 
                             // Load custom synthdefs
                             let config_dir = config_synthdefs_dir();
                             let custom_result = if config_dir.exists() {
-                                audio_engine.load_synthdefs(&config_dir)
+                                audio.load_synthdefs(&config_dir)
                             } else {
                                 Ok(())
                             };
@@ -260,7 +260,7 @@ pub(super) fn dispatch_server(
                                     for pad in &seq.pads {
                                         if let Some(buffer_id) = pad.buffer_id {
                                             if let Some(ref path) = pad.path {
-                                                let _ = audio_engine.load_sample(buffer_id, path);
+                                                let _ = audio.load_sample(buffer_id, path);
                                             }
                                         }
                                     }
@@ -268,7 +268,7 @@ pub(super) fn dispatch_server(
                             }
 
                             // Rebuild instrument routing
-                            let _ = audio_engine.rebuild_instrument_routing(&state.instruments, &state.session);
+                            let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
 
                             match (builtin_result, custom_result) {
                                 (Ok(()), Ok(())) => {
@@ -349,7 +349,7 @@ pub(super) fn compile_and_load_synthdef(
     scd_path: &std::path::Path,
     output_dir: &std::path::Path,
     synthdef_name: &str,
-    audio_engine: &mut AudioEngine,
+    audio: &mut AudioHandle,
 ) -> Result<(), String> {
     // Find sclang
     let sclang = find_sclang().ok_or_else(|| {
@@ -426,13 +426,13 @@ pub(super) fn compile_and_load_synthdef(
     let _ = std::fs::remove_file(&temp_script);
 
     // Load the .scsyndef into scsynth if connected
-    if audio_engine.is_running() {
+    if audio.is_running() {
         let scsyndef_path = output_dir.join(format!("{}.scsyndef", synthdef_name));
         if scsyndef_path.exists() {
-            audio_engine.load_synthdef_file(&scsyndef_path)?;
+            audio.load_synthdef_file(&scsyndef_path)?;
         } else {
             // Try loading all synthdefs from the directory as fallback
-            audio_engine.load_synthdefs(output_dir)?;
+            audio.load_synthdefs(output_dir)?;
         }
     }
 
