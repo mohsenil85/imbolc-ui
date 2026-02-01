@@ -58,6 +58,12 @@ pub trait Pane {
     /// Deactivate performance mode (piano/pad) on this pane
     fn deactivate_performance(&mut self) {}
 
+    /// Whether this pane supports piano/pad performance mode.
+    /// Panes that return false will auto-exit performance mode on switch.
+    fn supports_performance_mode(&self) -> bool {
+        false
+    }
+
     /// Return self as Any for downcasting (required for type-specific access)
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }

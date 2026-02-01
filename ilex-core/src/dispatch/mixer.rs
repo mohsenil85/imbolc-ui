@@ -14,12 +14,21 @@ pub(super) fn dispatch_mixer(
     match action {
         MixerAction::Move(delta) => {
             state.mixer_move(*delta);
+            if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
+                state.instruments.selected = Some(idx);
+            }
         }
         MixerAction::Jump(direction) => {
             state.mixer_jump(*direction);
+            if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
+                state.instruments.selected = Some(idx);
+            }
         }
         MixerAction::SelectAt(selection) => {
             state.session.mixer_selection = *selection;
+            if let MixerSelection::Instrument(idx) = *selection {
+                state.instruments.selected = Some(idx);
+            }
         }
         MixerAction::AdjustLevel(delta) => {
             let mut bus_update: Option<(u8, f32, bool, f32)> = None;
@@ -136,6 +145,12 @@ pub(super) fn dispatch_mixer(
         }
         MixerAction::CycleSection => {
             state.session.mixer_cycle_section();
+            // When cycling back to Instrument section, sync to global selection
+            if let MixerSelection::Instrument(_) = state.session.mixer_selection {
+                if let Some(idx) = state.instruments.selected {
+                    state.session.mixer_selection = MixerSelection::Instrument(idx);
+                }
+            }
         }
         MixerAction::CycleOutput => {
             state.mixer_cycle_output();

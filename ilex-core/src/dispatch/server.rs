@@ -15,18 +15,22 @@ pub(super) fn dispatch_server(
         ServerAction::Connect => {
             audio.update_state(&state.instruments, &state.session);
             let _ = audio.connect_async("127.0.0.1:57110");
+            result.push_status(audio.status(), "Connecting...");
         }
         ServerAction::Disconnect => {
             let _ = audio.disconnect_async();
+            result.push_status(audio.status(), "Disconnecting...");
         }
         ServerAction::Start { input_device, output_device } => {
             let _ = audio.start_server_async(
                 input_device.as_deref(),
                 output_device.as_deref(),
             );
+            result.push_status(audio.status(), "Starting server...");
         }
         ServerAction::Stop => {
             let _ = audio.stop_server_async();
+            result.push_status(audio.status(), "Stopping server...");
         }
         ServerAction::CompileSynthDefs => {
             let scd_path = std::path::Path::new("synthdefs/compile.scd");

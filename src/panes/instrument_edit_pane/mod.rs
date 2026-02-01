@@ -286,6 +286,8 @@ impl Pane for InstrumentEditPane {
         self.pad_keyboard.deactivate();
     }
 
+    fn supports_performance_mode(&self) -> bool { true }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

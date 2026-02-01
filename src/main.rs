@@ -397,11 +397,16 @@ fn sync_pane_layer(panes: &mut PaneManager, layer_stack: &mut LayerStack) {
     let had_piano = layer_stack.has_layer("piano_mode");
     let had_pad = layer_stack.has_layer("pad_mode");
     layer_stack.set_pane_layer(panes.active().id());
-    if had_piano {
-        panes.active_mut().activate_piano();
-    }
-    if had_pad {
-        panes.active_mut().activate_pad();
+
+    if had_piano || had_pad {
+        if panes.active_mut().supports_performance_mode() {
+            if had_piano { panes.active_mut().activate_piano(); }
+            if had_pad { panes.active_mut().activate_pad(); }
+        } else {
+            layer_stack.pop("piano_mode");
+            layer_stack.pop("pad_mode");
+            panes.active_mut().deactivate_performance();
+        }
     }
 }
 
@@ -447,6 +452,12 @@ fn handle_global_action(
         // Switch and record new view
         panes.switch_to(target, &*state);
         sync_pane_layer(panes, layer_stack);
+        // Sync mixer highlight to global instrument selection on entry
+        if target == "mixer" {
+            if let Some(selected_idx) = state.instruments.selected {
+                state.session.mixer_selection = state::MixerSelection::Instrument(selected_idx);
+            }
+        }
         let new_view = capture_view(panes, state);
         app_frame.view_history.push(new_view);
         app_frame.history_cursor = app_frame.view_history.len() - 1;

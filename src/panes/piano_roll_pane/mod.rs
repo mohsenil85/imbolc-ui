@@ -144,6 +144,19 @@ impl Pane for PianoRollPane {
         "piano_roll"
     }
 
+    fn on_enter(&mut self, state: &AppState) {
+        // Sync current_track to the globally selected instrument
+        if let Some(selected_idx) = state.instruments.selected {
+            if let Some(inst) = state.instruments.instruments.get(selected_idx) {
+                if let Some(track_idx) = state.session.piano_roll.track_order.iter()
+                    .position(|&id| id == inst.id)
+                {
+                    self.current_track = track_idx;
+                }
+            }
+        }
+    }
+
     fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
         self.handle_action_impl(action, event, state)
     }
@@ -199,6 +212,8 @@ impl Pane for PianoRollPane {
     fn deactivate_performance(&mut self) {
         self.piano.deactivate();
     }
+
+    fn supports_performance_mode(&self) -> bool { true }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self

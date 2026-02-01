@@ -88,23 +88,12 @@ impl Frame {
             .border_style(border_style);
         block.render(area, buf);
 
-        // Selected instrument indicator
-        let inst_indicator = if let Some(idx) = state.instruments.selected {
-            if let Some(inst) = state.instruments.instruments.get(idx) {
-                format!("[{}: {}]", idx + 1, inst.name)
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        // Header line in the top border
+        // Header line in the top border (left-aligned)
         let snap_text = if session.snap { "ON" } else { "OFF" };
         let tuning_str = format!("A{:.0}", session.tuning_a4);
         let header = format!(
-            " ILEX - {}  {}  Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
-            self.project_name, inst_indicator,
+            " ILEX - {}  Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
+            self.project_name,
             session.key.name(), session.scale.name(), session.bpm,
             session.time_signature.0, session.time_signature.1,
             tuning_str, snap_text,
@@ -113,7 +102,17 @@ impl Frame {
         Paragraph::new(Line::from(Span::styled(&header, header_style)))
             .render(RatatuiRect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1), buf);
 
-        // Recording indicator (right-aligned in header)
+        // Right-aligned items: [instrument indicator] [REC indicator]
+        let inst_indicator = if let Some(idx) = state.instruments.selected {
+            if let Some(inst) = state.instruments.instruments.get(idx) {
+                format!(" {}: {} ", idx + 1, inst.name)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         let rec_text = if self.recording {
             let mins = self.recording_secs / 60;
             let secs = self.recording_secs % 60;
@@ -122,29 +121,45 @@ impl Frame {
             String::new()
         };
 
-        // Fill remaining top border after header (leave room for REC indicator)
-        let header_end = area.x + 1 + header.len() as u16;
-        let rec_start = if self.recording {
-            area.x + area.width.saturating_sub(1 + rec_text.len() as u16)
-        } else {
-            area.x + area.width.saturating_sub(1)
-        };
-        for x in header_end..rec_start {
-            if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_char('─').set_style(border_style);
-            }
-        }
+        // Position right-aligned items from the right edge inward
+        let right_edge = area.x + area.width.saturating_sub(1);
+        let mut cursor = right_edge;
 
-        // Render REC indicator
+        // REC indicator (rightmost)
         if self.recording {
+            let rec_start = cursor.saturating_sub(rec_text.len() as u16);
             let rec_style = ratatui::style::Style::from(Style::new().fg(Color::MUTE_COLOR).bold());
             for (j, ch) in rec_text.chars().enumerate() {
                 let rx = rec_start + j as u16;
-                if rx < area.x + area.width.saturating_sub(1) {
+                if rx < right_edge {
                     if let Some(cell) = buf.cell_mut((rx, area.y)) {
                         cell.set_char(ch).set_style(rec_style);
                     }
                 }
+            }
+            cursor = rec_start;
+        }
+
+        // Instrument indicator (to the left of REC)
+        if !inst_indicator.is_empty() {
+            let inst_start = cursor.saturating_sub(inst_indicator.len() as u16);
+            let inst_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bold());
+            for (j, ch) in inst_indicator.chars().enumerate() {
+                let ix = inst_start + j as u16;
+                if ix < cursor {
+                    if let Some(cell) = buf.cell_mut((ix, area.y)) {
+                        cell.set_char(ch).set_style(inst_style);
+                    }
+                }
+            }
+            cursor = inst_start;
+        }
+
+        // Fill gap between header and right-aligned items with border
+        let header_end = area.x + 1 + header.len() as u16;
+        for x in header_end..cursor {
+            if let Some(cell) = buf.cell_mut((x, area.y)) {
+                cell.set_char('─').set_style(border_style);
             }
         }
 
