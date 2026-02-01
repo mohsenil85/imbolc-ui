@@ -177,6 +177,16 @@ bindings = [
   { key = "k", action = "prev", description = "Previous" },
 ]
 
+[layers.add_effect]
+bindings = [
+  { key = "Enter", action = "confirm", description = "Add selected effect" },
+  { key = "Escape", action = "cancel", description = "Cancel" },
+  { key = "Up", action = "prev", description = "Previous" },
+  { key = "Down", action = "next", description = "Next" },
+  { key = "k", action = "prev", description = "Previous" },
+  { key = "j", action = "next", description = "Next" },
+]
+
 [layers.home]
 bindings = [
   { key = "Up", action = "up", description = "Previous item" },

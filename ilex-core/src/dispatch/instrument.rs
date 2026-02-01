@@ -161,8 +161,16 @@ pub(super) fn dispatch_instrument(
             result.audio_dirty.instruments = true;
             result
         }
-        InstrumentAction::AddEffect(_, _)
-        | InstrumentAction::RemoveEffect(_, _)
+        InstrumentAction::AddEffect(id, ref effect_type) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                instrument.effects.push(crate::state::EffectSlot::new(*effect_type));
+            }
+            let mut result = DispatchResult::with_nav(NavIntent::Pop);
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
+        }
+        InstrumentAction::RemoveEffect(_, _)
         | InstrumentAction::MoveEffect(_, _, _)
         | InstrumentAction::SetFilter(_, _) => {
             // Reserved for future direct dispatch (currently handled inside InstrumentEditPane)

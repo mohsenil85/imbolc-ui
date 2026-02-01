@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
+use crate::state::VstPluginKind;
 use crate::ui::{
     Action, ChopperAction, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent,
     MouseEventKind, MouseButton, NavAction, Pane, SequencerAction, SessionAction, Style,
@@ -176,8 +177,11 @@ impl Pane for FileBrowserPane {
                             FileSelectAction::ImportCustomSynthDef => {
                                 Action::Session(SessionAction::ImportCustomSynthDef(entry.path.clone()))
                             }
-                            FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
-                                Action::Session(SessionAction::ImportVstPlugin(entry.path.clone()))
+                            FileSelectAction::ImportVstInstrument => {
+                                Action::Session(SessionAction::ImportVstPlugin(entry.path.clone(), VstPluginKind::Instrument))
+                            }
+                            FileSelectAction::ImportVstEffect => {
+                                Action::Session(SessionAction::ImportVstPlugin(entry.path.clone(), VstPluginKind::Effect))
                             }
                             FileSelectAction::LoadDrumSample(pad_idx) => {
                                 Action::Sequencer(SequencerAction::LoadSampleResult(pad_idx, entry.path.clone()))
@@ -438,9 +442,16 @@ impl Pane for FileBrowserPane {
                                             self.entries[clicked_idx].path.clone(),
                                         ));
                                     }
-                                    FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
+                                    FileSelectAction::ImportVstInstrument => {
                                         return Action::Session(SessionAction::ImportVstPlugin(
                                             self.entries[clicked_idx].path.clone(),
+                                            VstPluginKind::Instrument,
+                                        ));
+                                    }
+                                    FileSelectAction::ImportVstEffect => {
+                                        return Action::Session(SessionAction::ImportVstPlugin(
+                                            self.entries[clicked_idx].path.clone(),
+                                            VstPluginKind::Effect,
                                         ));
                                     }
                                 }

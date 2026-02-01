@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::audio::ServerStatus;
-use crate::state::{EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType};
+use crate::state::{EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
 
 /// Data carried by InstrumentAction::Update to apply edits without dispatch reading pane state
@@ -37,7 +37,6 @@ pub enum SequencerAction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum NavAction {
     SwitchPane(&'static str),
-    #[allow(dead_code)]
     PushPane(&'static str),
     PopPane,
 }
@@ -51,7 +50,6 @@ pub enum InstrumentAction {
     Update(Box<InstrumentUpdate>),
     #[allow(dead_code)]
     SetParam(InstrumentId, String, f32),
-    #[allow(dead_code)]
     AddEffect(InstrumentId, EffectType),
     #[allow(dead_code)]
     RemoveEffect(InstrumentId, usize),
@@ -165,7 +163,7 @@ pub enum SessionAction {
     UpdateSessionLive(MusicalSettings),
     OpenFileBrowser(FileSelectAction),
     ImportCustomSynthDef(PathBuf),
-    ImportVstPlugin(PathBuf),
+    ImportVstPlugin(PathBuf, VstPluginKind),
 }
 
 /// Actions that can be returned from pane input handling

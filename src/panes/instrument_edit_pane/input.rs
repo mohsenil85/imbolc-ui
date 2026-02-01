@@ -1,7 +1,7 @@
 use super::editing::AdjustMode;
 use super::{InstrumentEditPane, Section};
 use crate::state::{
-    AppState, EffectSlot, EffectType, FilterConfig, FilterType, ParamValue,
+    AppState, FilterConfig, FilterType, ParamValue,
 };
 use crate::ui::{Action, FileSelectAction, InputEvent, InstrumentAction, KeyCode, SessionAction, translate_key};
 
@@ -233,19 +233,7 @@ impl InstrumentEditPane {
                 Action::None
             }
             "add_effect" => {
-                let next_type = if self.effects.is_empty() {
-                    EffectType::Delay
-                } else {
-                    match self.effects.last().unwrap().effect_type {
-                        EffectType::Delay => EffectType::Reverb,
-                        EffectType::Reverb => EffectType::Gate,
-                        EffectType::Gate => EffectType::TapeComp,
-                        EffectType::TapeComp => EffectType::SidechainComp,
-                        EffectType::SidechainComp | EffectType::Vst(_) => EffectType::Delay,
-                    }
-                };
-                self.effects.push(EffectSlot::new(next_type));
-                self.emit_update()
+                Action::Nav(crate::ui::NavAction::PushPane("add_effect"))
             }
             "remove_effect" => {
                 let (section, local_idx) = self.row_info(self.selected_row);

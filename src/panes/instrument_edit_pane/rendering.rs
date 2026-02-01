@@ -149,7 +149,7 @@ impl InstrumentEditPane {
 
         // === EFFECTS SECTION ===
         Paragraph::new(Line::from(Span::styled(
-            "EFFECTS  (a: add, d: remove)",
+            "EFFECTS  (a: add effect, d: remove)",
             ratatui::style::Style::from(Style::new().fg(Color::FX_COLOR).bold()),
         ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
         y += 1;

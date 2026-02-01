@@ -148,10 +148,10 @@ pub(super) fn dispatch_session(
                 }
             }
         }
-        SessionAction::ImportVstPlugin(ref path) => {
-            use crate::state::vst_plugin::{VstPlugin, VstPluginKind};
+        SessionAction::ImportVstPlugin(ref path, kind) => {
+            use crate::state::vst_plugin::VstPlugin;
 
-            let kind = VstPluginKind::Instrument;
+            let kind = *kind;
 
             // Extract display name from filename
             let name = path.file_stem()

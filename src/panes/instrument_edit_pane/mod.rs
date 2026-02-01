@@ -84,6 +84,26 @@ impl InstrumentEditPane {
         self.selected_row = 0;
     }
 
+    /// Re-sync data from an instrument without resetting cursor position.
+    /// Used when returning from a sub-pane (e.g. add_effect) where the same
+    /// instrument may have changed.
+    fn refresh_instrument(&mut self, instrument: &Instrument) {
+        self.instrument_id = Some(instrument.id);
+        self.instrument_name = instrument.name.clone();
+        self.source = instrument.source;
+        self.source_params = instrument.source_params.clone();
+        self.sample_name = instrument.sampler_config.as_ref().and_then(|c| c.sample_name.clone());
+        self.filter = instrument.filter.clone();
+        self.effects = instrument.effects.clone();
+        self.lfo = instrument.lfo.clone();
+        self.amp_envelope = instrument.amp_envelope.clone();
+        self.polyphonic = instrument.polyphonic;
+        self.active = instrument.active;
+        // Clamp selected_row to valid range (effects count may have changed)
+        let max = self.total_rows().saturating_sub(1);
+        self.selected_row = self.selected_row.min(max);
+    }
+
     #[allow(dead_code)]
     pub fn instrument_id(&self) -> Option<InstrumentId> {
         self.instrument_id
@@ -221,7 +241,11 @@ impl Pane for InstrumentEditPane {
 
     fn on_enter(&mut self, state: &AppState) {
         if let Some(inst) = state.instruments.selected_instrument() {
-            self.set_instrument(inst);
+            if self.instrument_id == Some(inst.id) {
+                self.refresh_instrument(inst);
+            } else {
+                self.set_instrument(inst);
+            }
         }
     }
 

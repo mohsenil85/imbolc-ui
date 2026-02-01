@@ -1,3 +1,4 @@
+mod add_effect_pane;
 mod add_pane;
 mod automation_pane;
 mod file_browser_pane;
@@ -15,6 +16,7 @@ mod logo_pane;
 mod track_pane;
 mod waveform_pane;
 
+pub use add_effect_pane::AddEffectPane;
 pub use add_pane::AddPane;
 pub use automation_pane::AutomationPane;
 pub use file_browser_pane::FileBrowserPane;
