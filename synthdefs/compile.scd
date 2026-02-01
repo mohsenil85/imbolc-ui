@@ -196,8 +196,8 @@ SynthDef(\ilex_additive, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), f
         var harmAmp = (n <= harmonics) * (n ** rolloff.neg);
         SinOsc.ar(freqSig * n, 0, harmAmp);
     });
-    sig = sig * amp * velSig;
     var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
+    sig = sig * amp * velSig;
     Out.ar(out, (sig * env) ! 2);
 }).writeDefFile(dir);
 
