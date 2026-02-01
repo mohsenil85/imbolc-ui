@@ -26,24 +26,15 @@ pub fn auto_start_sc(
             });
             match audio.connect("127.0.0.1:57110") {
                 Ok(()) => {
-                    let synthdef_dir = std::path::Path::new("synthdefs");
-                    if let Err(e) = audio.load_synthdefs(synthdef_dir) {
-                        events.push(StatusEvent {
-                            status: audio::ServerStatus::Connected,
-                            message: format!("Connected (synthdef warning: {})", e),
-                            server_running: None,
-                        });
-                    } else {
-                        events.push(StatusEvent {
-                            status: audio::ServerStatus::Connected,
-                            message: "Connected + synthdefs loaded".to_string(),
-                            server_running: None,
-                        });
-                        // Wait for scsynth to finish processing /d_recv messages
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        // Rebuild routing
-                        let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
-                    }
+                    events.push(StatusEvent {
+                        status: audio::ServerStatus::Connected,
+                        message: "Connected + synthdefs loaded".to_string(),
+                        server_running: None,
+                    });
+                    // Wait for scsynth to finish processing /d_loadDir
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    // Rebuild routing
+                    let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
                 }
                 Err(e) => {
                     events.push(StatusEvent {

@@ -91,9 +91,4 @@ impl LayerStack {
     pub fn has_layer(&self, name: &str) -> bool {
         self.active.iter().any(|n| *n == name)
     }
-
-    /// Get the keymap for a named layer (for help screen introspection).
-    pub fn keymap_for(&self, name: &str) -> Option<&Keymap> {
-        self.layers.get(name).map(|l| &l.keymap)
-    }
 }

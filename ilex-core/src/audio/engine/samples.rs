@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use super::AudioEngine;
@@ -8,15 +7,12 @@ impl AudioEngine {
     pub fn load_synthdefs(&self, dir: &Path) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
 
-        for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-            let path = entry.map_err(|e| e.to_string())?.path();
-            if path.extension().map_or(false, |e| e == "scsyndef") {
-                let data = fs::read(&path).map_err(|e| e.to_string())?;
-                client
-                    .send_message("/d_recv", vec![rosc::OscType::Blob(data)])
-                    .map_err(|e| e.to_string())?;
-            }
-        }
+        let abs_dir = dir.canonicalize().map_err(|e| format!("Cannot resolve synthdef dir {:?}: {}", dir, e))?;
+        let dir_str = abs_dir.to_str().ok_or_else(|| "Synthdef dir path is not valid UTF-8".to_string())?;
+
+        client
+            .send_message("/d_loadDir", vec![rosc::OscType::String(dir_str.to_string())])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -24,12 +20,12 @@ impl AudioEngine {
     pub fn load_synthdef_file(&self, path: &Path) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
 
-        if path.extension().map_or(false, |e| e == "scsyndef") {
-            let data = fs::read(path).map_err(|e| e.to_string())?;
-            client
-                .send_message("/d_recv", vec![rosc::OscType::Blob(data)])
-                .map_err(|e| e.to_string())?;
-        }
+        let abs_path = path.canonicalize().map_err(|e| format!("Cannot resolve synthdef file {:?}: {}", path, e))?;
+        let path_str = abs_path.to_str().ok_or_else(|| "Synthdef file path is not valid UTF-8".to_string())?;
+
+        client
+            .send_message("/d_load", vec![rosc::OscType::String(path_str.to_string())])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

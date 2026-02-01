@@ -43,9 +43,6 @@ impl PadKeyboard {
         }
     }
 
-    pub fn handle_escape(&mut self) {
-        self.deactivate();
-    }
 
     /// Status label for rendering
     pub fn status_label(&self) -> String {
