@@ -1,12 +1,12 @@
 > **Status: Implemented**
 >
 > Custom SynthDef support lives in `ilex-core/src/state/custom_synthdef.rs`, `ilex-core/src/scd_parser.rs`, and `ilex-core/src/audio/engine/voices.rs`/`routing.rs`.
-> This plan predates the ilex-core split and strip->instrument rename; read "strip" as "instrument" and update paths accordingly.
+> This plan predates the ilex-core split; paths below use current names.
 
-Path mapping (current code):
-- `src/state/strip.rs` -> `ilex-core/src/state/instrument.rs`
-- `src/state/strip_state.rs` -> `ilex-core/src/state/instrument_state.rs`
-- `src/dispatch.rs` -> `ilex-core/src/dispatch/mod.rs`
+Current paths:
+- `ilex-core/src/state/instrument.rs`
+- `ilex-core/src/state/instrument_state.rs`
+- `ilex-core/src/dispatch/mod.rs`
 
 # Plan: Custom SynthDef Instruments
 
@@ -23,13 +23,13 @@ Add support for user-defined SuperCollider SynthDefs as instrument sources. User
 ┌──────────────────────────────────────────────────────────────┐
 │                    CUSTOM SYNTHDEF FLOW                       │
 │                                                               │
-│  1. User selects "Import Custom" in Add Strip pane            │
+│  1. User selects "Import Custom" in Add Instrument pane       │
 │  2. File browser opens → user picks .scd file                 │
 │  3. Parse .scd to extract synthdef name + params              │
 │  4. Compile via sclang → generates .scsyndef                  │
 │  5. Copy to ~/.config/ilex/synthdefs/                       │
 │  6. Register in CustomSynthDefRegistry                        │
-│  7. Available as source type for new strips                   │
+│  7. Available as source type for new instruments              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -79,12 +79,12 @@ impl CustomSynthDefRegistry {
 }
 ```
 
-### 1.2 OscType Extension
+### 1.2 SourceType Extension
 
-**`src/state/strip.rs`** modifications:
+**`ilex-core/src/state/instrument.rs`** modifications:
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OscType {
+pub enum SourceType {
     Saw,
     Sin,
     Sqr,
@@ -94,13 +94,13 @@ pub enum OscType {
     Custom(CustomSynthDefId),  // NEW
 }
 
-impl OscType {
+impl SourceType {
     // Change return type to handle dynamic strings
-    pub fn synth_def_name(&self, registry: &CustomSynthDefRegistry) -> String {
+    pub fn synth_def_name_with_registry(&self, registry: &CustomSynthDefRegistry) -> String {
         match self {
-            OscType::Saw => "ilex_saw".to_string(),
+            SourceType::Saw => "ilex_saw".to_string(),
             // ... other built-ins
-            OscType::Custom(id) => {
+            SourceType::Custom(id) => {
                 registry.get(*id)
                     .map(|s| s.synthdef_name.clone())
                     .unwrap_or_else(|| "ilex_saw".to_string())
@@ -112,7 +112,7 @@ impl OscType {
     pub fn default_params(&self, registry: &CustomSynthDefRegistry) -> Vec<Param> {
         match self {
             // ... built-in types return hardcoded params
-            OscType::Custom(id) => {
+            SourceType::Custom(id) => {
                 registry.get(*id)
                     .map(|s| s.params.iter().map(|p| Param {
                         name: p.name.clone(),
@@ -127,11 +127,11 @@ impl OscType {
 }
 ```
 
-### 1.3 StripState Integration
+### 1.3 InstrumentState Integration
 
-**`src/state/strip_state.rs`** additions:
+**`ilex-core/src/state/instrument_state.rs`** additions:
 ```rust
-pub struct StripState {
+pub struct InstrumentState {
     // ... existing fields
     pub custom_synthdefs: CustomSynthDefRegistry,  // NEW
 }
@@ -156,7 +156,7 @@ pub struct ParsedSynthDef {
 /// Internal params to filter out (not user-editable)
 const INTERNAL_PARAMS: &[&str] = &[
     "out", "freq_in", "gate_in", "vel_in",
-    "attack", "decay", "sustain", "release"  // ADSR handled by strip
+    "attack", "decay", "sustain", "release"  // ADSR handled by instrument
 ];
 
 pub fn parse_scd_file(content: &str) -> Result<ParsedSynthDef, String> {
@@ -410,8 +410,8 @@ impl AddPane {
     fn build_options(&self, registry: &CustomSynthDefRegistry) -> Vec<AddOption> {
         let mut options = vec![
             // Built-in types
-            AddOption::OscType(OscType::Saw),
-            AddOption::OscType(OscType::Sin),
+            AddOption::Source(SourceType::Saw),
+            AddOption::Source(SourceType::Sin),
             // ... etc
         ];
 
@@ -420,7 +420,7 @@ impl AddPane {
 
         // Add custom types
         for synth in &registry.synthdefs {
-            options.push(AddOption::OscType(OscType::Custom(synth.id)));
+            options.push(AddOption::Source(SourceType::Custom(synth.id)));
         }
 
         // Add import option
@@ -431,7 +431,7 @@ impl AddPane {
 }
 
 enum AddOption {
-    OscType(OscType),
+    Source(SourceType),
     Separator(&'static str),
     ImportCustom,
 }
@@ -444,7 +444,7 @@ fn handle_input(&mut self, event: InputEvent) -> Action {
     match self.keymap.lookup(&event) {
         Some("select") => {
             match &self.options[self.selected] {
-                AddOption::OscType(osc) => Action::AddStrip(osc.clone()),
+                AddOption::Source(source) => Action::Instrument(InstrumentAction::Add(*source)),
                 AddOption::ImportCustom => Action::OpenFileBrowser(FileSelectAction::ImportCustomSynthDef),
                 AddOption::Separator(_) => Action::None,
             }
@@ -478,11 +478,11 @@ pub fn load_custom_synthdefs(&mut self, registry: &CustomSynthDefRegistry) -> Re
 ### 6.2 Spawn Custom Voices
 
 The existing `spawn_voice` method already handles this because:
-- It gets synthdef name via `OscType::synth_def_name(registry)`
+- It gets synthdef name via `SourceType::synth_def_name_with_registry(registry)`
 - It passes all `source_params` to SuperCollider
-- Custom params are stored in `strip.source_params`
+- Custom params are stored in `instrument.source_params`
 
-Only change needed: pass registry to `synth_def_name()` calls.
+Only change needed: use `synth_def_name_with_registry()` where synthdef names are resolved.
 
 ---
 
@@ -524,14 +524,14 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 | `src/state/custom_synthdef.rs` | CREATE | CustomSynthDef, ParamSpec, Registry types |
 | `src/scd_parser.rs` | CREATE | Parse .scd files for name and params |
 | `src/panes/file_browser_pane.rs` | CREATE | File selection UI |
-| `src/state/strip.rs` | MODIFY | Add OscType::Custom variant |
-| `src/state/strip_state.rs` | MODIFY | Add custom_synthdefs registry |
+| `ilex-core/src/state/instrument.rs` | MODIFY | Add SourceType::Custom variant |
+| `ilex-core/src/state/instrument_state.rs` | MODIFY | Add custom_synthdefs registry |
 | `src/state/mod.rs` | MODIFY | Export new modules |
 | `src/panes/add_pane.rs` | MODIFY | Show custom types + import option |
 | `src/panes/mod.rs` | MODIFY | Export FileBrowserPane |
 | `src/ui/pane.rs` | MODIFY | Add new Action variants |
 | `src/dispatch.rs` | MODIFY | Handle import action |
-| `src/audio/engine.rs` | MODIFY | Pass registry to synth_def_name calls |
+| `src/audio/engine.rs` | MODIFY | Pass registry to synth_def_name_with_registry calls |
 | `src/main.rs` | MODIFY | Register FileBrowserPane |
 | `src/state/persistence.rs` | MODIFY | Save/load custom synthdefs |
 | `Cargo.toml` | MODIFY | Add regex dependency |
@@ -540,12 +540,12 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 
 ## Implementation Order
 
-1. **Data structures**: custom_synthdef.rs, OscType::Custom variant
+1. **Data structures**: custom_synthdef.rs, SourceType::Custom variant
 2. **SCD parser**: scd_parser.rs with regex parsing
 3. **File browser pane**: Basic directory listing UI
 4. **Actions + dispatch**: Wire up import flow
 5. **AddPane integration**: Show custom types in menu
-6. **Audio engine**: Pass registry to synth_def_name
+6. **Audio engine**: Pass registry to synth_def_name_with_registry
 7. **Persistence**: Save/load custom synthdefs
 
 ---
@@ -557,9 +557,9 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 - [ ] File browser opens and navigates directories
 - [ ] Selecting .scd file parses name and params correctly
 - [ ] Compiled .scsyndef appears in config dir
-- [ ] Custom type appears in Add Strip menu
-- [ ] Creating strip with custom type works
-- [ ] Custom params appear in strip editor
+- [ ] Custom type appears in Add Instrument menu
+- [ ] Creating instrument with custom type works
+- [ ] Custom params appear in instrument editor
 - [ ] Playing notes triggers custom synthdef
 - [ ] Save/load preserves custom synthdefs
 
@@ -792,7 +792,7 @@ impl Pane for SclangEditorPane {
             self.pending_prefix = None;
             return match event.key {
                 KeyCode::Char('s') if event.modifiers.ctrl => self.save(),
-                KeyCode::Char('c') if event.modifiers.ctrl => Action::SwitchPane("strip"),
+                KeyCode::Char('c') if event.modifiers.ctrl => Action::SwitchPane("instrument"),
                 KeyCode::Char('f') if event.modifiers.ctrl => self.open_file(),
                 KeyCode::Char('x') if event.modifiers.ctrl => self.exchange_point_and_mark(),
                 _ => Action::None,
@@ -986,9 +986,9 @@ Users should follow this pattern for compatibility:
 
 ```supercollider
 SynthDef(\*my_custom_synth, { 
-    // Required inputs (handled by strip system)
+    // Required inputs (handled by instrument system)
     |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1),
-    // Standard envelope (handled by strip ADSR section)
+    // Standard envelope (handled by instrument ADSR section)
     attack=0.01, decay=0.1, sustain=0.7, release=0.3,
     // Custom params (will be editable)
     my_param=0.5, another_param=1000|

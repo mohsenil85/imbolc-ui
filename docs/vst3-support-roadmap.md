@@ -47,7 +47,7 @@ Example layout (sketch):
 
 ```
 +-- VST Params: Serum ---------------------------------------------+
-| / cutoff  reso  env  lfo  filter  osc  fx                       |
+| / cutoff  reso  env  lfo  filter  source  fx                    |
 |                                                                  |
 | > 001 Cutoff            0.72 [Hz]                               |
 |   002 Resonance         0.30 [%]                                |
@@ -105,7 +105,7 @@ This phase makes VSTs feel first-class and fast to use.
 
 2) Param groups
    - Surface VST3 units/groups in the UI.
-   - Allow browsing by group (osc/filter/mod/etc.).
+   - Allow browsing by group (source/filter/mod/etc.).
 
 3) MIDI learn
    - Map external MIDI CCs to VST parameters.

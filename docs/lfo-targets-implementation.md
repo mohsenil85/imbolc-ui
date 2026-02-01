@@ -295,7 +295,7 @@ For each target:
 | DelayFeedback | Any + Delay | Echo swells |
 | ReverbMix | Any + Reverb | Wet/dry sweep |
 | GateRate | Any + Gate | Variable speed chop |
-| SendLevel | Strip w/send | Ducking effect |
+| SendLevel | Instrument w/send | Ducking effect |
 | Detune | Any | Subtle warble |
 | Attack | Any (new notes) | Variable attack |
 | Release | Any (note off) | Variable release |

@@ -8,8 +8,8 @@ pub(super) fn dispatch_instrument(
     audio: &mut AudioHandle,
 ) -> DispatchResult {
     match action {
-        InstrumentAction::Add(osc_type) => {
-            state.add_instrument(*osc_type);
+        InstrumentAction::Add(source_type) => {
+            state.add_instrument(*source_type);
             let mut result = DispatchResult::with_nav(NavIntent::SwitchTo("instrument"));
             result.audio_dirty.instruments = true;
             result.audio_dirty.piano_roll = true;

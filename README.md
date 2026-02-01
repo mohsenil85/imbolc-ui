@@ -6,7 +6,7 @@ ilex is a terminal-based digital audio workstation (DAW) built in Rust. The UI i
 
 ## Highlights
 
-- Instrument strips with a source, filter, FX chain, and output routing.
+- Instruments with a source, filter, FX chain, and output routing.
 - Built-in sources: classic waves plus noise, pulse, supersaw, FM, phase mod, pluck, formant, gendy, chaos, additive, wavetable; Audio In, Bus In, Pitched Sampler, Kit (12-pad drum machine), custom SynthDefs, and VST instruments.
 - Filters: low-pass, high-pass, band-pass. Effects: delay, reverb, gate, tape comp, sidechain comp.
 - Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat, plus a step sequencer for kits and a sample chopper for slicing/assigning pads.

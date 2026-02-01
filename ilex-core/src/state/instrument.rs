@@ -404,7 +404,7 @@ impl SourceType {
         }
     }
 
-    /// Built-in oscillator types (excluding custom)
+    /// Built-in source types (excluding custom)
     pub fn all() -> Vec<SourceType> {
         vec![
             SourceType::Saw, SourceType::Sin, SourceType::Sqr, SourceType::Tri,
@@ -416,7 +416,7 @@ impl SourceType {
         ]
     }
 
-    /// All oscillator types including custom ones from registry
+    /// All source types including custom ones from registry
     #[allow(dead_code)]
     pub fn all_with_custom(registry: &CustomSynthDefRegistry) -> Vec<SourceType> {
         let mut types = Self::all();

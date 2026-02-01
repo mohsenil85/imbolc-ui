@@ -81,7 +81,7 @@ impl AudioEngine {
 
                 let mut params: Vec<(String, f32)> = vec![
                     ("out".to_string(), source_out_bus as f32),
-                    ("strip_id".to_string(), instrument.id as f32),
+                    ("instrument_id".to_string(), instrument.id as f32),
                 ];
                 // Add source params (gain, channel, test_tone, test_freq)
                 for p in &instrument.source_params {
@@ -136,7 +136,7 @@ impl AudioEngine {
                     ("out".to_string(), source_out_bus as f32),
                     ("in".to_string(), bus_audio_bus as f32),
                     ("gain".to_string(), gain),
-                    ("strip_id".to_string(), instrument.id as f32),
+                    ("instrument_id".to_string(), instrument.id as f32),
                 ];
 
                 let client = self.client.as_ref().ok_or("Not connected")?;

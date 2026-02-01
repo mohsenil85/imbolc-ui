@@ -17,7 +17,7 @@ Use Claude Haiku as a lightweight, fast AI backend for natural language sound de
 │ {                                                               │
 │   "command": "make me a piano pad",                             │
 │   "rack_state": { modules: [...], patches: [...] },             │
-│   "available_modules": ["SAW_OSC", "LPF", "REVERB", ...],       │
+│   "available_modules": ["SAW_SOURCE", "LPF", "REVERB", ...],    │
 │   "sequencer": { bpm: 120, steps: 16, ... }                     │
 │ }                                                               │
 └─────────────────────────────────────────────────────────────────┘
@@ -33,9 +33,9 @@ Use Claude Haiku as a lightweight, fast AI backend for natural language sound de
 │ Haiku returns structured actions:                               │
 │ {                                                               │
 │   "actions": [                                                  │
-│     {"type": "add_module", "module": "SAW_OSC",                 │
+│     {"type": "add_module", "module": "SAW_SOURCE",              │
 │      "params": {"freq": 220, "amp": 0.3}},                      │
-│     {"type": "add_module", "module": "SAW_OSC",                 │
+│     {"type": "add_module", "module": "SAW_SOURCE",              │
 │      "params": {"freq": 221, "amp": 0.3}},                      │
 │     {"type": "add_module", "module": "LPF",                     │
 │      "params": {"cutoff": 800}},                                │
@@ -60,7 +60,7 @@ Use Claude Haiku as a lightweight, fast AI backend for natural language sound de
 
 ### Module Creation
 ```
-"make me a sine wave osc"
+"make me a sine wave source"
 "add a low pass filter"
 "I need a reverb"
 ```
@@ -73,8 +73,8 @@ Use Claude Haiku as a lightweight, fast AI backend for natural language sound de
 "build a plucky lead"
 ```
 → Multiple modules configured and connected:
-- Piano pad: detuned oscs + LPF + slow envelope + reverb
-- Thick bass: saw osc + LPF with resonance + sub osc
+- Piano pad: detuned sources + LPF + slow envelope + reverb
+- Thick bass: saw source + LPF with resonance + sub source
 - Plucky lead: saw + fast envelope + slight delay
 
 ### Sequencer Patterns
@@ -118,7 +118,7 @@ Use Claude Haiku as a lightweight, fast AI backend for natural language sound de
   "actions": [
     {
       "type": "add_module",
-      "module": "SAW_OSC | LPF | LFO | REVERB | ...",
+      "module": "SAW_SOURCE | LPF | LFO | REVERB | ...",
       "id": "optional-custom-id",
       "params": { "freq": 440, "amp": 0.5 }
     },
@@ -175,7 +175,7 @@ You are an AI assistant for a modular synthesizer. You receive natural language
 commands and return structured actions as JSON.
 
 Available modules:
-- SAW_OSC: Sawtooth oscillator (params: freq 20-20000, amp 0-1)
+- SAW_SOURCE: Sawtooth source (params: freq 20-20000, amp 0-1)
 - LPF: Low-pass filter (params: cutoff 20-20000, res 0-1)
 - LFO: Low frequency oscillator (params: rate 0.01-100, depth 0-1)
 - REVERB: Reverb effect (params: room 0-1, damp 0-1, mix 0-1)
@@ -190,8 +190,8 @@ Sound design guidelines:
 - "bright": higher cutoff, presence boost
 - "spacious": reverb with high room, delay with moderate feedback
 - "punchy": fast attack, short decay
-- "pad": slow attack, long release, detuned oscillators, reverb
-- "bass": low frequency, filtered, maybe sub oscillator
+- "pad": slow attack, long release, detuned sources, reverb
+- "bass": low frequency, filtered, maybe sub source
 - "lead": mid-high frequency, some brightness, slight delay
 
 Always return valid JSON with "actions" array and "explanation" string.

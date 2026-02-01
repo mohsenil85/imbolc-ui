@@ -20,7 +20,7 @@ pub struct AppState {
 }
 ```
 
-`InstrumentState` (formerly StripState) contains the instruments:
+`InstrumentState` contains the instruments:
 
 ```rust
 // ilex-core/src/state/instrument_state.rs
@@ -58,7 +58,7 @@ pub struct SessionState {
 
 ## The Instrument Model
 
-An `Instrument` (formerly Strip) is the fundamental unit — it combines what were previously separate rack modules (oscillator, filter, effects, output) into a single entity:
+An `Instrument` is the fundamental unit — it combines what were previously separate rack modules (oscillator, filter, effects, output) into a single entity:
 
 ```rust
 // ilex-core/src/state/instrument.rs

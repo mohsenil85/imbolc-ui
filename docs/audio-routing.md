@@ -22,7 +22,7 @@ SuperCollider (our audio engine) handles this natively. `Out.ar(bus, signal)` ad
 ### Bus Types
 
 **Audio buses** carry audio-rate signals (44100 samples/sec). Used for:
-- Oscillator output
+- Source output
 - Filter chains
 - Effects
 - Final output to hardware
@@ -59,7 +59,7 @@ Execution order:
 An insert is a **serial** connection. The signal passes through each module in sequence:
 
 ```
-Osc ──> Filter ──> Delay ──> Output
+Source ──> Filter ──> Delay ──> Output
 ```
 
 Each module's output is the next module's input. The entire signal goes through the chain. This is what our connection system does.
@@ -70,7 +70,7 @@ A send is a **parallel** copy. The signal goes to its main destination AND a cop
 
 ```
                     ┌──> main out
-Osc ──> Filter ──┤
+Source ──> Filter ──┤
                     └──> Reverb bus (at -6dB)
                               │
                               v
@@ -90,8 +90,8 @@ This is how real mixers work - you don't put a separate reverb on every channel.
 A send is just an additional `Out.ar` in the source synth:
 
 ```supercollider
-// Oscillator with a send
-SynthDef(\osc_with_send, { |out=16, send_bus=20, send_level=0|
+// Source with a send
+SynthDef(\source_with_send, { |out=16, send_bus=20, send_level=0|
     var sig = Saw.ar(440) * 0.5;
     Out.ar(out, sig);                           // main output (insert chain)
     Out.ar(send_bus, sig * send_level);         // send (parallel copy)
