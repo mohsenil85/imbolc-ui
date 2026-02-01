@@ -396,6 +396,217 @@ SynthDef(\imbolc_sc_comp, { |in=1024, out=1026, sidechain_in=0, threshold=0.3, r
     Out.ar(out, (sig * (1 - mix.lag(lag))) + (compressed * mix.lag(lag)));
 }).writeDefFile(dir);
 
+// Chorus — DelayL + SinOsc modulation
+SynthDef(\imbolc_chorus, { |in=1024, out=1026, rate=0.5, depth=0.005, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var modL = SinOsc.kr(rate, 0) * depth;
+    var modR = SinOsc.kr(rate, 0.5pi) * depth;
+    var wet = [
+        DelayL.ar(sig[0], 0.05, (depth + modL).clip(0.0001, 0.05)),
+        DelayL.ar(sig[1], 0.05, (depth + modR).clip(0.0001, 0.05))
+    ];
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Flanger — CombL with short modulated delay
+SynthDef(\imbolc_flanger, { |in=1024, out=1026, rate=0.3, depth=0.003, feedback=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mod = SinOsc.kr(rate) * depth;
+    var delayTime = (depth + mod).clip(0.0001, 0.01);
+    var wet = CombL.ar(sig, 0.01, delayTime, feedback.lag(lag) * 0.5);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Phaser — AllpassL chain with LFO sweep
+SynthDef(\imbolc_phaser, { |in=1024, out=1026, rate=0.5, depth=0.5, stages=4, feedback=0.3, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var lfo = SinOsc.kr(rate).range(200, 4000);
+    var wet = sig;
+    // 6 allpass stages, gated by stages param
+    6.do { |i|
+        var active = (i < stages);
+        var freq = lfo * ((i + 1) / 6);
+        var delay = freq.reciprocal.clip(0.00001, 0.01);
+        wet = Select.ar(active, [wet, AllpassL.ar(wet, 0.01, delay, 0.001)]);
+    };
+    wet = wet + (LocalIn.ar(2) * feedback.lag(lag));
+    LocalOut.ar(wet);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Tremolo — Amplitude modulation, shape-selectable
+// shape: 0=sine, 1=square, 2=saw
+SynthDef(\imbolc_tremolo, { |in=1024, out=1026, rate=4, depth=0.5, shape=0, mix=1.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var sine = SinOsc.kr(rate).range(1 - depth, 1);
+    var square = LFPulse.kr(rate, width: 0.5).range(1 - depth, 1);
+    var saw = LFSaw.kr(rate).range(1 - depth, 1);
+    var lfo = Select.kr(shape, [sine, square, saw]);
+    var wet = sig * lfo;
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Distortion — hard clip / soft clip / foldback
+// mode: 0=hard clip, 1=soft clip (tanh), 2=foldback
+SynthDef(\imbolc_distortion, { |in=1024, out=1026, drive=2, mode=0, tone=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var driven = sig * drive.lag(lag);
+    var hard = driven.clip2(1);
+    var soft = driven.tanh;
+    var fold = driven.fold2(1);
+    var distorted = Select.ar(mode, [hard, soft, fold]);
+    var toneFreq = tone.lag(lag).linexp(0, 1, 300, 12000);
+    var filtered = LPF.ar(distorted, toneFreq);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (filtered * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Bitcrusher — Latch + bit reduction
+SynthDef(\imbolc_bitcrusher, { |in=1024, out=1026, rate=8000, bits=8, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var crushed = Latch.ar(sig, Impulse.ar(rate));
+    var bitDepth = (2 ** bits);
+    crushed = (crushed * bitDepth).round / bitDepth;
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (crushed * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Wavefolder — fold2 with drive
+SynthDef(\imbolc_wavefolder, { |in=1024, out=1026, drive=1, symmetry=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var offset = (symmetry.lag(lag) - 0.5) * 0.5;
+    var driven = (sig + offset) * drive.lag(lag);
+    var folded = driven.fold2(1);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (folded * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Saturator — tanh saturation + tone filter
+SynthDef(\imbolc_saturator, { |in=1024, out=1026, drive=1.5, color=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var saturated = (sig * drive.lag(lag)).tanh;
+    var toneFreq = color.lag(lag).linexp(0, 1, 500, 15000);
+    var filtered = LPF.ar(saturated, toneFreq);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (filtered * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Tilt EQ — BLowShelf + BHiShelf complementary
+SynthDef(\imbolc_tilt_eq, { |in=1024, out=1026, tilt=0, frequency=1000, lag=0.02|
+    var sig = In.ar(in, 2);
+    var tiltDb = tilt.lag(lag) * 12; // -12 to +12 dB
+    var lo = BLowShelf.ar(sig, frequency.lag(lag), 1, tiltDb);
+    var result = BHiShelf.ar(lo, frequency.lag(lag), 1, tiltDb.neg);
+    Out.ar(out, result);
+}).writeDefFile(dir);
+
+// Stereo Widener — Mid/Side processing
+SynthDef(\imbolc_stereo_widener, { |in=1024, out=1026, width=1, mix=1.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mid = (sig[0] + sig[1]) * 0.5;
+    var side = (sig[0] - sig[1]) * 0.5;
+    var widthLag = width.lag(lag);
+    var wet = [mid + (side * widthLag), mid - (side * widthLag)];
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Frequency Shifter — FreqShift UGen
+SynthDef(\imbolc_freq_shifter, { |in=1024, out=1026, shift_hz=0, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var wet = FreqShift.ar(sig, shift_hz.lag(lag));
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Limiter — Limiter UGen
+SynthDef(\imbolc_limiter, { |in=1024, out=1026, threshold=0.9, release=0.01, ceiling=1.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var limited = Limiter.ar(sig, threshold.lag(lag), release.lag(lag));
+    Out.ar(out, limited * ceiling.lag(lag));
+}).writeDefFile(dir);
+
+// Pitch Shifter — PitchShift UGen
+SynthDef(\imbolc_pitch_shifter, { |in=1024, out=1026, shift=0, window=0.2, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var ratio = 2 ** (shift.lag(lag) / 12); // semitones to ratio
+    var wet = PitchShift.ar(sig, window.lag(lag), ratio);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Vinyl — DelayL wow/flutter + Dust crackle + HPF hiss
+SynthDef(\imbolc_vinyl, { |in=1024, out=1026, wow=0.3, flutter=0.3, noise=0.1, hiss=0.05, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    // Wow (slow pitch modulation) and flutter (fast pitch modulation)
+    var wowMod = SinOsc.kr(0.3 + (wow * 0.5)) * wow * 0.003;
+    var flutterMod = SinOsc.kr(6 + (flutter * 4)) * flutter * 0.001;
+    var totalMod = wowMod + flutterMod;
+    var modulated = DelayL.ar(sig, 0.05, (0.005 + totalMod).clip(0.0001, 0.05));
+    // Crackle noise (Dust)
+    var crackle = Dust.ar(3 + (noise * 20)) * noise * 0.15;
+    // Hiss (filtered noise)
+    var hissNoise = HPF.ar(WhiteNoise.ar(hiss * 0.05), 5000);
+    var wet = modulated + crackle + hissNoise;
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Cabinet — Shaped LPF profiles + mild saturation
+// type: 0=small combo, 1=large combo, 2=4x12 stack, 3=open back
+SynthDef(\imbolc_cabinet, { |in=1024, out=1026, type=0, tone=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var toneFreq = tone.lag(lag);
+    // Different cabinet profiles with different LPF cutoffs and resonance
+    var small = LPF.ar(sig.tanh, toneFreq.linexp(0, 1, 800, 5000));
+    var large = LPF.ar(sig.tanh, toneFreq.linexp(0, 1, 600, 4000));
+    var stack = LPF.ar(BPeakEQ.ar(sig.tanh, 2000, 1, 3), toneFreq.linexp(0, 1, 500, 3500));
+    var open = LPF.ar(sig.tanh, toneFreq.linexp(0, 1, 1000, 6000));
+    var wet = Select.ar(type, [small, large, stack, open]);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Granular Delay — BufWr + TGrains into LocalBuf
+SynthDef(\imbolc_granular_delay, { |in=1024, out=1026, time=0.3, grain_size=0.1, density=10, pitch=0, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var bufFrames = 44100 * 2; // 2 second buffer
+    var buf = LocalBuf(bufFrames, 1);
+    var phase = Phasor.ar(0, 1, 0, bufFrames);
+    BufWr.ar(mono, buf, phase);
+    var readPos = (phase - (time.lag(lag) * SampleRate.ir)).wrap(0, bufFrames);
+    var pitchRatio = 2 ** (pitch.lag(lag) / 12);
+    var trig = Impulse.ar(density);
+    var wet = TGrains.ar(2, trig, buf, pitchRatio, readPos / SampleRate.ir, grain_size.lag(lag), 0, 0.5);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Granular Freeze — Frozen grain position + scatter
+SynthDef(\imbolc_granular_freeze, { |in=1024, out=1026, grain_size=0.1, density=10, pitch=0, spread=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var bufFrames = 44100 * 2;
+    var buf = LocalBuf(bufFrames, 1);
+    var phase = Phasor.ar(0, 1, 0, bufFrames);
+    BufWr.ar(mono, buf, phase);
+    var pitchRatio = 2 ** (pitch.lag(lag) / 12);
+    var trig = Impulse.ar(density);
+    // Scatter grain position around current write position
+    var scatter = TRand.ar(0, spread.lag(lag) * bufFrames, trig);
+    var grainPos = (phase - scatter).wrap(0, bufFrames) / SampleRate.ir;
+    var wet = TGrains.ar(2, trig, buf, pitchRatio, grainPos, grain_size.lag(lag), 0, 0.5);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// ============================================================================
+// Convolution Reverb - Uses loaded impulse response buffer
+// ir_buffer: SC buffer number of loaded IR (-1 = bypass/passthrough)
+// ============================================================================
+SynthDef(\imbolc_convolution_reverb, { |in=1024, out=1026, ir_buffer=(-1), mix=0.3, predelay=0.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var delayed = DelayN.ar(mono, 0.5, predelay.lag(lag));
+    // Convolution2 uses partitioned convolution (FFT size 2048)
+    var conv = Convolution2.ar(delayed, ir_buffer, 0, 2048);
+    var wet = [conv, conv]; // mono IR -> stereo
+    // If ir_buffer < 0, pass through dry signal
+    var hasIR = (ir_buffer >= 0);
+    var output = Select.ar(hasIR, [sig, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag))]);
+    Out.ar(out, output);
+}).writeDefFile(dir);
+
 // ============================================================================
 // Output - Final stage, reads from audio bus, writes to hardware out
 // Includes level, mute, and pan controls for mixer integration
@@ -428,6 +639,45 @@ SynthDef(\imbolc_bus_out, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
 // ============================================================================
 SynthDef(\imbolc_meter, {
     SendPeakRMS.kr(In.ar(0, 2), 10, 3, "/meter");
+}).writeDefFile(dir);
+
+// ============================================================================
+// Spectrum Analyzer - 7-band frequency analysis via bandpass filters
+// Sends amplitude data at ~20Hz via SendReply
+// ============================================================================
+SynthDef(\imbolc_spectrum, {
+    var sig = In.ar(0, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var freqs = #[60, 150, 400, 1000, 2500, 6000, 15000];
+    var bws = #[0.8, 0.7, 0.6, 0.5, 0.5, 0.5, 0.5]; // wider bandwidth at low freqs
+    var amps = Array.fill(7, { |i|
+        Amplitude.kr(BPF.ar(mono, freqs[i], bws[i]), 0.05, 0.2);
+    });
+    SendReply.kr(Impulse.kr(20), '/spectrum', amps);
+}).writeDefFile(dir);
+
+// ============================================================================
+// LUFS Meter - K-weighted loudness measurement
+// Sends peak and RMS at ~20Hz via SendPeakRMS
+// ============================================================================
+SynthDef(\imbolc_lufs_meter, {
+    var sig = In.ar(0, 2);
+    // Approximate K-weighting: high-shelf boost + high-pass
+    var weighted = HPF.ar(BHiShelf.ar(sig, 1500, 1, 4), 38);
+    SendPeakRMS.kr(weighted, 20, 3, "/lufs");
+}).writeDefFile(dir);
+
+// ============================================================================
+// Scope - Sends peak amplitude at ~30Hz for oscilloscope display
+// ============================================================================
+SynthDef(\imbolc_scope, {
+    var sig = In.ar(0, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    // Bipolar peak: track both positive and negative peaks
+    var peak = Amplitude.kr(mono, 0.001, 0.03);
+    // Capture sign by checking current sample polarity
+    var sign = Latch.kr(mono, Impulse.kr(30));
+    SendReply.kr(Impulse.kr(30), '/scope', [sign.sign * peak]);
 }).writeDefFile(dir);
 
 // ============================================================================

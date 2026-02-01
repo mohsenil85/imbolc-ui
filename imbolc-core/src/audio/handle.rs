@@ -199,6 +199,18 @@ impl AudioHandle {
         self.monitor.audio_in_waveform(instrument_id)
     }
 
+    pub fn spectrum_bands(&self) -> [f32; 7] {
+        self.monitor.spectrum_bands()
+    }
+
+    pub fn lufs_data(&self) -> (f32, f32, f32, f32) {
+        self.monitor.lufs_data()
+    }
+
+    pub fn scope_buffer(&self) -> Vec<f32> {
+        self.monitor.scope_buffer()
+    }
+
     pub fn is_recording(&self) -> bool {
         self.is_recording
     }
@@ -562,6 +574,10 @@ struct AudioThread {
     last_tick: Instant,
     last_recording_secs: u64,
     last_recording_state: bool,
+    /// Simple LCG random seed for probability/humanization
+    rng_state: u64,
+    /// Per-instrument arpeggiator runtime state
+    arp_states: std::collections::HashMap<u32, crate::state::arpeggiator::ArpPlayState>,
 }
 
 impl AudioThread {
@@ -579,6 +595,8 @@ impl AudioThread {
             last_tick: Instant::now(),
             last_recording_secs: 0,
             last_recording_state: false,
+            rng_state: 12345,
+            arp_states: std::collections::HashMap::new(),
         }
     }
 
@@ -844,14 +862,21 @@ impl AudioThread {
         }
     }
 
+    /// Simple LCG random number generator, returns 0.0-1.0
+    fn next_random(&mut self) -> f32 {
+        self.rng_state = self.rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((self.rng_state >> 33) as f32) / (u32::MAX as f32)
+    }
+
     fn tick(&mut self, elapsed: Duration) {
         self.tick_playback(elapsed);
         self.tick_drum_sequencer(elapsed);
+        self.tick_arpeggiator(elapsed);
     }
 
     fn tick_playback(&mut self, elapsed: Duration) {
         let mut playback_data: Option<(
-            Vec<(u32, u8, u8, u32, u32)>,
+            Vec<(u32, u8, u8, u32, u32, f32)>, // instrument_id, pitch, velocity, duration, tick, probability
             u32,
             u32,
             u32,
@@ -876,12 +901,12 @@ impl AudioThread {
 
                 let secs_per_tick = 60.0 / (self.piano_roll.bpm as f64 * self.piano_roll.ticks_per_beat as f64);
 
-                let mut note_ons: Vec<(u32, u8, u8, u32, u32)> = Vec::new();
+                let mut note_ons: Vec<(u32, u8, u8, u32, u32, f32)> = Vec::new();
                 for &instrument_id in &self.piano_roll.track_order {
                     if let Some(track) = self.piano_roll.tracks.get(&instrument_id) {
                         for note in &track.notes {
                             if note.tick >= scan_start && note.tick < scan_end {
-                                note_ons.push((instrument_id, note.pitch, note.velocity, note.duration, note.tick));
+                                note_ons.push((instrument_id, note.pitch, note.velocity, note.duration, note.tick, note.probability));
                             }
                         }
                     }
@@ -893,14 +918,60 @@ impl AudioThread {
 
         if let Some((note_ons, old_playhead, new_playhead, tick_delta, secs_per_tick)) = playback_data {
             if self.engine.is_running() {
-                for &(instrument_id, pitch, velocity, duration, note_tick) in &note_ons {
+                let swing_amount = self.piano_roll.swing_amount;
+                let humanize_vel = self.session.humanize_velocity;
+                let humanize_time = self.session.humanize_timing;
+                for &(instrument_id, pitch, velocity, duration, note_tick, probability) in &note_ons {
+                    // Probability check: skip note if random exceeds probability
+                    if probability < 1.0 && self.next_random() > probability {
+                        continue;
+                    }
+
+                    // Check if this instrument has arpeggiator enabled
+                    let arp_enabled = self.instruments.instruments.iter()
+                        .find(|inst| inst.id == instrument_id)
+                        .map(|inst| inst.arpeggiator.enabled)
+                        .unwrap_or(false);
+
+                    if arp_enabled {
+                        // Buffer note for arpeggiator instead of spawning directly
+                        let arp = self.arp_states.entry(instrument_id)
+                            .or_insert_with(crate::state::arpeggiator::ArpPlayState::default);
+                        if !arp.held_notes.contains(&pitch) {
+                            arp.held_notes.push(pitch);
+                            arp.held_notes.sort();
+                        }
+                        // Track as active note so note-off removes from held_notes
+                        self.active_notes.push((instrument_id, pitch, duration));
+                        continue;
+                    }
+
                     let ticks_from_now = if note_tick >= old_playhead {
                         (note_tick - old_playhead) as f64
                     } else {
                         0.0
                     };
-                    let offset = ticks_from_now * secs_per_tick;
-                    let vel_f = velocity as f32 / 127.0;
+                    let mut offset = ticks_from_now * secs_per_tick;
+                    // Apply swing: delay notes on offbeat positions (odd 8th notes)
+                    if swing_amount > 0.0 {
+                        let tpb = self.piano_roll.ticks_per_beat as f64;
+                        let eighth = tpb / 2.0;
+                        let pos_in_beat = (note_tick as f64) % tpb;
+                        if (pos_in_beat - eighth).abs() < 1.0 {
+                            offset += swing_amount as f64 * eighth * secs_per_tick * 0.5;
+                        }
+                    }
+                    // Apply timing humanization: jitter offset by up to +/- 20ms
+                    if humanize_time > 0.0 {
+                        let jitter = (self.next_random() - 0.5) * 2.0 * humanize_time * 0.02;
+                        offset = (offset + jitter as f64).max(0.0);
+                    }
+                    // Apply velocity humanization: jitter velocity by up to +/- 30
+                    let mut vel_f = velocity as f32 / 127.0;
+                    if humanize_vel > 0.0 {
+                        let jitter = (self.next_random() - 0.5) * 2.0 * humanize_vel * (30.0 / 127.0);
+                        vel_f = (vel_f + jitter).clamp(0.01, 1.0);
+                    }
                     let _ = self.engine.spawn_voice(instrument_id, pitch, vel_f, offset, &self.instruments, &self.session);
                     self.active_notes.push((instrument_id, pitch, duration));
                 }
@@ -935,6 +1006,11 @@ impl AudioThread {
 
             if self.engine.is_running() {
                 for (instrument_id, pitch, remaining) in &note_offs {
+                    // For arp-enabled instruments, remove from held_notes instead of releasing
+                    if let Some(arp) = self.arp_states.get_mut(instrument_id) {
+                        arp.held_notes.retain(|&p| p != *pitch);
+                        continue;
+                    }
                     let offset = *remaining as f64 * secs_per_tick;
                     let _ = self.engine.release_voice(*instrument_id, *pitch, offset, &self.instruments);
                 }
@@ -963,9 +1039,33 @@ impl AudioThread {
 
             seq.step_accumulator += elapsed.as_secs_f32() * steps_per_second;
 
-            while seq.step_accumulator >= 1.0 {
-                seq.step_accumulator -= 1.0;
-                seq.current_step = (seq.current_step + 1) % pattern_length;
+            // Swing: odd-numbered steps need a higher threshold to fire (delayed)
+            let next_step = (seq.current_step + 1) % pattern_length;
+            let swing_threshold = if seq.swing_amount > 0.0 && next_step % 2 == 1 {
+                1.0 + seq.swing_amount * 0.5
+            } else if seq.swing_amount > 0.0 && seq.current_step % 2 == 1 {
+                // After a swung step, the following even step comes sooner
+                1.0 - seq.swing_amount * 0.5
+            } else {
+                1.0
+            };
+
+            while seq.step_accumulator >= swing_threshold {
+                seq.step_accumulator -= swing_threshold;
+                let next = seq.current_step + 1;
+                if next >= pattern_length {
+                    // Pattern wrapped — advance chain if enabled
+                    if seq.chain_enabled && !seq.chain.is_empty() {
+                        seq.chain_position = (seq.chain_position + 1) % seq.chain.len();
+                        let next_pattern = seq.chain[seq.chain_position];
+                        if next_pattern < seq.patterns.len() {
+                            seq.current_pattern = next_pattern;
+                        }
+                    }
+                    seq.current_step = 0;
+                } else {
+                    seq.current_step = next;
+                }
             }
 
             if seq.last_played_step != Some(seq.current_step) {
@@ -981,7 +1081,21 @@ impl AudioThread {
                                 .and_then(|s| s.get(current_step))
                             {
                                 if step.active {
-                                    let amp = (step.velocity as f32 / 127.0) * pad.level;
+                                    // Probability check: skip hit if random exceeds probability
+                                    // (inline RNG to avoid &mut self borrow conflict)
+                                    if step.probability < 1.0 {
+                                        self.rng_state = self.rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                                        let r = ((self.rng_state >> 33) as f32) / (u32::MAX as f32);
+                                        if r > step.probability { continue; }
+                                    }
+                                    let mut amp = (step.velocity as f32 / 127.0) * pad.level;
+                                    // Velocity humanization
+                                    if self.session.humanize_velocity > 0.0 {
+                                        self.rng_state = self.rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                                        let r = ((self.rng_state >> 33) as f32) / (u32::MAX as f32);
+                                        let jitter = (r - 0.5) * 2.0 * self.session.humanize_velocity * (30.0 / 127.0);
+                                        amp = (amp + jitter).clamp(0.01, 1.0);
+                                    }
                                     let _ = self.engine.play_drum_hit_to_instrument(
                                         buffer_id, amp, instrument.id,
                                         pad.slice_start, pad.slice_end,
@@ -998,6 +1112,137 @@ impl AudioThread {
                 seq.last_played_step = Some(seq.current_step);
             }
         }
+    }
+
+    fn tick_arpeggiator(&mut self, elapsed: Duration) {
+        use crate::state::arpeggiator::{ArpDirection, ArpPlayState};
+
+        let bpm = self.piano_roll.bpm;
+
+        // Collect instrument ids and arp configs to avoid borrow conflicts
+        let arp_instruments: Vec<(u32, crate::state::arpeggiator::ArpeggiatorConfig)> = self
+            .instruments
+            .instruments
+            .iter()
+            .filter(|inst| inst.arpeggiator.enabled)
+            .map(|inst| (inst.id, inst.arpeggiator.clone()))
+            .collect();
+
+        for (instrument_id, config) in arp_instruments {
+            let arp = self.arp_states.entry(instrument_id).or_insert_with(ArpPlayState::default);
+
+            if arp.held_notes.is_empty() {
+                // Release any currently sounding note
+                if let Some(pitch) = arp.current_pitch.take() {
+                    if self.engine.is_running() {
+                        let _ = self.engine.release_voice(instrument_id, pitch, 0.0, &self.instruments);
+                    }
+                }
+                continue;
+            }
+
+            // Build the note sequence: held notes across octaves
+            let mut sequence: Vec<u8> = Vec::new();
+            for octave in 0..config.octaves {
+                for &note in &arp.held_notes {
+                    let pitched = note as i16 + (octave as i16 * 12);
+                    if (0..=127).contains(&pitched) {
+                        sequence.push(pitched as u8);
+                    }
+                }
+            }
+            if sequence.is_empty() {
+                continue;
+            }
+
+            // Advance accumulator
+            let steps_per_second = (bpm / 60.0) * config.rate.steps_per_beat();
+            arp.accumulator += elapsed.as_secs_f32() * steps_per_second;
+
+            while arp.accumulator >= 1.0 {
+                arp.accumulator -= 1.0;
+
+                // Release previous note
+                if let Some(pitch) = arp.current_pitch.take() {
+                    if self.engine.is_running() {
+                        let _ = self.engine.release_voice(instrument_id, pitch, 0.0, &self.instruments);
+                    }
+                }
+
+                // Select next note based on direction
+                let seq_len = sequence.len();
+                let pitch = match config.direction {
+                    ArpDirection::Up => {
+                        arp.step_index = (arp.step_index + 1) % seq_len;
+                        sequence[arp.step_index]
+                    }
+                    ArpDirection::Down => {
+                        if arp.step_index == 0 {
+                            arp.step_index = seq_len - 1;
+                        } else {
+                            arp.step_index -= 1;
+                        }
+                        sequence[arp.step_index]
+                    }
+                    ArpDirection::UpDown => {
+                        if seq_len <= 1 {
+                            sequence[0]
+                        } else {
+                            if arp.ascending {
+                                arp.step_index += 1;
+                                if arp.step_index >= seq_len {
+                                    arp.step_index = seq_len - 2;
+                                    arp.ascending = false;
+                                }
+                            } else {
+                                if arp.step_index == 0 {
+                                    arp.step_index = 1;
+                                    arp.ascending = true;
+                                } else {
+                                    arp.step_index -= 1;
+                                }
+                            }
+                            sequence[arp.step_index.min(seq_len - 1)]
+                        }
+                    }
+                    ArpDirection::Random => {
+                        // Use inline RNG to pick random index
+                        self.rng_state = self.rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        let r = ((self.rng_state >> 33) as usize) % seq_len;
+                        sequence[r]
+                    }
+                };
+
+                // Spawn the new note
+                if self.engine.is_running() {
+                    let vel_f = 0.8; // Default velocity for arp notes
+                    let _ = self.engine.spawn_voice(instrument_id, pitch, vel_f, 0.0, &self.instruments, &self.session);
+                }
+                arp.current_pitch = Some(pitch);
+            }
+        }
+
+        // Clean up arp states for instruments that no longer have arp enabled
+        let active_ids: Vec<u32> = self
+            .instruments
+            .instruments
+            .iter()
+            .filter(|inst| inst.arpeggiator.enabled)
+            .map(|inst| inst.id)
+            .collect();
+        self.arp_states.retain(|id, state| {
+            if !active_ids.contains(id) {
+                // Release any sounding note before removing
+                if let Some(pitch) = state.current_pitch {
+                    if self.engine.is_running() {
+                        let _ = self.engine.release_voice(*id, pitch, 0.0, &self.instruments);
+                    }
+                }
+                false
+            } else {
+                true
+            }
+        });
     }
 
     fn poll_engine(&mut self) {

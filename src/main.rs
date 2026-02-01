@@ -323,6 +323,17 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             app_frame.recording = state.recording;
             app_frame.recording_secs = state.recording_secs;
 
+            // Update visualization data from audio analysis synths
+            state.visualization.spectrum_bands = audio.spectrum_bands();
+            let (peak_l, peak_r, rms_l, rms_r) = audio.lufs_data();
+            state.visualization.peak_l = peak_l;
+            state.visualization.peak_r = peak_r;
+            state.visualization.rms_l = rms_l;
+            state.visualization.rms_r = rms_r;
+            let scope = audio.scope_buffer();
+            state.visualization.scope_buffer.clear();
+            state.visualization.scope_buffer.extend(scope);
+
             // Update waveform cache for waveform pane
             if panes.active().id() == "waveform" {
                 if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {

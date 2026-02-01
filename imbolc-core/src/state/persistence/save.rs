@@ -12,8 +12,9 @@ pub(super) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
         "INSERT INTO instruments (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
              lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
              amp_attack, amp_decay, amp_sustain, amp_release, polyphonic,
-             level, pan, mute, solo, active, output_target, vst_state_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+             level, pan, mute, solo, active, output_target, vst_state_path,
+             arp_enabled, arp_direction, arp_rate, arp_octaves, arp_gate, chord_shape, convolution_ir_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
     )?;
     for (pos, inst) in instruments.instruments.iter().enumerate() {
         let source_str = match inst.source {
@@ -83,6 +84,13 @@ pub(super) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
             inst.active,
             output_str,
             inst.vst_state_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+            inst.arpeggiator.enabled,
+            inst.arpeggiator.direction.name(),
+            inst.arpeggiator.rate.name(),
+            inst.arpeggiator.octaves as i32,
+            inst.arpeggiator.gate as f64,
+            inst.chord_shape.as_ref().map(|s| s.name()),
+            inst.convolution_ir_path.as_deref(),
         ])?;
     }
     Ok(())
@@ -343,8 +351,8 @@ pub(super) fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> S
     // Notes
     {
         let mut stmt = conn.prepare(
-            "INSERT INTO piano_roll_notes (track_instrument_id, tick, duration, pitch, velocity)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO piano_roll_notes (track_instrument_id, tick, duration, pitch, velocity, probability)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
         for track in session.piano_roll.tracks.values() {
             for note in &track.notes {
@@ -353,7 +361,8 @@ pub(super) fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> S
                     note.tick,
                     note.duration,
                     note.pitch,
-                    note.velocity
+                    note.velocity,
+                    note.probability as f64
                 ])?;
             }
         }
@@ -361,8 +370,8 @@ pub(super) fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> S
 
     // Musical settings
     conn.execute(
-        "INSERT INTO musical_settings (id, bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping, key, scale, tuning_a4, snap)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO musical_settings (id, bpm, time_sig_num, time_sig_denom, ticks_per_beat, loop_start, loop_end, looping, key, scale, tuning_a4, snap, swing_amount, humanize_velocity, humanize_timing)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         rusqlite::params![
             session.bpm as f64,
             session.time_signature.0,
@@ -375,6 +384,9 @@ pub(super) fn save_piano_roll(conn: &SqlConnection, session: &SessionState) -> S
             session.scale.name(),
             session.tuning_a4 as f64,
             session.snap,
+            session.piano_roll.swing_amount as f64,
+            session.humanize_velocity as f64,
+            session.humanize_timing as f64,
         ],
     )?;
     Ok(())
@@ -472,11 +484,14 @@ pub(super) fn save_drum_sequencers(conn: &SqlConnection, instruments: &Instrumen
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     let mut pattern_stmt = conn.prepare(
-        "INSERT INTO drum_patterns (instrument_id, pattern_index, length) VALUES (?1, ?2, ?3)",
+        "INSERT INTO drum_patterns (instrument_id, pattern_index, length, swing_amount, chain_enabled) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?;
+    let mut chain_stmt = conn.prepare(
+        "INSERT INTO drum_sequencer_chain (instrument_id, position, pattern_index) VALUES (?1, ?2, ?3)",
     )?;
     let mut step_stmt = conn.prepare(
-        "INSERT INTO drum_steps (instrument_id, pattern_index, pad_index, step_index, velocity)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO drum_steps (instrument_id, pattern_index, pad_index, step_index, velocity, probability)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
 
     for inst in &instruments.instruments {
@@ -495,17 +510,22 @@ pub(super) fn save_drum_sequencers(conn: &SqlConnection, instruments: &Instrumen
             }
 
             for (pi, pattern) in seq.patterns.iter().enumerate() {
-                pattern_stmt.execute(rusqlite::params![instrument_id, pi, pattern.length])?;
+                pattern_stmt.execute(rusqlite::params![instrument_id, pi, pattern.length, seq.swing_amount as f64, seq.chain_enabled])?;
 
                 for (pad_idx, pad_steps) in pattern.steps.iter().enumerate() {
                     for (step_idx, step) in pad_steps.iter().enumerate() {
                         if step.active {
                             step_stmt.execute(rusqlite::params![
-                                instrument_id, pi, pad_idx, step_idx, step.velocity as i32
+                                instrument_id, pi, pad_idx, step_idx, step.velocity as i32, step.probability as f64
                             ])?;
                         }
                     }
                 }
+            }
+
+            // Save pattern chain
+            for (pos, &pattern_index) in seq.chain.iter().enumerate() {
+                chain_stmt.execute(rusqlite::params![instrument_id, pos, pattern_index as i32])?;
             }
         }
     }

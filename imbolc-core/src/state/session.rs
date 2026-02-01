@@ -67,6 +67,10 @@ pub struct SessionState {
     pub master_level: f32,
     pub master_mute: bool,
     pub mixer_selection: MixerSelection,
+    /// Global velocity jitter amount (0.0-1.0)
+    pub humanize_velocity: f32,
+    /// Global timing jitter amount (0.0-1.0)
+    pub humanize_timing: f32,
 }
 
 impl SessionState {
@@ -92,6 +96,8 @@ impl SessionState {
             master_level: 1.0,
             master_mute: false,
             mixer_selection: MixerSelection::default(),
+            humanize_velocity: 0.0,
+            humanize_timing: 0.0,
         }
     }
 

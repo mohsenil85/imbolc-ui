@@ -67,27 +67,41 @@ pub(super) fn dispatch_instrument(
         InstrumentAction::PlayNote(pitch, velocity) => {
             let pitch = *pitch;
             let velocity = *velocity;
-            let instrument_info: Option<u32> = state.instruments.selected_instrument().map(|s| s.id);
+            let instrument_info: Option<(u32, Option<crate::state::arpeggiator::ChordShape>)> =
+                state.instruments.selected_instrument().map(|s| (s.id, s.chord_shape));
 
-            if let Some(instrument_id) = instrument_info {
+            if let Some((instrument_id, chord_shape)) = instrument_info {
                 if audio.is_running() {
                     let vel_f = velocity as f32 / 127.0;
-                    let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                    audio.push_active_note(instrument_id, pitch, 240);
+                    let pitches = match chord_shape {
+                        Some(shape) => shape.expand(pitch),
+                        None => vec![pitch],
+                    };
+                    for p in &pitches {
+                        let _ = audio.spawn_voice(instrument_id, *p, vel_f, 0.0, &state.instruments, &state.session);
+                        audio.push_active_note(instrument_id, *p, 240);
+                    }
                 }
             }
             DispatchResult::none()
         }
         InstrumentAction::PlayNotes(ref pitches, velocity) => {
             let velocity = *velocity;
-            let instrument_info: Option<u32> = state.instruments.selected_instrument().map(|s| s.id);
+            let instrument_info: Option<(u32, Option<crate::state::arpeggiator::ChordShape>)> =
+                state.instruments.selected_instrument().map(|s| (s.id, s.chord_shape));
 
-            if let Some(instrument_id) = instrument_info {
+            if let Some((instrument_id, chord_shape)) = instrument_info {
                 if audio.is_running() {
                     let vel_f = velocity as f32 / 127.0;
                     for &pitch in pitches {
-                        let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                        audio.push_active_note(instrument_id, pitch, 240);
+                        let expanded = match chord_shape {
+                            Some(shape) => shape.expand(pitch),
+                            None => vec![pitch],
+                        };
+                        for p in &expanded {
+                            let _ = audio.spawn_voice(instrument_id, *p, vel_f, 0.0, &state.instruments, &state.session);
+                            audio.push_active_note(instrument_id, *p, 240);
+                        }
                     }
                 }
             }
@@ -175,6 +189,96 @@ pub(super) fn dispatch_instrument(
         | InstrumentAction::SetFilter(_, _) => {
             // Reserved for future direct dispatch (currently handled inside InstrumentEditPane)
             let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
+        }
+        InstrumentAction::ToggleArp(id) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.arpeggiator.enabled = !inst.arpeggiator.enabled;
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::CycleArpDirection(id) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.arpeggiator.direction = inst.arpeggiator.direction.next();
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::CycleArpRate(id) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.arpeggiator.rate = inst.arpeggiator.rate.next();
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::AdjustArpOctaves(id, delta) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.arpeggiator.octaves = (inst.arpeggiator.octaves as i8 + delta).clamp(1, 4) as u8;
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::AdjustArpGate(id, delta) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.arpeggiator.gate = (inst.arpeggiator.gate + delta).clamp(0.1, 1.0);
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::CycleChordShape(id) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.chord_shape = Some(match inst.chord_shape {
+                    Some(shape) => shape.next(),
+                    None => crate::state::arpeggiator::ChordShape::Major,
+                });
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::ClearChordShape(id) => {
+            if let Some(inst) = state.instruments.instrument_mut(*id) {
+                inst.chord_shape = None;
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::LoadIRResult(instrument_id, effect_idx, ref path) => {
+            let instrument_id = *instrument_id;
+            let effect_idx = *effect_idx;
+            let path_str = path.to_string_lossy().to_string();
+
+            let buffer_id = state.instruments.next_sampler_buffer_id;
+            state.instruments.next_sampler_buffer_id += 1;
+
+            if audio.is_running() {
+                let _ = audio.load_sample(buffer_id, &path_str);
+            }
+
+            if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
+                // Update the ir_buffer param on the convolution reverb effect
+                if let Some(effect) = instrument.effects.get_mut(effect_idx) {
+                    if effect.effect_type == crate::state::EffectType::ConvolutionReverb {
+                        for p in &mut effect.params {
+                            if p.name == "ir_buffer" {
+                                p.value = crate::state::param::ParamValue::Int(buffer_id as i32);
+                            }
+                        }
+                    }
+                }
+                instrument.convolution_ir_path = Some(path_str);
+            }
+
+            let mut result = DispatchResult::with_nav(NavIntent::Pop);
             result.audio_dirty.instruments = true;
             result.audio_dirty.routing = true;
             result

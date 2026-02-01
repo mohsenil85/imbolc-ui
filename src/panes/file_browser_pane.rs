@@ -64,7 +64,7 @@ impl FileBrowserPane {
                 self.bundle_extensions = Some(vec!["vst3".to_string(), "vst".to_string()]);
                 Some(vec!["vst3".to_string(), "vst".to_string()])
             }
-            FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample | FileSelectAction::LoadPitchedSample(_) => {
+            FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample | FileSelectAction::LoadPitchedSample(_) | FileSelectAction::LoadImpulseResponse(_, _) => {
                 Some(vec!["wav".to_string(), "aiff".to_string(), "aif".to_string()])
             }
         };
@@ -192,6 +192,9 @@ impl Pane for FileBrowserPane {
                             FileSelectAction::LoadPitchedSample(id) => {
                                 Action::Instrument(InstrumentAction::LoadSampleResult(id, entry.path.clone()))
                             }
+                            FileSelectAction::LoadImpulseResponse(id, fx_idx) => {
+                                Action::Instrument(InstrumentAction::LoadIRResult(id, fx_idx, entry.path.clone()))
+                            }
                         }
                     }
                 } else {
@@ -258,6 +261,7 @@ impl Pane for FileBrowserPane {
             FileSelectAction::ImportVstEffect => " Import VST Effect ",
             FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample => " Load Sample ",
             FileSelectAction::LoadPitchedSample(_) => " Load Sample ",
+            FileSelectAction::LoadImpulseResponse(_, _) => " Load Impulse Response ",
         };
         let block = Block::default()
             .borders(Borders::ALL)
@@ -452,6 +456,13 @@ impl Pane for FileBrowserPane {
                                         return Action::Session(SessionAction::ImportVstPlugin(
                                             self.entries[clicked_idx].path.clone(),
                                             VstPluginKind::Effect,
+                                        ));
+                                    }
+                                    FileSelectAction::LoadImpulseResponse(id, fx_idx) => {
+                                        return Action::Instrument(InstrumentAction::LoadIRResult(
+                                            id,
+                                            fx_idx,
+                                            self.entries[clicked_idx].path.clone(),
                                         ));
                                     }
                                 }

@@ -323,7 +323,9 @@ bindings = [
 ]
 
 [layers.waveform]
-bindings = []
+bindings = [
+  { key = "Tab", action = "cycle_mode", description = "Cycle display mode" },
+]
 
 # --- Mode layers ---
 

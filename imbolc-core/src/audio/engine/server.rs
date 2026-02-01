@@ -293,7 +293,16 @@ impl AudioEngine {
                 let _ = client.free_node(node_id);
             }
         }
+        // Free existing analysis synths
         if let Some(ref client) = self.client {
+            for &node_id in &self.analysis_node_ids {
+                let _ = client.free_node(node_id);
+            }
+        }
+        self.analysis_node_ids.clear();
+
+        if let Some(ref client) = self.client {
+            // Create meter synth
             let node_id = self.next_node_id;
             self.next_node_id += 1;
             let args: Vec<rosc::OscType> = vec![
@@ -305,6 +314,21 @@ impl AudioEngine {
             if client.send_message("/s_new", args).is_ok() {
                 self.meter_node_id = Some(node_id);
             }
+
+            // Create analysis synths (spectrum, LUFS, scope)
+            for synth_def in &["imbolc_spectrum", "imbolc_lufs_meter", "imbolc_scope"] {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let args: Vec<rosc::OscType> = vec![
+                    rosc::OscType::String(synth_def.to_string()),
+                    rosc::OscType::Int(node_id),
+                    rosc::OscType::Int(3), // addAfter
+                    rosc::OscType::Int(GROUP_OUTPUT),
+                ];
+                if client.send_message("/s_new", args).is_ok() {
+                    self.analysis_node_ids.push(node_id);
+                }
+            }
         }
     }
 
@@ -312,6 +336,9 @@ impl AudioEngine {
         self.stop_recording();
         if let Some(ref client) = self.client {
             if let Some(node_id) = self.meter_node_id.take() {
+                let _ = client.free_node(node_id);
+            }
+            for &node_id in &self.analysis_node_ids {
                 let _ = client.free_node(node_id);
             }
             for nodes in self.node_map.values() {
@@ -329,6 +356,7 @@ impl AudioEngine {
         self.bus_node_map.clear();
         self.bus_audio_buses.clear();
         self.voice_chains.clear();
+        self.analysis_node_ids.clear();
         self.buffer_map.clear();
         self.bus_allocator.reset();
         self.groups_created = false;

@@ -1,3 +1,4 @@
+pub mod arpeggiator;
 pub mod automation;
 pub mod custom_synthdef;
 pub mod drum_sequencer;
@@ -29,6 +30,34 @@ pub enum KeyboardLayout {
     Colemak,
 }
 
+/// Real-time visualization data from audio analysis synths
+#[derive(Debug, Clone)]
+pub struct VisualizationState {
+    /// 7-band spectrum analyzer amplitudes (60Hz, 150Hz, 400Hz, 1kHz, 2.5kHz, 6kHz, 15kHz)
+    pub spectrum_bands: [f32; 7],
+    /// Master output peak levels (left, right)
+    pub peak_l: f32,
+    pub peak_r: f32,
+    /// Master output RMS levels (left, right)
+    pub rms_l: f32,
+    pub rms_r: f32,
+    /// Oscilloscope ring buffer (recent peak samples at ~30Hz)
+    pub scope_buffer: std::collections::VecDeque<f32>,
+}
+
+impl Default for VisualizationState {
+    fn default() -> Self {
+        Self {
+            spectrum_bands: [0.0; 7],
+            peak_l: 0.0,
+            peak_r: 0.0,
+            rms_l: 0.0,
+            rms_r: 0.0,
+            scope_buffer: std::collections::VecDeque::with_capacity(200),
+        }
+    }
+}
+
 /// Top-level application state, owned by main.rs and passed to panes by reference.
 pub struct AppState {
     pub session: SessionState,
@@ -39,6 +68,8 @@ pub struct AppState {
     pub recording: bool,
     pub recording_secs: u64,
     pub automation_recording: bool,
+    /// Real-time visualization data from audio analysis
+    pub visualization: VisualizationState,
 }
 
 impl AppState {
@@ -52,6 +83,7 @@ impl AppState {
             recording: false,
             recording_secs: 0,
             automation_recording: false,
+            visualization: VisualizationState::default(),
         }
     }
 
@@ -64,6 +96,7 @@ impl AppState {
             recording: false,
             recording_secs: 0,
             automation_recording: false,
+            visualization: VisualizationState::default(),
         }
     }
 

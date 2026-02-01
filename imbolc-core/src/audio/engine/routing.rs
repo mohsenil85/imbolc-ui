@@ -272,6 +272,20 @@ impl AudioEngine {
                         params.push(("sidechain_in".to_string(), sidechain_in));
                         continue;
                     }
+                    // For ConvolutionReverb, resolve ir_buffer (our BufferId) to SC buffer number
+                    if effect.effect_type == EffectType::ConvolutionReverb && p.name == "ir_buffer" {
+                        let buffer_id = match &p.value {
+                            ParamValue::Int(v) => *v,
+                            _ => -1,
+                        };
+                        let sc_bufnum = if buffer_id >= 0 {
+                            self.buffer_map.get(&(buffer_id as u32)).copied().unwrap_or(-1) as f32
+                        } else {
+                            -1.0
+                        };
+                        params.push(("ir_buffer".to_string(), sc_bufnum));
+                        continue;
+                    }
                     let val = match &p.value {
                         ParamValue::Float(v) => *v,
                         ParamValue::Int(v) => *v as f32,

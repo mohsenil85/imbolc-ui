@@ -43,7 +43,14 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 solo INTEGER NOT NULL,
                 active INTEGER NOT NULL DEFAULT 1,
                 output_target TEXT NOT NULL,
-                vst_state_path TEXT
+                vst_state_path TEXT,
+                arp_enabled INTEGER NOT NULL DEFAULT 0,
+                arp_direction TEXT NOT NULL DEFAULT 'up',
+                arp_rate TEXT NOT NULL DEFAULT '1/8',
+                arp_octaves INTEGER NOT NULL DEFAULT 1,
+                arp_gate REAL NOT NULL DEFAULT 0.5,
+                chord_shape TEXT,
+                convolution_ir_path TEXT
             );
 
             CREATE TABLE IF NOT EXISTS instrument_source_params (
@@ -122,7 +129,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 tick INTEGER NOT NULL,
                 duration INTEGER NOT NULL,
                 pitch INTEGER NOT NULL,
-                velocity INTEGER NOT NULL
+                velocity INTEGER NOT NULL,
+                probability REAL NOT NULL DEFAULT 1.0
             );
 
             CREATE TABLE IF NOT EXISTS musical_settings (
@@ -137,7 +145,10 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 key TEXT NOT NULL DEFAULT 'C',
                 scale TEXT NOT NULL DEFAULT 'Major',
                 tuning_a4 REAL NOT NULL DEFAULT 440.0,
-                snap INTEGER NOT NULL DEFAULT 0
+                snap INTEGER NOT NULL DEFAULT 0,
+                swing_amount REAL NOT NULL DEFAULT 0.0,
+                humanize_velocity REAL NOT NULL DEFAULT 0.0,
+                humanize_timing REAL NOT NULL DEFAULT 0.0
             );
 
             CREATE TABLE IF NOT EXISTS sampler_configs (
@@ -236,6 +247,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 instrument_id INTEGER NOT NULL,
                 pattern_index INTEGER NOT NULL,
                 length INTEGER NOT NULL DEFAULT 16,
+                swing_amount REAL NOT NULL DEFAULT 0.0,
+                chain_enabled INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (instrument_id, pattern_index)
             );
 
@@ -245,7 +258,15 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 pad_index INTEGER NOT NULL,
                 step_index INTEGER NOT NULL,
                 velocity INTEGER NOT NULL DEFAULT 100,
+                probability REAL NOT NULL DEFAULT 1.0,
                 PRIMARY KEY (instrument_id, pattern_index, pad_index, step_index)
+            );
+
+            CREATE TABLE IF NOT EXISTS drum_sequencer_chain (
+                instrument_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                pattern_index INTEGER NOT NULL,
+                PRIMARY KEY (instrument_id, position)
             );
 
             CREATE TABLE IF NOT EXISTS chopper_states (
@@ -306,6 +327,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             DELETE FROM chopper_slices;
             DELETE FROM chopper_states;
             DELETE FROM drum_steps;
+            DELETE FROM drum_sequencer_chain;
             DELETE FROM drum_patterns;
             DELETE FROM drum_pads;
             DELETE FROM instrument_vst_params;

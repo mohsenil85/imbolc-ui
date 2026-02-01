@@ -98,18 +98,29 @@ pub(super) fn dispatch_piano_roll(
             let instrument_id = *instrument_id;
             let track = *track;
 
+            // Expand to chord if instrument has a chord shape
+            let chord_shape = state.instruments.instrument(instrument_id)
+                .and_then(|inst| inst.chord_shape);
+            let pitches: Vec<u8> = match chord_shape {
+                Some(shape) => shape.expand(pitch),
+                None => vec![pitch],
+            };
+
             if audio.is_running() {
                 let vel_f = velocity as f32 / 127.0;
-                let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                let duration_ticks = 240; // Half beat for staccato feel
-                audio.push_active_note(instrument_id, pitch, duration_ticks);
+                for &p in &pitches {
+                    let _ = audio.spawn_voice(instrument_id, p, vel_f, 0.0, &state.instruments, &state.session);
+                    audio.push_active_note(instrument_id, p, 240);
+                }
             }
 
             // Record note if recording
             if state.session.piano_roll.recording {
                 let playhead = state.session.piano_roll.playhead;
                 let duration = 480; // One beat for live recording
-                state.session.piano_roll.toggle_note(track, pitch, playhead, duration, velocity);
+                for &p in &pitches {
+                    state.session.piano_roll.toggle_note(track, p, playhead, duration, velocity);
+                }
                 let mut result = DispatchResult::none();
                 result.audio_dirty.piano_roll = true;
                 return result;
@@ -121,11 +132,21 @@ pub(super) fn dispatch_piano_roll(
             let instrument_id = *instrument_id;
             let track = *track;
 
+            // Expand each pitch to chord if instrument has a chord shape
+            let chord_shape = state.instruments.instrument(instrument_id)
+                .and_then(|inst| inst.chord_shape);
+            let all_pitches: Vec<u8> = pitches.iter().flat_map(|&pitch| {
+                match chord_shape {
+                    Some(shape) => shape.expand(pitch),
+                    None => vec![pitch],
+                }
+            }).collect();
+
             if audio.is_running() {
                 let vel_f = velocity as f32 / 127.0;
-                for &pitch in pitches {
-                    let _ = audio.spawn_voice(instrument_id, pitch, vel_f, 0.0, &state.instruments, &state.session);
-                    audio.push_active_note(instrument_id, pitch, 240);
+                for &p in &all_pitches {
+                    let _ = audio.spawn_voice(instrument_id, p, vel_f, 0.0, &state.instruments, &state.session);
+                    audio.push_active_note(instrument_id, p, 240);
                 }
             }
 
@@ -133,14 +154,21 @@ pub(super) fn dispatch_piano_roll(
             if state.session.piano_roll.recording {
                 let playhead = state.session.piano_roll.playhead;
                 let duration = 480; // One beat for live recording
-                for &pitch in pitches {
-                    state.session.piano_roll.toggle_note(track, pitch, playhead, duration, velocity);
+                for &p in &all_pitches {
+                    state.session.piano_roll.toggle_note(track, p, playhead, duration, velocity);
                 }
                 let mut result = DispatchResult::none();
                 result.audio_dirty.piano_roll = true;
                 return result;
             }
             return DispatchResult::none();
+        }
+        PianoRollAction::AdjustSwing(delta) => {
+            let pr = &mut state.session.piano_roll;
+            pr.swing_amount = (pr.swing_amount + delta).clamp(0.0, 1.0);
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::MoveCursor(_, _)
         | PianoRollAction::SetBpm(_)

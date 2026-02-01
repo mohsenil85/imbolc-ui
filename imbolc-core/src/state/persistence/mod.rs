@@ -72,6 +72,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     load::load_chopper_states(&conn, &mut instruments)?;
     load::load_vst_state_paths(&conn, &mut instruments)?;
     load::load_vst_param_values(&conn, &mut instruments)?;
+    load::load_arpeggiator_settings(&conn, &mut instruments)?;
     let midi_recording = load::load_midi_recording(&conn)?;
 
     // Restore selected_lane from DB, falling back to Some(0) if lanes exist
@@ -97,6 +98,8 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     session.scale = musical.scale;
     session.tuning_a4 = musical.tuning_a4;
     session.snap = musical.snap;
+    session.humanize_velocity = musical.humanize_velocity;
+    session.humanize_timing = musical.humanize_timing;
 
     let instrument_state = InstrumentState {
         instruments,

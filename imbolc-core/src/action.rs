@@ -31,6 +31,13 @@ pub enum SequencerAction {
     PrevPattern,
     AdjustPadLevel(usize, f32),     // (pad_idx, delta)
     LoadSampleResult(usize, PathBuf), // (pad_idx, path) — from file browser
+    AdjustSwing(f32),               // delta for swing amount
+    ApplyEuclidean { pad: usize, pulses: usize, steps: usize, rotation: usize },
+    AdjustProbability(usize, usize, f32), // (pad_idx, step_idx, delta)
+    ToggleChain,
+    AddChainStep(usize),            // pattern_index
+    RemoveChainStep(usize),         // position in chain
+    MoveChainStep(usize, usize),    // from_position, to_position
 }
 
 /// Navigation actions (pane switching, modal stack)
@@ -66,6 +73,14 @@ pub enum InstrumentAction {
     SelectLast,
     PlayDrumPad(usize),
     LoadSampleResult(InstrumentId, PathBuf),
+    ToggleArp(InstrumentId),
+    CycleArpDirection(InstrumentId),
+    CycleArpRate(InstrumentId),
+    AdjustArpOctaves(InstrumentId, i8),
+    AdjustArpGate(InstrumentId, f32),
+    CycleChordShape(InstrumentId),
+    ClearChordShape(InstrumentId),
+    LoadIRResult(InstrumentId, usize, PathBuf), // instrument_id, effect_index, path
 }
 
 /// Mixer actions
@@ -105,6 +120,7 @@ pub enum PianoRollAction {
     PlayNote { pitch: u8, velocity: u8, instrument_id: InstrumentId, track: usize },
     PlayNotes { pitches: Vec<u8>, velocity: u8, instrument_id: InstrumentId, track: usize },
     PlayStopRecord,
+    AdjustSwing(f32),               // delta for swing amount
 }
 
 /// Sample chopper actions
@@ -174,6 +190,8 @@ pub enum SessionAction {
     OpenFileBrowser(FileSelectAction),
     ImportCustomSynthDef(PathBuf),
     ImportVstPlugin(PathBuf, VstPluginKind),
+    AdjustHumanizeVelocity(f32),
+    AdjustHumanizeTiming(f32),
 }
 
 /// Actions that can be returned from pane input handling
@@ -223,6 +241,7 @@ pub enum FileSelectAction {
     LoadDrumSample(usize), // pad index
     LoadChopperSample,
     LoadPitchedSample(InstrumentId),
+    LoadImpulseResponse(InstrumentId, usize), // instrument_id, effect_index
 }
 
 /// Navigation intent returned from dispatch — processed by the UI layer

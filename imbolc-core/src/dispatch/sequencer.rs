@@ -1,5 +1,5 @@
 use crate::audio::AudioHandle;
-use crate::state::drum_sequencer::DrumPattern;
+use crate::state::drum_sequencer::{DrumPattern, euclidean_rhythm};
 use crate::state::sampler::Slice;
 use crate::state::AppState;
 use crate::action::{ChopperAction, DispatchResult, NavIntent, SequencerAction};
@@ -133,6 +133,45 @@ pub(super) fn dispatch_sequencer(
         SequencerAction::LoadSample(pad_idx) => {
             return DispatchResult::with_nav(NavIntent::OpenFileBrowser(crate::action::FileSelectAction::LoadDrumSample(*pad_idx)));
         }
+        SequencerAction::AdjustSwing(delta) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                seq.swing_amount = (seq.swing_amount + delta).clamp(0.0, 1.0);
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::ApplyEuclidean { pad, pulses, steps, rotation } => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                let pattern_len = seq.pattern().length;
+                let rhythm = euclidean_rhythm(*pulses, *steps, *rotation);
+                if let Some(pad_steps) = seq.pattern_mut().steps.get_mut(*pad) {
+                    for (i, step) in pad_steps.iter_mut().enumerate() {
+                        step.active = rhythm.get(i % rhythm.len()).copied().unwrap_or(false);
+                    }
+                    // If steps param differs from pattern length, only write up to pattern_len
+                    let _ = pattern_len; // used above via rhythm indexing
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::AdjustProbability(pad_idx, step_idx, delta) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                if let Some(step) = seq
+                    .pattern_mut()
+                    .steps
+                    .get_mut(*pad_idx)
+                    .and_then(|s| s.get_mut(*step_idx))
+                {
+                    step.probability = (step.probability + delta).clamp(0.0, 1.0);
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
         SequencerAction::LoadSampleResult(pad_idx, path) => {
             let path_str = path.to_string_lossy().to_string();
             let name = path
@@ -156,6 +195,48 @@ pub(super) fn dispatch_sequencer(
             }
 
             let mut result = DispatchResult::with_nav(NavIntent::Pop);
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::ToggleChain => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                seq.chain_enabled = !seq.chain_enabled;
+                seq.chain_position = 0;
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::AddChainStep(pattern_index) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                if *pattern_index < seq.patterns.len() {
+                    seq.chain.push(*pattern_index);
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::RemoveChainStep(position) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                if *position < seq.chain.len() {
+                    seq.chain.remove(*position);
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::MoveChainStep(from, to) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                let from = *from;
+                let to = *to;
+                if from < seq.chain.len() && to < seq.chain.len() {
+                    let item = seq.chain.remove(from);
+                    seq.chain.insert(to, item);
+                }
+            }
+            let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
             return result;
         }

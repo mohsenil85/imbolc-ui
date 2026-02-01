@@ -464,6 +464,32 @@ pub enum EffectType {
     Gate,
     TapeComp,
     SidechainComp,
+    // Modulation
+    Chorus,
+    Flanger,
+    Phaser,
+    Tremolo,
+    // Distortion
+    Distortion,
+    Bitcrusher,
+    Wavefolder,
+    Saturator,
+    // EQ
+    TiltEq,
+    // Stereo
+    StereoWidener,
+    FreqShifter,
+    // Utility
+    Limiter,
+    PitchShifter,
+    // Lo-fi
+    Vinyl,
+    Cabinet,
+    // Granular
+    GranularDelay,
+    GranularFreeze,
+    // Convolution
+    ConvolutionReverb,
     Vst(VstPluginId),
 }
 
@@ -475,6 +501,24 @@ impl EffectType {
             EffectType::Gate => "Gate",
             EffectType::TapeComp => "Tape Comp",
             EffectType::SidechainComp => "SC Comp",
+            EffectType::Chorus => "Chorus",
+            EffectType::Flanger => "Flanger",
+            EffectType::Phaser => "Phaser",
+            EffectType::Tremolo => "Tremolo",
+            EffectType::Distortion => "Distortion",
+            EffectType::Bitcrusher => "Bitcrusher",
+            EffectType::Wavefolder => "Wavefolder",
+            EffectType::Saturator => "Saturator",
+            EffectType::TiltEq => "Tilt EQ",
+            EffectType::StereoWidener => "Stereo Widener",
+            EffectType::FreqShifter => "Freq Shifter",
+            EffectType::Limiter => "Limiter",
+            EffectType::PitchShifter => "Pitch Shifter",
+            EffectType::Vinyl => "Vinyl",
+            EffectType::Cabinet => "Cabinet",
+            EffectType::GranularDelay => "Granular Delay",
+            EffectType::GranularFreeze => "Granular Freeze",
+            EffectType::ConvolutionReverb => "Conv Reverb",
             EffectType::Vst(_) => "VST",
         }
     }
@@ -497,6 +541,24 @@ impl EffectType {
             EffectType::Gate => "imbolc_gate",
             EffectType::TapeComp => "imbolc_tape_comp",
             EffectType::SidechainComp => "imbolc_sc_comp",
+            EffectType::Chorus => "imbolc_chorus",
+            EffectType::Flanger => "imbolc_flanger",
+            EffectType::Phaser => "imbolc_phaser",
+            EffectType::Tremolo => "imbolc_tremolo",
+            EffectType::Distortion => "imbolc_distortion",
+            EffectType::Bitcrusher => "imbolc_bitcrusher",
+            EffectType::Wavefolder => "imbolc_wavefolder",
+            EffectType::Saturator => "imbolc_saturator",
+            EffectType::TiltEq => "imbolc_tilt_eq",
+            EffectType::StereoWidener => "imbolc_stereo_widener",
+            EffectType::FreqShifter => "imbolc_freq_shifter",
+            EffectType::Limiter => "imbolc_limiter",
+            EffectType::PitchShifter => "imbolc_pitch_shifter",
+            EffectType::Vinyl => "imbolc_vinyl",
+            EffectType::Cabinet => "imbolc_cabinet",
+            EffectType::GranularDelay => "imbolc_granular_delay",
+            EffectType::GranularFreeze => "imbolc_granular_freeze",
+            EffectType::ConvolutionReverb => "imbolc_convolution_reverb",
             EffectType::Vst(_) => "imbolc_vst_effect",
         }
     }
@@ -545,13 +607,122 @@ impl EffectType {
                 Param { name: "release".to_string(), value: ParamValue::Float(0.1), min: 0.01, max: 2.0 },
                 Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
             ],
+            EffectType::Chorus => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(0.5), min: 0.1, max: 10.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.005), min: 0.001, max: 0.05 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Flanger => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(0.3), min: 0.05, max: 10.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.003), min: 0.0005, max: 0.01 },
+                Param { name: "feedback".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 0.99 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Phaser => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(0.5), min: 0.05, max: 10.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "stages".to_string(), value: ParamValue::Int(4), min: 2.0, max: 12.0 },
+                Param { name: "feedback".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 0.9 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Tremolo => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(4.0), min: 0.1, max: 32.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "shape".to_string(), value: ParamValue::Int(0), min: 0.0, max: 2.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Distortion => vec![
+                Param { name: "drive".to_string(), value: ParamValue::Float(2.0), min: 1.0, max: 20.0 },
+                Param { name: "mode".to_string(), value: ParamValue::Int(0), min: 0.0, max: 2.0 },
+                Param { name: "tone".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Bitcrusher => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(8000.0), min: 100.0, max: 44100.0 },
+                Param { name: "bits".to_string(), value: ParamValue::Int(8), min: 1.0, max: 16.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Wavefolder => vec![
+                Param { name: "drive".to_string(), value: ParamValue::Float(1.0), min: 0.1, max: 10.0 },
+                Param { name: "symmetry".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Saturator => vec![
+                Param { name: "drive".to_string(), value: ParamValue::Float(1.5), min: 1.0, max: 8.0 },
+                Param { name: "color".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::TiltEq => vec![
+                Param { name: "tilt".to_string(), value: ParamValue::Float(0.0), min: -1.0, max: 1.0 },
+                Param { name: "frequency".to_string(), value: ParamValue::Float(1000.0), min: 100.0, max: 10000.0 },
+            ],
+            EffectType::StereoWidener => vec![
+                Param { name: "width".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 2.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
+            ],
+            EffectType::FreqShifter => vec![
+                Param { name: "shift_hz".to_string(), value: ParamValue::Float(0.0), min: -2000.0, max: 2000.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Limiter => vec![
+                Param { name: "threshold".to_string(), value: ParamValue::Float(0.9), min: 0.1, max: 1.0 },
+                Param { name: "release".to_string(), value: ParamValue::Float(0.01), min: 0.001, max: 1.0 },
+                Param { name: "ceiling".to_string(), value: ParamValue::Float(1.0), min: 0.1, max: 1.0 },
+            ],
+            EffectType::PitchShifter => vec![
+                Param { name: "shift".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+                Param { name: "window".to_string(), value: ParamValue::Float(0.2), min: 0.01, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Vinyl => vec![
+                Param { name: "wow".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "flutter".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "noise".to_string(), value: ParamValue::Float(0.1), min: 0.0, max: 1.0 },
+                Param { name: "hiss".to_string(), value: ParamValue::Float(0.05), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Cabinet => vec![
+                Param { name: "type".to_string(), value: ParamValue::Int(0), min: 0.0, max: 3.0 },
+                Param { name: "tone".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::GranularDelay => vec![
+                Param { name: "time".to_string(), value: ParamValue::Float(0.3), min: 0.01, max: 2.0 },
+                Param { name: "grain_size".to_string(), value: ParamValue::Float(0.1), min: 0.01, max: 0.5 },
+                Param { name: "density".to_string(), value: ParamValue::Float(10.0), min: 1.0, max: 40.0 },
+                Param { name: "pitch".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::GranularFreeze => vec![
+                Param { name: "grain_size".to_string(), value: ParamValue::Float(0.1), min: 0.01, max: 0.5 },
+                Param { name: "density".to_string(), value: ParamValue::Float(10.0), min: 1.0, max: 40.0 },
+                Param { name: "pitch".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+                Param { name: "spread".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::ConvolutionReverb => vec![
+                Param { name: "ir_buffer".to_string(), value: ParamValue::Int(-1), min: -1.0, max: 65536.0 }, // SC buffer number, -1 = none
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "predelay".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 0.5 },
+            ],
             EffectType::Vst(_) => vec![], // VST params discovered from plugin
         }
     }
 
     #[allow(dead_code)]
     pub fn all() -> Vec<EffectType> {
-        vec![EffectType::Delay, EffectType::Reverb, EffectType::Gate, EffectType::TapeComp, EffectType::SidechainComp]
+        vec![
+            EffectType::Delay, EffectType::Reverb, EffectType::Gate,
+            EffectType::TapeComp, EffectType::SidechainComp,
+            EffectType::Chorus, EffectType::Flanger, EffectType::Phaser, EffectType::Tremolo,
+            EffectType::Distortion, EffectType::Bitcrusher, EffectType::Wavefolder, EffectType::Saturator,
+            EffectType::TiltEq,
+            EffectType::StereoWidener, EffectType::FreqShifter,
+            EffectType::Limiter, EffectType::PitchShifter,
+            EffectType::Vinyl, EffectType::Cabinet,
+            EffectType::GranularDelay, EffectType::GranularFreeze,
+            EffectType::ConvolutionReverb,
+        ]
     }
 }
 
@@ -860,6 +1031,12 @@ pub struct Instrument {
     pub vst_param_values: Vec<(u32, f32)>,
     // Path to saved VST plugin state file (.fxp)
     pub vst_state_path: Option<std::path::PathBuf>,
+    /// Arpeggiator configuration
+    pub arpeggiator: super::arpeggiator::ArpeggiatorConfig,
+    /// Chord shape (None = single notes, Some = expand to chord)
+    pub chord_shape: Option<super::arpeggiator::ChordShape>,
+    /// Path to loaded impulse response file for convolution reverb
+    pub convolution_ir_path: Option<String>,
 }
 
 impl Instrument {
@@ -898,6 +1075,9 @@ impl Instrument {
             drum_sequencer,
             vst_param_values: Vec::new(),
             vst_state_path: None,
+            arpeggiator: super::arpeggiator::ArpeggiatorConfig::default(),
+            chord_shape: None,
+            convolution_ir_path: None,
         }
     }
 }

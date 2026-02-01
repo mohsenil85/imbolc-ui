@@ -8,6 +8,7 @@ pub struct Note {
     pub duration: u32,
     pub pitch: u8,
     pub velocity: u8,
+    pub probability: f32, // 0.0-1.0, default 1.0 (always play)
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,8 @@ pub struct PianoRollState {
     pub ticks_per_beat: u32,
     /// Whether note input from piano keys should be recorded to the current track
     pub recording: bool,
+    /// Swing amount: 0.0 = no swing, 1.0 = max swing (delays offbeat notes)
+    pub swing_amount: f32,
 }
 
 impl PianoRollState {
@@ -47,6 +50,7 @@ impl PianoRollState {
             playhead: 0,
             ticks_per_beat: 480,
             recording: false,
+            swing_amount: 0.0,
         }
     }
 
@@ -94,6 +98,7 @@ impl PianoRollState {
                     duration,
                     pitch,
                     velocity,
+                    probability: 1.0,
                 });
             }
         }

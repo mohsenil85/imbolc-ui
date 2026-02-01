@@ -21,6 +21,8 @@ pub(super) struct MusicalSettingsLoaded {
     pub scale: super::super::music::Scale,
     pub tuning_a4: f32,
     pub snap: bool,
+    pub humanize_velocity: f32,
+    pub humanize_timing: f32,
 }
 
 impl Default for MusicalSettingsLoaded {
@@ -32,6 +34,8 @@ impl Default for MusicalSettingsLoaded {
             scale: super::super::music::Scale::Major,
             tuning_a4: 440.0,
             snap: false,
+            humanize_velocity: 0.0,
+            humanize_timing: 0.0,
         }
     }
 }
@@ -171,6 +175,9 @@ pub(super) fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument
             sampler_config, drum_sequencer,
             vst_param_values: Vec::new(),
             vst_state_path: None,
+            arpeggiator: crate::state::arpeggiator::ArpeggiatorConfig::default(),
+            chord_shape: None,
+            convolution_ir_path: None,
         });
     }
     Ok(instruments)
@@ -413,6 +420,25 @@ pub(super) fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState
         piano_roll.looping = row.6;
     }
 
+    // Load swing_amount (optional, may not exist in older schemas)
+    if let Ok(swing) = conn.query_row(
+        "SELECT swing_amount FROM musical_settings WHERE id = 1",
+        [],
+        |row| row.get::<_, f64>(0),
+    ) {
+        piano_roll.swing_amount = swing as f32;
+    }
+
+    // Load humanization settings (optional, may not exist in older schemas)
+    if let Ok((hv, ht)) = conn.query_row(
+        "SELECT humanize_velocity, humanize_timing FROM musical_settings WHERE id = 1",
+        [],
+        |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
+    ) {
+        musical.humanize_velocity = hv as f32;
+        musical.humanize_timing = ht as f32;
+    }
+
     if let Ok(mut stmt) = conn.prepare(
         "SELECT instrument_id, polyphonic FROM piano_roll_tracks ORDER BY position",
     ) {
@@ -435,22 +461,30 @@ pub(super) fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState
         }
     }
 
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT track_instrument_id, tick, duration, pitch, velocity FROM piano_roll_notes",
-    ) {
+    let has_probability = conn
+        .prepare("SELECT probability FROM piano_roll_notes LIMIT 0")
+        .is_ok();
+    let notes_query = if has_probability {
+        "SELECT track_instrument_id, tick, duration, pitch, velocity, probability FROM piano_roll_notes"
+    } else {
+        "SELECT track_instrument_id, tick, duration, pitch, velocity FROM piano_roll_notes"
+    };
+    if let Ok(mut stmt) = conn.prepare(notes_query) {
         if let Ok(rows) = stmt.query_map([], |row| {
+            let probability = if has_probability { row.get::<_, f32>(5).unwrap_or(1.0) } else { 1.0 };
             Ok((
                 row.get::<_, InstrumentId>(0)?,
                 row.get::<_, u32>(1)?,
                 row.get::<_, u32>(2)?,
                 row.get::<_, u8>(3)?,
                 row.get::<_, u8>(4)?,
+                probability,
             ))
         }) {
             for result in rows {
-                if let Ok((instrument_id, tick, duration, pitch, velocity)) = result {
+                if let Ok((instrument_id, tick, duration, pitch, velocity, probability)) = result {
                     if let Some(track) = piano_roll.tracks.get_mut(&instrument_id) {
-                        track.notes.push(super::super::piano_roll::Note { tick, duration, pitch, velocity });
+                        track.notes.push(super::super::piano_roll::Note { tick, duration, pitch, velocity, probability });
                     }
                 }
             }
@@ -651,26 +685,91 @@ pub(super) fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Inst
         }
     }
 
+    // Load swing_amount (optional, may not exist in older schemas)
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT instrument_id, pattern_index, pad_index, step_index, velocity FROM drum_steps",
+        "SELECT instrument_id, swing_amount FROM drum_patterns WHERE pattern_index = 0",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, InstrumentId>(0)?, row.get::<_, f64>(1)?))
+        }) {
+            for row in rows {
+                if let Ok((instrument_id, swing)) = row {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        if let Some(seq) = &mut inst.drum_sequencer {
+                            seq.swing_amount = swing as f32;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let has_step_probability = conn
+        .prepare("SELECT probability FROM drum_steps LIMIT 0")
+        .is_ok();
+    let steps_query = if has_step_probability {
+        "SELECT instrument_id, pattern_index, pad_index, step_index, velocity, probability FROM drum_steps"
+    } else {
+        "SELECT instrument_id, pattern_index, pad_index, step_index, velocity FROM drum_steps"
+    };
+    if let Ok(mut stmt) = conn.prepare(steps_query) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            let probability = if has_step_probability { row.get::<_, f32>(5).unwrap_or(1.0) } else { 1.0 };
             Ok((
                 row.get::<_, InstrumentId>(0)?, row.get::<_, usize>(1)?,
                 row.get::<_, usize>(2)?, row.get::<_, usize>(3)?,
-                row.get::<_, u8>(4)?,
+                row.get::<_, u8>(4)?, probability,
             ))
         }) {
             for row in rows {
-                if let Ok((instrument_id, pi, pad_idx, step_idx, velocity)) = row {
+                if let Ok((instrument_id, pi, pad_idx, step_idx, velocity, probability)) = row {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(seq) = &mut inst.drum_sequencer {
                             if let Some(pattern) = seq.patterns.get_mut(pi) {
                                 if let Some(step) = pattern.steps.get_mut(pad_idx).and_then(|s| s.get_mut(step_idx)) {
                                     step.active = true;
                                     step.velocity = velocity;
+                                    step.probability = probability;
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Load chain_enabled (optional, may not exist in older schemas)
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT instrument_id, chain_enabled FROM drum_patterns WHERE pattern_index = 0",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, InstrumentId>(0)?, row.get::<_, bool>(1)?))
+        }) {
+            for row in rows {
+                if let Ok((instrument_id, chain_enabled)) = row {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        if let Some(seq) = &mut inst.drum_sequencer {
+                            seq.chain_enabled = chain_enabled;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Load pattern chain
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT instrument_id, pattern_index FROM drum_sequencer_chain ORDER BY instrument_id, position",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, InstrumentId>(0)?, row.get::<_, usize>(1)?))
+        }) {
+            for row in rows {
+                if let Ok((instrument_id, pattern_index)) = row {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        if let Some(seq) = &mut inst.drum_sequencer {
+                            seq.chain.push(pattern_index);
                         }
                     }
                 }
@@ -906,6 +1005,66 @@ pub(super) fn load_vst_param_values(conn: &SqlConnection, instruments: &mut [Ins
                 if let Ok((instrument_id, param_index, value)) = result {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         inst.vst_param_values.push((param_index, value as f32));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn load_arpeggiator_settings(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    use crate::state::arpeggiator::{ArpDirection, ArpRate, ArpeggiatorConfig, ChordShape};
+
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, arp_enabled, arp_direction, arp_rate, arp_octaves, arp_gate, chord_shape, convolution_ir_path FROM instruments ORDER BY position",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, InstrumentId>(0)?,
+                row.get::<_, bool>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i32>(4)?,
+                row.get::<_, f64>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((id, enabled, dir_str, rate_str, octaves, gate, chord_str, ir_path)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == id) {
+                        let direction = match dir_str.as_str() {
+                            "Down" => ArpDirection::Down,
+                            "Up/Down" => ArpDirection::UpDown,
+                            "Random" => ArpDirection::Random,
+                            _ => ArpDirection::Up,
+                        };
+                        let rate = match rate_str.as_str() {
+                            "1/4" => ArpRate::Quarter,
+                            "1/16" => ArpRate::Sixteenth,
+                            "1/32" => ArpRate::ThirtySecond,
+                            _ => ArpRate::Eighth,
+                        };
+                        inst.arpeggiator = ArpeggiatorConfig {
+                            enabled,
+                            direction,
+                            rate,
+                            octaves: octaves.clamp(1, 4) as u8,
+                            gate: gate as f32,
+                        };
+                        inst.chord_shape = chord_str.and_then(|s| match s.as_str() {
+                            "Major" => Some(ChordShape::Major),
+                            "Minor" => Some(ChordShape::Minor),
+                            "7th" => Some(ChordShape::Seventh),
+                            "m7" => Some(ChordShape::MinorSeventh),
+                            "sus2" => Some(ChordShape::Sus2),
+                            "sus4" => Some(ChordShape::Sus4),
+                            "Power" => Some(ChordShape::PowerChord),
+                            "Octave" => Some(ChordShape::Octave),
+                            _ => None,
+                        });
+                        inst.convolution_ir_path = ir_path;
                     }
                 }
             }

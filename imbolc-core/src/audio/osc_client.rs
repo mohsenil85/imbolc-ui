@@ -8,11 +8,20 @@ use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 /// Maximum number of waveform samples to keep per audio input instrument
 const WAVEFORM_BUFFER_SIZE: usize = 100;
 
-/// Shared meter + waveform data accessible from both threads.
+/// Maximum scope samples to keep
+const SCOPE_BUFFER_SIZE: usize = 200;
+
+/// Shared meter + waveform + visualization data accessible from both threads.
 #[derive(Clone, Default)]
 pub struct AudioMonitor {
     meter_data: Arc<Mutex<(f32, f32)>>,
     audio_in_waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
+    /// 7-band spectrum data
+    spectrum_data: Arc<Mutex<[f32; 7]>>,
+    /// LUFS data: (peak_l, peak_r, rms_l, rms_r)
+    lufs_data: Arc<Mutex<(f32, f32, f32, f32)>>,
+    /// Oscilloscope ring buffer
+    scope_buffer: Arc<Mutex<VecDeque<f32>>>,
 }
 
 impl AudioMonitor {
@@ -20,6 +29,9 @@ impl AudioMonitor {
         Self {
             meter_data: Arc::new(Mutex::new((0.0_f32, 0.0_f32))),
             audio_in_waveforms: Arc::new(Mutex::new(HashMap::new())),
+            spectrum_data: Arc::new(Mutex::new([0.0; 7])),
+            lufs_data: Arc::new(Mutex::new((0.0, 0.0, 0.0, 0.0))),
+            scope_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(SCOPE_BUFFER_SIZE))),
         }
     }
 
@@ -41,6 +53,27 @@ impl AudioMonitor {
             })
             .unwrap_or_default()
     }
+
+    pub fn spectrum_bands(&self) -> [f32; 7] {
+        self.spectrum_data
+            .lock()
+            .map(|data| *data)
+            .unwrap_or([0.0; 7])
+    }
+
+    pub fn lufs_data(&self) -> (f32, f32, f32, f32) {
+        self.lufs_data
+            .lock()
+            .map(|data| *data)
+            .unwrap_or((0.0, 0.0, 0.0, 0.0))
+    }
+
+    pub fn scope_buffer(&self) -> Vec<f32> {
+        self.scope_buffer
+            .lock()
+            .map(|buf| buf.iter().copied().collect())
+            .unwrap_or_default()
+    }
 }
 
 pub struct OscClient {
@@ -49,6 +82,9 @@ pub struct OscClient {
     meter_data: Arc<Mutex<(f32, f32)>>,
     /// Waveform data per audio input instrument: instrument_id -> ring buffer of peak values
     audio_in_waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
+    spectrum_data: Arc<Mutex<[f32; 7]>>,
+    lufs_data: Arc<Mutex<(f32, f32, f32, f32)>>,
+    scope_buffer: Arc<Mutex<VecDeque<f32>>>,
     _recv_thread: Option<JoinHandle<()>>,
 }
 
@@ -167,11 +203,15 @@ impl OscClientLike for NullOscClient {
 }
 
 /// Recursively process an OSC packet (handles bundles wrapping messages)
-fn handle_osc_packet(
-    packet: &OscPacket,
-    meter_ref: &Arc<Mutex<(f32, f32)>>,
-    waveform_ref: &Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
-) {
+struct OscRefs {
+    meter: Arc<Mutex<(f32, f32)>>,
+    waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
+    spectrum: Arc<Mutex<[f32; 7]>>,
+    lufs: Arc<Mutex<(f32, f32, f32, f32)>>,
+    scope: Arc<Mutex<VecDeque<f32>>>,
+}
+
+fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
     match packet {
         OscPacket::Message(msg) => {
             if msg.addr == "/meter" && msg.args.len() >= 6 {
@@ -183,12 +223,11 @@ fn handle_osc_packet(
                     Some(OscType::Float(v)) => *v,
                     _ => 0.0,
                 };
-                if let Ok(mut data) = meter_ref.lock() {
+                if let Ok(mut data) = refs.meter.lock() {
                     *data = (peak_l, peak_r);
                 }
             } else if msg.addr == "/audio_in_level" && msg.args.len() >= 4 {
                 // SendPeakRMS format: /audio_in_level nodeID replyID peakL rmsL peakR rmsR
-                // args[0] = nodeID, args[1] = replyID (our instrument_id), args[2] = peakL
                 let instrument_id = match msg.args.get(1) {
                     Some(OscType::Int(v)) => *v as u32,
                     Some(OscType::Float(v)) => *v as u32,
@@ -198,18 +237,63 @@ fn handle_osc_packet(
                     Some(OscType::Float(v)) => *v,
                     _ => 0.0,
                 };
-                if let Ok(mut waveforms) = waveform_ref.lock() {
+                if let Ok(mut waveforms) = refs.waveforms.lock() {
                     let buffer = waveforms.entry(instrument_id).or_insert_with(VecDeque::new);
                     buffer.push_back(peak);
                     while buffer.len() > WAVEFORM_BUFFER_SIZE {
                         buffer.pop_front();
                     }
                 }
+            } else if msg.addr == "/spectrum" && msg.args.len() >= 9 {
+                // SendReply format: /spectrum nodeID replyID val0 val1 ... val6
+                let mut bands = [0.0_f32; 7];
+                for i in 0..7 {
+                    bands[i] = match msg.args.get(2 + i) {
+                        Some(OscType::Float(v)) => *v,
+                        _ => 0.0,
+                    };
+                }
+                if let Ok(mut data) = refs.spectrum.lock() {
+                    *data = bands;
+                }
+            } else if msg.addr == "/lufs" && msg.args.len() >= 6 {
+                // SendPeakRMS format: /lufs nodeID replyID peakL rmsL peakR rmsR
+                let peak_l = match msg.args.get(2) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                let rms_l = match msg.args.get(3) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                let peak_r = match msg.args.get(4) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                let rms_r = match msg.args.get(5) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                if let Ok(mut data) = refs.lufs.lock() {
+                    *data = (peak_l, peak_r, rms_l, rms_r);
+                }
+            } else if msg.addr == "/scope" && msg.args.len() >= 3 {
+                // SendReply format: /scope nodeID replyID peakValue
+                let peak = match msg.args.get(2) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                if let Ok(mut buf) = refs.scope.lock() {
+                    buf.push_back(peak);
+                    while buf.len() > SCOPE_BUFFER_SIZE {
+                        buf.pop_front();
+                    }
+                }
             }
         }
         OscPacket::Bundle(bundle) => {
             for p in &bundle.content {
-                handle_osc_packet(p, meter_ref, waveform_ref);
+                handle_osc_packet(p, refs);
             }
         }
     }
@@ -225,12 +309,20 @@ impl OscClient {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         let meter_data = Arc::clone(&monitor.meter_data);
         let audio_in_waveforms = Arc::clone(&monitor.audio_in_waveforms);
+        let spectrum_data = Arc::clone(&monitor.spectrum_data);
+        let lufs_data = Arc::clone(&monitor.lufs_data);
+        let scope_buffer = Arc::clone(&monitor.scope_buffer);
 
         // Clone socket for receive thread
         let recv_socket = socket.try_clone()?;
         recv_socket.set_read_timeout(Some(Duration::from_millis(50)))?;
-        let meter_ref = Arc::clone(&meter_data);
-        let waveform_ref = Arc::clone(&audio_in_waveforms);
+        let refs = OscRefs {
+            meter: Arc::clone(&meter_data),
+            waveforms: Arc::clone(&audio_in_waveforms),
+            spectrum: Arc::clone(&spectrum_data),
+            lufs: Arc::clone(&lufs_data),
+            scope: Arc::clone(&scope_buffer),
+        };
 
         let handle = thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -238,7 +330,7 @@ impl OscClient {
                 match recv_socket.recv(&mut buf) {
                     Ok(n) => {
                         if let Ok((_, packet)) = rosc::decoder::decode_udp(&buf[..n]) {
-                            handle_osc_packet(&packet, &meter_ref, &waveform_ref);
+                            handle_osc_packet(&packet, &refs);
                         }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
@@ -252,6 +344,9 @@ impl OscClient {
             server_addr: server_addr.to_string(),
             meter_data,
             audio_in_waveforms,
+            spectrum_data,
+            lufs_data,
+            scope_buffer,
             _recv_thread: Some(handle),
         })
     }
@@ -261,6 +356,9 @@ impl OscClient {
         AudioMonitor {
             meter_data: Arc::clone(&self.meter_data),
             audio_in_waveforms: Arc::clone(&self.audio_in_waveforms),
+            spectrum_data: Arc::clone(&self.spectrum_data),
+            lufs_data: Arc::clone(&self.lufs_data),
+            scope_buffer: Arc::clone(&self.scope_buffer),
         }
     }
 

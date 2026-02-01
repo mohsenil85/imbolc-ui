@@ -36,37 +36,62 @@ impl AddEffectPane {
     }
 
     fn build_options_static() -> Vec<AddEffectOption> {
-        vec![
-            AddEffectOption::Separator("── Built-in ──"),
-            AddEffectOption::Effect(EffectType::Delay),
-            AddEffectOption::Effect(EffectType::Reverb),
-            AddEffectOption::Effect(EffectType::Gate),
-            AddEffectOption::Effect(EffectType::TapeComp),
-            AddEffectOption::Effect(EffectType::SidechainComp),
-            AddEffectOption::Separator("── VST ──"),
-            AddEffectOption::ImportVst,
-        ]
+        Self::build_effect_list(&[])
     }
 
-    fn build_options(&self, vst_registry: &VstPluginRegistry) -> Vec<AddEffectOption> {
+    fn build_effect_list(vst_effects: &[(u32, EffectType)]) -> Vec<AddEffectOption> {
         let mut options = vec![
-            AddEffectOption::Separator("── Built-in ──"),
-            AddEffectOption::Effect(EffectType::Delay),
-            AddEffectOption::Effect(EffectType::Reverb),
-            AddEffectOption::Effect(EffectType::Gate),
+            AddEffectOption::Separator("── Dynamics ──"),
             AddEffectOption::Effect(EffectType::TapeComp),
             AddEffectOption::Effect(EffectType::SidechainComp),
+            AddEffectOption::Effect(EffectType::Gate),
+            AddEffectOption::Effect(EffectType::Limiter),
+            AddEffectOption::Separator("── Modulation ──"),
+            AddEffectOption::Effect(EffectType::Chorus),
+            AddEffectOption::Effect(EffectType::Flanger),
+            AddEffectOption::Effect(EffectType::Phaser),
+            AddEffectOption::Effect(EffectType::Tremolo),
+            AddEffectOption::Separator("── Distortion ──"),
+            AddEffectOption::Effect(EffectType::Distortion),
+            AddEffectOption::Effect(EffectType::Bitcrusher),
+            AddEffectOption::Effect(EffectType::Wavefolder),
+            AddEffectOption::Effect(EffectType::Saturator),
+            AddEffectOption::Separator("── EQ ──"),
+            AddEffectOption::Effect(EffectType::TiltEq),
+            AddEffectOption::Separator("── Stereo ──"),
+            AddEffectOption::Effect(EffectType::StereoWidener),
+            AddEffectOption::Effect(EffectType::FreqShifter),
+            AddEffectOption::Separator("── Delay / Reverb ──"),
+            AddEffectOption::Effect(EffectType::Delay),
+            AddEffectOption::Effect(EffectType::Reverb),
+            AddEffectOption::Effect(EffectType::ConvolutionReverb),
+            AddEffectOption::Separator("── Utility ──"),
+            AddEffectOption::Effect(EffectType::PitchShifter),
+            AddEffectOption::Separator("── Lo-fi ──"),
+            AddEffectOption::Effect(EffectType::Vinyl),
+            AddEffectOption::Effect(EffectType::Cabinet),
+            AddEffectOption::Separator("── Granular ──"),
+            AddEffectOption::Effect(EffectType::GranularDelay),
+            AddEffectOption::Effect(EffectType::GranularFreeze),
         ];
 
         options.push(AddEffectOption::Separator("── VST ──"));
 
-        for plugin in vst_registry.effects() {
-            options.push(AddEffectOption::Effect(EffectType::Vst(plugin.id)));
+        for &(_, effect_type) in vst_effects {
+            options.push(AddEffectOption::Effect(effect_type));
         }
 
         options.push(AddEffectOption::ImportVst);
 
         options
+    }
+
+    fn build_options(&self, vst_registry: &VstPluginRegistry) -> Vec<AddEffectOption> {
+        let vst_effects: Vec<(u32, EffectType)> = vst_registry
+            .effects()
+            .map(|p| (p.id, EffectType::Vst(p.id)))
+            .collect();
+        Self::build_effect_list(&vst_effects)
     }
 
     fn update_options(&mut self, vst_registry: &VstPluginRegistry) {

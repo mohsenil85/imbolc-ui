@@ -99,6 +99,8 @@ pub struct AudioEngine {
     next_voice_control_bus: i32,
     /// Meter synth node ID
     meter_node_id: Option<i32>,
+    /// Analysis synth node IDs (spectrum, LUFS, scope)
+    analysis_node_ids: Vec<i32>,
     /// Sample buffer mapping: BufferId -> SuperCollider buffer number
     buffer_map: HashMap<BufferId, i32>,
     /// Next available buffer number for SuperCollider
@@ -130,6 +132,7 @@ impl AudioEngine {
             next_voice_audio_bus: 16,
             next_voice_control_bus: 0,
             meter_node_id: None,
+            analysis_node_ids: Vec::new(),
             buffer_map: HashMap::new(),
             next_bufnum: 100, // Start at 100 to avoid conflicts with built-in buffers
             recording: None,

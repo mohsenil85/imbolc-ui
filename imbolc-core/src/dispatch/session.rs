@@ -148,6 +148,14 @@ pub(super) fn dispatch_session(
                 }
             }
         }
+        SessionAction::AdjustHumanizeVelocity(delta) => {
+            state.session.humanize_velocity = (state.session.humanize_velocity + delta).clamp(0.0, 1.0);
+            result.audio_dirty.session = true;
+        }
+        SessionAction::AdjustHumanizeTiming(delta) => {
+            state.session.humanize_timing = (state.session.humanize_timing + delta).clamp(0.0, 1.0);
+            result.audio_dirty.session = true;
+        }
         SessionAction::ImportVstPlugin(ref path, kind) => {
             use crate::state::vst_plugin::VstPlugin;
 

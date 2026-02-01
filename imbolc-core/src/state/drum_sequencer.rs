@@ -22,6 +22,7 @@ pub struct ChopperState {
 pub struct DrumStep {
     pub active: bool,
     pub velocity: u8, // 1-127, default 100
+    pub probability: f32, // 0.0-1.0, default 1.0 (always play)
 }
 
 impl Default for DrumStep {
@@ -29,6 +30,7 @@ impl Default for DrumStep {
         Self {
             active: false,
             velocity: 100,
+            probability: 1.0,
         }
     }
 }
@@ -84,6 +86,14 @@ pub struct DrumSequencerState {
     pub step_accumulator: f32,
     pub last_played_step: Option<usize>,
     pub chopper: Option<ChopperState>,
+    /// Swing amount: 0.0 = no swing, 1.0 = max swing (delays odd-numbered steps)
+    pub swing_amount: f32,
+    /// Pattern chain: ordered list of pattern indices to cycle through
+    pub chain: Vec<usize>,
+    /// Whether pattern chaining is active
+    pub chain_enabled: bool,
+    /// Current position within the chain (runtime)
+    pub chain_position: usize,
 }
 
 impl DrumSequencerState {
@@ -100,6 +110,10 @@ impl DrumSequencerState {
             step_accumulator: 0.0,
             last_played_step: None,
             chopper: None,
+            swing_amount: 0.0,
+            chain: Vec::new(),
+            chain_enabled: false,
+            chain_position: 0,
         }
     }
 
@@ -116,6 +130,72 @@ impl Default for DrumSequencerState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Generate a Euclidean rhythm pattern using Bjorklund's algorithm.
+/// Returns a Vec<bool> of length `steps` with `pulses` evenly distributed.
+/// `rotation` rotates the pattern by the given number of steps.
+pub fn euclidean_rhythm(pulses: usize, steps: usize, rotation: usize) -> Vec<bool> {
+    if steps == 0 {
+        return vec![];
+    }
+    let pulses = pulses.min(steps);
+    if pulses == 0 {
+        return vec![false; steps];
+    }
+    if pulses == steps {
+        return vec![true; steps];
+    }
+
+    // Bjorklund's algorithm
+    let mut pattern: Vec<Vec<bool>> = Vec::new();
+    let mut remainder: Vec<Vec<bool>> = Vec::new();
+
+    for i in 0..steps {
+        if i < pulses {
+            pattern.push(vec![true]);
+        } else {
+            remainder.push(vec![false]);
+        }
+    }
+
+    loop {
+        if remainder.len() <= 1 {
+            break;
+        }
+        let mut new_pattern = Vec::new();
+        let min_len = pattern.len().min(remainder.len());
+        for i in 0..min_len {
+            let mut combined = pattern[i].clone();
+            combined.extend_from_slice(&remainder[i]);
+            new_pattern.push(combined);
+        }
+        let leftover_pattern: Vec<Vec<bool>> = pattern[min_len..].to_vec();
+        let leftover_remainder: Vec<Vec<bool>> = remainder[min_len..].to_vec();
+        pattern = new_pattern;
+        remainder = if !leftover_pattern.is_empty() {
+            leftover_pattern
+        } else {
+            leftover_remainder
+        };
+    }
+
+    let mut result: Vec<bool> = Vec::new();
+    for p in &pattern {
+        result.extend_from_slice(p);
+    }
+    for r in &remainder {
+        result.extend_from_slice(r);
+    }
+    result.truncate(steps);
+
+    // Apply rotation
+    if rotation > 0 && !result.is_empty() {
+        let rot = rotation % result.len();
+        result.rotate_right(rot);
+    }
+
+    result
 }
 
 #[cfg(test)]
