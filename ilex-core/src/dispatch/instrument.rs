@@ -10,7 +10,7 @@ pub(super) fn dispatch_instrument(
     match action {
         InstrumentAction::Add(source_type) => {
             state.add_instrument(*source_type);
-            let mut result = DispatchResult::with_nav(NavIntent::SwitchTo("instrument"));
+            let mut result = DispatchResult::with_nav(NavIntent::SwitchTo("instrument_edit"));
             result.audio_dirty.instruments = true;
             result.audio_dirty.piano_roll = true;
             result.audio_dirty.routing = true;

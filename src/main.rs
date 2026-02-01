@@ -477,6 +477,9 @@ fn handle_global_action(
         "switch:instrument" => {
             switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack);
         }
+        "switch:instrument_list" => {
+            switch_to_pane("instrument", panes, state, app_frame, layer_stack);
+        }
         "switch:piano_roll_or_sequencer" => {
             let target = if let Some(inst) = state.instruments.selected_instrument() {
                 if inst.source.is_kit() {

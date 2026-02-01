@@ -327,7 +327,7 @@ impl Pane for AddPane {
                 if state.instruments.instruments.is_empty() {
                     Action::Nav(NavAction::SwitchPane("server"))
                 } else {
-                    Action::Nav(NavAction::SwitchPane("instrument"))
+                    Action::Nav(NavAction::SwitchPane("instrument_edit"))
                 }
             }
             "next" => {

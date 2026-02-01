@@ -128,10 +128,10 @@ fn test_add_instrument_via_enter() {
 
     let harness = start_with_instrument("add-enter");
 
-    // After adding, we land on the Instruments pane
+    // After adding, we land on the Edit pane
     harness
-        .assert_screen_contains("Instruments")
-        .expect("Should show Instruments pane after adding");
+        .assert_screen_contains("Edit:")
+        .expect("Should show Edit pane after adding");
 
     // The Add Instrument dialog should be gone
     let screen = harness.capture_screen().expect("capture");
@@ -335,8 +335,8 @@ fn test_add_second_instrument() {
     harness.send_key("Enter").expect("send Enter");
     wait_render();
 
-    // Should be back on Instruments with both instruments
+    // Should be back on the Edit pane for the new instrument
     harness
-        .assert_screen_contains("Instruments")
-        .expect("Should return to Instruments pane");
+        .assert_screen_contains("Edit:")
+        .expect("Should show Edit pane for new instrument");
 }

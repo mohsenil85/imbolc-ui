@@ -33,6 +33,7 @@ bindings = [
   { key = "/", action = "toggle_piano_mode", description = "Toggle piano keyboard" },
   { key = "Ctrl+r", action = "record_master", description = "Toggle master recording" },
   { key = "Escape", action = "escape", description = "Escape" },
+  { key = "Ctrl+g", action = "switch:instrument_list", description = "Instrument list" },
   { key = "Ctrl+a", action = "add_instrument", description = "Add instrument" },
   { key = "Ctrl+d", action = "delete_instrument", description = "Delete instrument" },
 ]
