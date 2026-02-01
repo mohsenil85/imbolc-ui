@@ -9,14 +9,14 @@ Quick start for AI agents working on this repo.
 
 ## Source of truth
 - Keybindings: `keybindings.toml` (use `?` in-app for context help).
-- Config defaults: `config.toml` (user overrides live in `~/.config/ilex/`).
+- Config defaults: `config.toml` (user overrides live in `~/.config/imbolc/`).
 - Actions/dispatch: `src/ui/pane.rs`, `src/dispatch.rs`.
 
 ## Build & test
 ```bash
 cargo ck         # fast typecheck (alias)
 cargo build      # full build
-cargo test --bin ilex
+cargo test --bin imbolc
 cargo test
 ```
 

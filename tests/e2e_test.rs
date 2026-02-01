@@ -6,7 +6,7 @@ use std::time::Duration;
 /// Path to the built binary
 fn binary_path() -> String {
     let path = format!(
-        "{}/target/debug/ilex",
+        "{}/target/debug/imbolc",
         std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string())
     );
     assert!(
@@ -65,8 +65,8 @@ fn test_displays_box_with_title() {
 
     // Verify the frame header renders
     harness
-        .assert_screen_contains("ILEX")
-        .expect("Should display 'ILEX' frame header");
+        .assert_screen_contains("IMBOLC")
+        .expect("Should display 'IMBOLC' frame header");
 
     // Verify box borders are present
     let screen = harness.capture_screen().expect("Should capture screen");
@@ -221,7 +221,7 @@ fn test_f5_shows_server_pane() {
         .assert_screen_contains("Audio Server")
         .expect("F5 should show Audio Server pane");
 
-    // With ILEX_NO_AUDIO, server should report Stopped
+    // With IMBOLC_NO_AUDIO, server should report Stopped
     harness
         .assert_screen_contains("Stopped")
         .expect("Server should be stopped without audio");

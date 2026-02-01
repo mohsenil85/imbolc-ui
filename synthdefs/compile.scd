@@ -6,7 +6,7 @@ var dir = thisProcess.nowExecutingPath.dirname;
 // ============================================================================
 // MIDI - Note source that outputs freq/gate/vel on control buses
 // ============================================================================
-SynthDef(\ilex_midi, { |freq_out=0, gate_out=0, vel_out=0, note=60, freq=440, vel=0.8, gate=1|
+SynthDef(\imbolc_midi, { |freq_out=0, gate_out=0, vel_out=0, note=60, freq=440, vel=0.8, gate=1|
     var env = EnvGen.kr(Env.asr(0.001, 1, 0.01), gate, doneAction: 2);
     ReplaceOut.kr(freq_out, freq);
     ReplaceOut.kr(gate_out, env);
@@ -17,7 +17,7 @@ SynthDef(\ilex_midi, { |freq_out=0, gate_out=0, vel_out=0, note=60, freq=440, ve
 // Oscillators - Read freq/gate/vel from control buses, output to audio bus
 // Uses Select.kr to choose between parameter value or bus input (-1 = use param)
 // ============================================================================
-SynthDef(\ilex_saw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_saw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -26,7 +26,7 @@ SynthDef(\ilex_saw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=4
     Out.ar(out, (sig * env) ! 2);
 }).writeDefFile(dir);
 
-SynthDef(\ilex_sin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_sin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -35,7 +35,7 @@ SynthDef(\ilex_sin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=4
     Out.ar(out, (sig * env) ! 2);
 }).writeDefFile(dir);
 
-SynthDef(\ilex_sqr, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_sqr, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -44,7 +44,7 @@ SynthDef(\ilex_sqr, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=4
     Out.ar(out, (sig * env) ! 2);
 }).writeDefFile(dir);
 
-SynthDef(\ilex_tri, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_tri, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -54,7 +54,7 @@ SynthDef(\ilex_tri, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=4
 }).writeDefFile(dir);
 
 // Noise — White/Pink/Brown/Crackle/Dust selectable via color param
-SynthDef(\ilex_noise, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, lag=0.02, color=0, density=20, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_noise, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, lag=0.02, color=0, density=20, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
     var sig = Select.ar(color, [WhiteNoise.ar, PinkNoise.ar, BrownNoise.ar, Crackle.ar(1.5), Dust.ar(density)]);
@@ -63,7 +63,7 @@ SynthDef(\ilex_noise, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=
 }).writeDefFile(dir);
 
 // Pulse — Variable pulse width oscillator (PWM)
-SynthDef(\ilex_pulse, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, width=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_pulse, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, width=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -73,7 +73,7 @@ SynthDef(\ilex_pulse, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq
 }).writeDefFile(dir);
 
 // SuperSaw — 7x detuned saw stack spread stereo
-SynthDef(\ilex_supersaw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, detune=0.3, mix=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_supersaw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, detune=0.3, mix=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -90,7 +90,7 @@ SynthDef(\ilex_supersaw, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), f
 }).writeDefFile(dir);
 
 // Sync — Hard-sync oscillator
-SynthDef(\ilex_sync, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, sync_ratio=2.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_sync, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, sync_ratio=2.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -100,7 +100,7 @@ SynthDef(\ilex_sync, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=
 }).writeDefFile(dir);
 
 // Ring — Ring modulator (carrier × modulator)
-SynthDef(\ilex_ring, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, mod_ratio=2.0, mod_depth=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_ring, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, mod_ratio=2.0, mod_depth=0.5, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -112,7 +112,7 @@ SynthDef(\ilex_ring, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=
 }).writeDefFile(dir);
 
 // FBSin — Self-modulating feedback sine
-SynthDef(\ilex_fbsin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, feedback=0.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_fbsin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, feedback=0.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -122,7 +122,7 @@ SynthDef(\ilex_fbsin, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq
 }).writeDefFile(dir);
 
 // FM — 2-operator FM synthesis (DX7 style)
-SynthDef(\ilex_fm, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, ratio=2.0, index=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_fm, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, ratio=2.0, index=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -134,7 +134,7 @@ SynthDef(\ilex_fm, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=44
 }).writeDefFile(dir);
 
 // PhaseMod — Phase distortion synthesis (Casio CZ style)
-SynthDef(\ilex_phasemod, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, ratio=2.0, index=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_phasemod, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, ratio=2.0, index=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -145,7 +145,7 @@ SynthDef(\ilex_phasemod, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), f
 }).writeDefFile(dir);
 
 // Pluck — Karplus-Strong string synthesis
-SynthDef(\ilex_pluck, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, decay=2.0, coef=0.3, attack=0.01, sustain=0.7, release=0.3|
+SynthDef(\imbolc_pluck, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, decay=2.0, coef=0.3, attack=0.01, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -156,7 +156,7 @@ SynthDef(\ilex_pluck, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq
 }).writeDefFile(dir);
 
 // Formant — Vocal formant synthesis
-SynthDef(\ilex_formant, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, formant=800, bw=200, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_formant, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, formant=800, bw=200, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -166,7 +166,7 @@ SynthDef(\ilex_formant, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), fr
 }).writeDefFile(dir);
 
 // Gendy — Xenakis dynamic stochastic synthesis
-SynthDef(\ilex_gendy, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, lag=0.02, ampdist=1, durdist=1, minfreq=100, maxfreq=1000, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_gendy, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, lag=0.02, ampdist=1, durdist=1, minfreq=100, maxfreq=1000, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
     var sig = Gendy1.ar(ampdist, durdist, 1.0, 1.0, minfreq, maxfreq) * amp.lag(lag) * velSig;
@@ -175,7 +175,7 @@ SynthDef(\ilex_gendy, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=
 }).writeDefFile(dir);
 
 // Chaos — Chaotic attractor oscillators (Henon/Lorenz)
-SynthDef(\ilex_chaos, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, lag=0.02, model=0, chaos_freq=8000, chaos_param=1.3, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_chaos, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=0.5, lag=0.02, model=0, chaos_freq=8000, chaos_param=1.3, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
     var henon = HenonN.ar(chaos_freq, chaos_param, 0.3);
@@ -186,7 +186,7 @@ SynthDef(\ilex_chaos, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), amp=
 }).writeDefFile(dir);
 
 // Additive — Harmonic series synthesis
-SynthDef(\ilex_additive, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, harmonics=8, rolloff=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_additive, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, harmonics=8, rolloff=1.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -202,7 +202,7 @@ SynthDef(\ilex_additive, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), f
 }).writeDefFile(dir);
 
 // Wavetable — Morphing wavetable oscillator using VOsc
-SynthDef(\ilex_wavetable, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, position=0.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
+SynthDef(\imbolc_wavetable, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), freq=440, amp=0.5, lag=0.02, position=0.0, attack=0.01, decay=0.1, sustain=0.7, release=0.3|
     var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
     var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
     var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
@@ -217,7 +217,7 @@ SynthDef(\ilex_wavetable, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1), 
 // ============================================================================
 // Audio Input - Live audio from hardware input
 // ============================================================================
-SynthDef(\ilex_audio_in, { |out=1024, channel=0, gain=1, test_tone=0, test_freq=440, instrument_id=0|
+SynthDef(\imbolc_audio_in, { |out=1024, channel=0, gain=1, test_tone=0, test_freq=440, instrument_id=0|
     var input = SoundIn.ar(channel) * gain;
     var test = SinOsc.ar(test_freq) * 0.3 * test_tone;
     var sig = input + test;
@@ -229,7 +229,7 @@ SynthDef(\ilex_audio_in, { |out=1024, channel=0, gain=1, test_tone=0, test_freq=
 // ============================================================================
 // Bus Input - Read audio from an internal mixer bus
 // ============================================================================
-SynthDef(\ilex_bus_in, { |out=1024, in=1024, gain=1, instrument_id=0|
+SynthDef(\imbolc_bus_in, { |out=1024, in=1024, gain=1, instrument_id=0|
     var sig = In.ar(in, 2) * gain;
     SendPeakRMS.kr(sig, 10, 3, "/audio_in_level", instrument_id);
     Out.ar(out, sig);
@@ -238,7 +238,7 @@ SynthDef(\ilex_bus_in, { |out=1024, in=1024, gain=1, instrument_id=0|
 // ============================================================================
 // Sampler - Plays from buffer with variable rate (for scratching)
 // ============================================================================
-SynthDef(\ilex_sampler, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
+SynthDef(\imbolc_sampler, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
                              rate=1.0, rate_in=(-1), amp=0.8, loop=0,
                              freq_in=(-1), gate_in=(-1), vel_in=(-1),
                              attack=0.001, decay=0.1, sustain=1.0, release=0.05|
@@ -265,7 +265,7 @@ SynthDef(\ilex_sampler, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
 }).writeDefFile(dir);
 
 // Sampler one-shot (for triggering slices without MIDI control)
-SynthDef(\ilex_sampler_oneshot, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
+SynthDef(\imbolc_sampler_oneshot, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
                                       rate=1.0, amp=0.8, gate=1|
     var numFrames = BufFrames.kr(bufnum);
     var startFrame = sliceStart * numFrames;
@@ -293,7 +293,7 @@ SynthDef(\ilex_sampler_oneshot, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
 // ============================================================================
 // Filters - Read from audio bus, optional cutoff modulation, write to audio bus
 // ============================================================================
-SynthDef(\ilex_lpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
+SynthDef(\imbolc_lpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
     var sig = In.ar(in, 2);
     var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
     var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
@@ -301,7 +301,7 @@ SynthDef(\ilex_lpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, reson
     Out.ar(out, RLPF.ar(sig, finalCutoff, q));
 }).writeDefFile(dir);
 
-SynthDef(\ilex_hpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
+SynthDef(\imbolc_hpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
     var sig = In.ar(in, 2);
     var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
     var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
@@ -309,7 +309,7 @@ SynthDef(\ilex_hpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, reson
     Out.ar(out, RHPF.ar(sig, finalCutoff, q));
 }).writeDefFile(dir);
 
-SynthDef(\ilex_bpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
+SynthDef(\imbolc_bpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
     var sig = In.ar(in, 2);
     var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
     var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
@@ -320,7 +320,7 @@ SynthDef(\ilex_bpf, { |in=1024, out=1026, cutoff_mod_in=(-1), cutoff=1000, reson
 // ============================================================================
 // ADSR Envelope - Gate input, control output
 // ============================================================================
-SynthDef(\ilex_adsr, { |gate_in=(-1), out=0, attack=0.01, decay=0.1, sustain=0.7, release=0.3, gate=0|
+SynthDef(\imbolc_adsr, { |gate_in=(-1), out=0, attack=0.01, decay=0.1, sustain=0.7, release=0.3, gate=0|
     var gateSig = Select.kr(gate_in >= 0, [gate, In.kr(gate_in)]);
     var env = EnvGen.kr(Env.adsr(attack, decay, sustain, release), gateSig);
     Out.kr(out, env);
@@ -330,7 +330,7 @@ SynthDef(\ilex_adsr, { |gate_in=(-1), out=0, attack=0.01, decay=0.1, sustain=0.7
 // LFO - Control rate oscillator with multiple shapes
 // shape: 0=sine, 1=square, 2=saw, 3=triangle
 // ============================================================================
-SynthDef(\ilex_lfo, { |out=0, rate=1, depth=0.5, shape=0|
+SynthDef(\imbolc_lfo, { |out=0, rate=1, depth=0.5, shape=0|
     var sine = SinOsc.kr(rate);
     var square = LFPulse.kr(rate).range(-1, 1);
     var saw = LFSaw.kr(rate);
@@ -342,13 +342,13 @@ SynthDef(\ilex_lfo, { |out=0, rate=1, depth=0.5, shape=0|
 // ============================================================================
 // Effects - Audio in/out with bus routing
 // ============================================================================
-SynthDef(\ilex_delay, { |in=1024, out=1026, time=0.3, feedback=0.5, mix=0.3, lag=0.02|
+SynthDef(\imbolc_delay, { |in=1024, out=1026, time=0.3, feedback=0.5, mix=0.3, lag=0.02|
     var sig = In.ar(in, 2);
     var delayed = CombL.ar(sig, 2.0, time.lag(lag), feedback.lag(lag) * 4);
     Out.ar(out, (sig * (1 - mix.lag(lag))) + (delayed * mix.lag(lag)));
 }).writeDefFile(dir);
 
-SynthDef(\ilex_reverb, { |in=1024, out=1026, room=0.5, damp=0.5, mix=0.3, lag=0.02|
+SynthDef(\imbolc_reverb, { |in=1024, out=1026, room=0.5, damp=0.5, mix=0.3, lag=0.02|
     var sig = In.ar(in, 2);
     var wet = FreeVerb2.ar(sig[0], sig[1], mix.lag(lag), room.lag(lag), damp.lag(lag));
     Out.ar(out, wet);
@@ -356,7 +356,7 @@ SynthDef(\ilex_reverb, { |in=1024, out=1026, room=0.5, damp=0.5, mix=0.3, lag=0.
 
 // Gate/Tremolo effect
 // shape: 0=sine (tremolo), 1=square (hard gate), 2=saw (ramp)
-SynthDef(\ilex_gate, { |in=1024, out=1026, rate=4, depth=1, shape=1, lag=0.02|
+SynthDef(\imbolc_gate, { |in=1024, out=1026, rate=4, depth=1, shape=1, lag=0.02|
     var sig = In.ar(in, 2);
     var rateLag = rate.lag(lag);
     var depthLag = depth.lag(lag);
@@ -368,7 +368,7 @@ SynthDef(\ilex_gate, { |in=1024, out=1026, rate=4, depth=1, shape=1, lag=0.02|
 }).writeDefFile(dir);
 
 // Tape Compressor - warm analog-style compression with saturation
-SynthDef(\ilex_tape_comp, { |in=1024, out=1026, drive=1.5, threshold=0.5, ratio=3, makeup=1.0, mix=1.0, lag=0.02|
+SynthDef(\imbolc_tape_comp, { |in=1024, out=1026, drive=1.5, threshold=0.5, ratio=3, makeup=1.0, mix=1.0, lag=0.02|
     var sig = In.ar(in, 2);
     var driven = (sig * drive.lag(lag)).tanh;
     var compressed = Compander.ar(driven, driven,
@@ -383,7 +383,7 @@ SynthDef(\ilex_tape_comp, { |in=1024, out=1026, drive=1.5, threshold=0.5, ratio=
 }).writeDefFile(dir);
 
 // Sidechain Compressor - driven by external bus signal
-SynthDef(\ilex_sc_comp, { |in=1024, out=1026, sidechain_in=0, threshold=0.3, ratio=4, attack=0.01, release=0.1, mix=1.0, lag=0.02|
+SynthDef(\imbolc_sc_comp, { |in=1024, out=1026, sidechain_in=0, threshold=0.3, ratio=4, attack=0.01, release=0.1, mix=1.0, lag=0.02|
     var sig = In.ar(in, 2);
     var scSig = Select.ar(sidechain_in > 0, [sig, In.ar(sidechain_in, 2)]);
     var compressed = Compander.ar(sig, scSig,
@@ -400,7 +400,7 @@ SynthDef(\ilex_sc_comp, { |in=1024, out=1026, sidechain_in=0, threshold=0.3, rat
 // Output - Final stage, reads from audio bus, writes to hardware out
 // Includes level, mute, and pan controls for mixer integration
 // ============================================================================
-SynthDef(\ilex_output, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
+SynthDef(\imbolc_output, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
     var sig = In.ar(in, 2);
     var panned = Balance2.ar(sig[0], sig[1], pan.lag(lag));
     Out.ar(0, panned * level.lag(lag) * (1 - mute));
@@ -409,7 +409,7 @@ SynthDef(\ilex_output, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
 // ============================================================================
 // Send - Reads from source bus, writes to a bus's audio bus at send level
 // ============================================================================
-SynthDef(\ilex_send, { |in=1024, out=1026, level=0.0, lag=0.02|
+SynthDef(\imbolc_send, { |in=1024, out=1026, level=0.0, lag=0.02|
     var sig = In.ar(in, 2);
     Out.ar(out, sig * level.lag(lag));
 }).writeDefFile(dir);
@@ -417,7 +417,7 @@ SynthDef(\ilex_send, { |in=1024, out=1026, level=0.0, lag=0.02|
 // ============================================================================
 // Bus Output - Reads from bus audio bus, applies level/mute/pan, writes to hw
 // ============================================================================
-SynthDef(\ilex_bus_out, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
+SynthDef(\imbolc_bus_out, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
     var sig = In.ar(in, 2);
     var panned = Balance2.ar(sig[0], sig[1], pan.lag(lag));
     Out.ar(0, panned * level.lag(lag) * (1 - mute));
@@ -426,14 +426,14 @@ SynthDef(\ilex_bus_out, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
 // ============================================================================
 // Meter - Reads hardware output, sends peak/RMS via /reply
 // ============================================================================
-SynthDef(\ilex_meter, {
+SynthDef(\imbolc_meter, {
     SendPeakRMS.kr(In.ar(0, 2), 10, 3, "/meter");
 }).writeDefFile(dir);
 
 // ============================================================================
 // Disk Recorder - Writes stereo audio from a bus to a disk-backed buffer
 // ============================================================================
-SynthDef(\ilex_disk_record, { |bufnum=0, in=0|
+SynthDef(\imbolc_disk_record, { |bufnum=0, in=0|
     DiskOut.ar(bufnum, In.ar(in, 2));
 }).writeDefFile(dir);
 

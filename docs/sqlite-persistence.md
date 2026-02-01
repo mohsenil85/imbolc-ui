@@ -2,8 +2,8 @@
 
 ## File Format
 
-- Extension: `.ilex` or `.sqlite`
-- Default path: `~/.config/ilex/default.sqlite`
+- Extension: `.imbolc` or `.sqlite`
+- Default path: `~/.config/imbolc/default.sqlite`
 - Can be inspected with any SQLite tool (`sqlite3`, DB Browser, etc.)
 
 ## Dev Strategy

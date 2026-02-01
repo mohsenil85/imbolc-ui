@@ -1,6 +1,6 @@
 # Keybindings Philosophy
 
-ilex favors a "normie" keybinding scheme: single keys for common actions,
+imbolc favors a "normie" keybinding scheme: single keys for common actions,
 mnemonics where possible, and context-sensitive meaning per pane. The goal is
 fast, keyboard-first navigation without modifier chords.
 

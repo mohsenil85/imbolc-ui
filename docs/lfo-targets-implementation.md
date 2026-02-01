@@ -1,10 +1,10 @@
 > **Status: Partially implemented**
 >
-> The `LfoTarget` enum lives in `ilex-core/src/state/instrument.rs`. Only `FilterCutoff` is wired today (in `ilex-core/src/audio/engine/routing.rs`); the remaining targets are defined but not yet routed.
+> The `LfoTarget` enum lives in `imbolc-core/src/state/instrument.rs`. Only `FilterCutoff` is wired today (in `imbolc-core/src/audio/engine/routing.rs`); the remaining targets are defined but not yet routed.
 
 # LFO Target Implementation Plan
 
-This document outlines how to wire up each of the 15 LFO targets defined in `ilex-core/src/state/instrument.rs`.
+This document outlines how to wire up each of the 15 LFO targets defined in `imbolc-core/src/state/instrument.rs`.
 
 ## Current Status
 
@@ -20,7 +20,7 @@ Each target follows the same pattern:
 Add a `*_mod_in` parameter that accepts a control bus:
 
 ```supercollider
-SynthDef(\ilex_example, { |out=1024, some_param=0.5, some_param_mod_in=(-1)|
+SynthDef(\imbolc_example, { |out=1024, some_param=0.5, some_param_mod_in=(-1)|
     // Read from bus if connected, otherwise 0
     var mod = Select.kr(some_param_mod_in >= 0, [0, In.kr(some_param_mod_in)]);
     // Apply modulation (additive, multiplicative, or scaled)
@@ -29,7 +29,7 @@ SynthDef(\ilex_example, { |out=1024, some_param=0.5, some_param_mod_in=(-1)|
 }).writeDefFile(dir);
 ```
 
-### 2. Rust Audio Engine (ilex-core/src/audio/engine/routing.rs)
+### 2. Rust Audio Engine (imbolc-core/src/audio/engine/routing.rs)
 
 In `rebuild_instrument_routing()`, connect the LFO bus to the target:
 
@@ -53,7 +53,7 @@ Run `synthdefs/compile.scd` in SuperCollider to regenerate `.scsyndef` files.
 ### Tier 1: Easy (Additive Modulation)
 
 #### FilterResonance
-- **SynthDef**: `ilex_lpf`, `ilex_hpf`, `ilex_bpf`
+- **SynthDef**: `imbolc_lpf`, `imbolc_hpf`, `imbolc_bpf`
 - **Parameter**: Add `res_mod_in=(-1)`
 - **Modulation**: `resonance + mod` (clamp 0-1)
 - **Notes**: Already similar structure to cutoff_mod_in
@@ -65,7 +65,7 @@ var finalRes = (resonance + resMod).clip(0, 1);
 ```
 
 #### Pan
-- **SynthDef**: `ilex_output`
+- **SynthDef**: `imbolc_output`
 - **Parameter**: Add `pan_mod_in=(-1)`
 - **Modulation**: `pan + mod` (clamp -1 to 1)
 
@@ -76,7 +76,7 @@ var panned = Balance2.ar(sig[0], sig[1], finalPan);
 ```
 
 #### DelayFeedback
-- **SynthDef**: `ilex_delay`
+- **SynthDef**: `imbolc_delay`
 - **Parameter**: Add `feedback_mod_in=(-1)`
 - **Modulation**: `feedback + mod` (clamp 0-1)
 
@@ -87,7 +87,7 @@ var delayed = CombL.ar(sig, 2.0, time, finalFb * 4);
 ```
 
 #### ReverbMix
-- **SynthDef**: `ilex_reverb`
+- **SynthDef**: `imbolc_reverb`
 - **Parameter**: Add `mix_mod_in=(-1)`
 - **Modulation**: `mix + mod` (clamp 0-1)
 
@@ -98,7 +98,7 @@ var wet = FreeVerb2.ar(sig[0], sig[1], finalMix, room, damp);
 ```
 
 #### SendLevel
-- **SynthDef**: `ilex_send`
+- **SynthDef**: `imbolc_send`
 - **Parameter**: Add `level_mod_in=(-1)`
 - **Modulation**: `level + mod` (clamp 0-1)
 
@@ -113,7 +113,7 @@ Out.ar(out, sig * finalLevel);
 ### Tier 2: Medium (Multiplicative Modulation)
 
 #### Amplitude
-- **SynthDef**: `ilex_saw`, `ilex_sin`, `ilex_sqr`, `ilex_tri`, `ilex_sampler`
+- **SynthDef**: `imbolc_saw`, `imbolc_sin`, `imbolc_sqr`, `imbolc_tri`, `imbolc_sampler`
 - **Parameter**: Add `amp_mod_in=(-1)`
 - **Modulation**: `amp * (1 + mod)` - LFO depth controls tremolo intensity
 
@@ -124,7 +124,7 @@ var sig = Saw.ar(freqSig) * finalAmp * velSig;
 ```
 
 #### GateRate
-- **SynthDef**: `ilex_gate`
+- **SynthDef**: `imbolc_gate`
 - **Parameter**: Add `rate_mod_in=(-1)`
 - **Modulation**: `rate * (1 + mod)` - meta-modulation!
 
@@ -136,7 +136,7 @@ var sine = SinOsc.kr(finalRate).range(1 - depth, 1);
 ```
 
 #### SampleRate (Scratching!)
-- **SynthDef**: `ilex_sampler`
+- **SynthDef**: `imbolc_sampler`
 - **Parameter**: Add `rate_mod_in=(-1)`
 - **Modulation**: `rate * (1 + mod)` - enables vinyl scratching effect
 
@@ -178,7 +178,7 @@ var finalFreq = freqSig * detuneRatio;
 **Note**: Could combine with Pitch using a scaling factor, but separate targets give more control.
 
 #### DelayTime
-- **SynthDef**: `ilex_delay`
+- **SynthDef**: `imbolc_delay`
 - **Parameter**: Add `time_mod_in=(-1)`
 - **Modulation**: `time * (1 + mod)` with clamp
 
@@ -210,7 +210,7 @@ var env = EnvGen.kr(Env.adsr(finalAttack, decay, sustain, finalRelease), gateSig
 **Note**: These only affect NEW notes, not currently playing ones. The envelope is set at note-on.
 
 #### PulseWidth
-- **SynthDef**: `ilex_sqr` only
+- **SynthDef**: `imbolc_sqr` only
 - **Parameter**: Add `width_mod_in=(-1)`
 - **Modulation**: `0.5 + mod` (clamp 0.01-0.99)
 
@@ -226,7 +226,7 @@ var sig = Pulse.ar(freqSig, finalWidth) * amp * velSig;
 
 ## Rust Wiring Pattern
 
-In `ilex-core/src/audio/engine/routing.rs`, the `rebuild_instrument_routing()` function spawns synths. For each target:
+In `imbolc-core/src/audio/engine/routing.rs`, the `rebuild_instrument_routing()` function spawns synths. For each target:
 
 ```rust
 // Example: Adding amplitude modulation to oscillators
@@ -329,10 +329,10 @@ For each target, update:
 
 - [ ] `synthdefs/compile.scd` - Add `*_mod_in` param to relevant SynthDef(s)
 - [ ] Run compile.scd in SuperCollider to regenerate .scsyndef files
-- [ ] `ilex-core/src/audio/engine/routing.rs` - Wire LFO bus when target matches
+- [ ] `imbolc-core/src/audio/engine/routing.rs` - Wire LFO bus when target matches
 - [ ] Test with actual audio
 
 No changes needed to:
-- `ilex-core/src/state/instrument.rs` - Targets already defined
+- `imbolc-core/src/state/instrument.rs` - Targets already defined
 - `src/panes/instrument_edit_pane` - UI already shows all targets
-- `ilex-core/src/state/persistence/mod.rs` - Already saves/loads all targets
+- `imbolc-core/src/state/persistence/mod.rs` - Already saves/loads all targets

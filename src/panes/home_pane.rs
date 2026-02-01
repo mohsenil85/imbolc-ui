@@ -86,7 +86,7 @@ impl Pane for HomePane {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" ILEX ")
+            .title(" IMBOLC ")
             .border_style(ratatui::style::Style::from(Style::new().fg(Color::MAGENTA)))
             .title_style(ratatui::style::Style::from(Style::new().fg(Color::MAGENTA)));
         let inner = block.inner(rect);

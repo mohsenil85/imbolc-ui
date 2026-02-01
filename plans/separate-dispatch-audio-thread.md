@@ -121,8 +121,8 @@ tick_playback/tick_drum_sequencer at ~1ms resolution. Feedback
 (playhead, BPM, server status, recording, compile results) flows back
 via AudioFeedback channel, polled each frame in main.rs.
 
-**Files:** `ilex-core/src/audio/handle.rs`,
-`ilex-core/src/audio/commands.rs`, `src/main.rs`
+**Files:** `imbolc-core/src/audio/handle.rs`,
+`imbolc-core/src/audio/commands.rs`, `src/main.rs`
 
 ### Phase 4: State snapshot optimization [DONE]
 Added dirty-flag batching via `AudioDirty` struct with 6 boolean flags
@@ -134,8 +134,8 @@ frame. `flush_dirty()` checks each flag individually and only clones the
 relevant state snapshots. Type aliases in `snapshot.rs` document the
 snapshot types.
 
-**Files:** `ilex-core/src/action.rs`, `ilex-core/src/audio/handle.rs`,
-`ilex-core/src/audio/snapshot.rs`, `src/main.rs`,
+**Files:** `imbolc-core/src/action.rs`, `imbolc-core/src/audio/handle.rs`,
+`imbolc-core/src/audio/snapshot.rs`, `src/main.rs`,
 `src/dispatch/instrument.rs`, `src/dispatch/mixer.rs`,
 `src/dispatch/piano_roll.rs`, `src/dispatch/sequencer.rs`,
 `src/dispatch/automation.rs`, `src/dispatch/session.rs`,
@@ -149,8 +149,8 @@ fire-and-forget commands via new async `AudioHandle` helpers. Added
 connect/restart synthdef + drum sample loading). ServerPane updates
 already happen in the feedback polling loop.
 
-**Files:** `ilex-core/src/audio/commands.rs`,
-`ilex-core/src/audio/handle.rs`, `ilex-core/src/dispatch/server.rs`,
+**Files:** `imbolc-core/src/audio/commands.rs`,
+`imbolc-core/src/audio/handle.rs`, `imbolc-core/src/dispatch/server.rs`,
 `src/main.rs`
 
 ## Risks
@@ -175,7 +175,7 @@ already happen in the feedback polling loop.
 
 ## Verification
 
-1. `cargo test --bin ilex` -- all existing tests pass after each phase
+1. `cargo test --bin imbolc` -- all existing tests pass after each phase
 2. Manual test: start server, play notes, verify timing doesn't
    degrade during UI-heavy operations (rapid pane switching, scrolling
    piano roll during playback)

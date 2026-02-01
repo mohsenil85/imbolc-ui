@@ -1,6 +1,6 @@
 # Architecture
 
-Detailed architecture reference for the ilex codebase. See [CLAUDE.md](../CLAUDE.md) for quick reference.
+Detailed architecture reference for the imbolc codebase. See [CLAUDE.md](../CLAUDE.md) for quick reference.
 For VST3 plans and UI targets, see `docs/vst3-support-roadmap.md`.
 
 ## State Ownership
@@ -8,7 +8,7 @@ For VST3 plans and UI targets, see `docs/vst3-support-roadmap.md`.
 All state lives in `AppState`, owned by `main.rs` and passed to panes by reference:
 
 ```rust
-// ilex-core/src/state/mod.rs
+// imbolc-core/src/state/mod.rs
 pub struct AppState {
     pub session: SessionState,
     pub instruments: InstrumentState,
@@ -23,7 +23,7 @@ pub struct AppState {
 `InstrumentState` contains the instruments:
 
 ```rust
-// ilex-core/src/state/instrument_state.rs
+// imbolc-core/src/state/instrument_state.rs
 pub struct InstrumentState {
     pub instruments: Vec<Instrument>,
     pub selected: Option<usize>,
@@ -36,7 +36,7 @@ pub struct InstrumentState {
 `SessionState` contains global settings and other state:
 
 ```rust
-// ilex-core/src/state/session.rs
+// imbolc-core/src/state/session.rs
 pub struct SessionState {
     pub key: Key,
     pub scale: Scale,
@@ -61,7 +61,7 @@ pub struct SessionState {
 An `Instrument` is the fundamental unit — it combines what were previously separate rack modules (oscillator, filter, effects, output) into a single entity:
 
 ```rust
-// ilex-core/src/state/instrument.rs
+// imbolc-core/src/state/instrument.rs
 pub struct Instrument {
     pub id: InstrumentId,
     pub name: String,
@@ -142,7 +142,7 @@ is called only when the layer stack resolves a key to an action string; otherwis
 
 Panes communicate exclusively through `Action` values. A pane's `handle_action()` or
 `handle_raw_input()` returns an `Action`, which is dispatched by
-`dispatch::dispatch_action()` in `ilex-core/src/dispatch/mod.rs`. This function receives
+`dispatch::dispatch_action()` in `imbolc-core/src/dispatch/mod.rs`. This function receives
 `&mut AppState` and `&mut AudioHandle`, mutates state, sends audio commands, and returns a
 `DispatchResult` (nav/status/audio-dirty) that `main.rs` applies.
 
@@ -180,11 +180,11 @@ User Input
   → main.rs applies nav/status + audio flush
 ```
 
-The `dispatch_action()` function (`ilex-core/src/dispatch/mod.rs`) handles all action variants and returns a `DispatchResult` (including quit + nav intents).
+The `dispatch_action()` function (`imbolc-core/src/dispatch/mod.rs`) handles all action variants and returns a `DispatchResult` (including quit + nav intents).
 
 ## Audio Engine
 
-Located in `ilex-core/src/audio/`. Communicates with SuperCollider (scsynth) via OSC over UDP. `AudioEngine` runs on a dedicated audio thread; the main thread communicates with it via MPSC command/feedback channels through `AudioHandle`.
+Located in `imbolc-core/src/audio/`. Communicates with SuperCollider (scsynth) via OSC over UDP. `AudioEngine` runs on a dedicated audio thread; the main thread communicates with it via MPSC command/feedback channels through `AudioHandle`.
 
 ### Key Components
 
@@ -224,7 +224,7 @@ Use bundles for timing-sensitive operations (note events). Individual messages a
 
 ## Playback Engine
 
-Lives on the dedicated audio thread (`AudioThread::tick_playback` in `ilex-core/src/audio/handle.rs`), ticking at ~1ms resolution independently of the UI frame rate:
+Lives on the dedicated audio thread (`AudioThread::tick_playback` in `imbolc-core/src/audio/handle.rs`), ticking at ~1ms resolution independently of the UI frame rate:
 
 1. Compute elapsed real time since last tick
 2. Convert to ticks: `seconds * (bpm / 60) * ticks_per_beat`
@@ -237,7 +237,7 @@ Tick resolution: 480 ticks per beat. Notes are sent as OSC bundles with NTP time
 
 ## Persistence
 
-SQLite database via `rusqlite`. Implementation in `ilex-core/src/state/persistence/`.
+SQLite database via `rusqlite`. Implementation in `imbolc-core/src/state/persistence/`.
 
 ### What's Persisted
 

@@ -1,6 +1,6 @@
 # VST3 Support Roadmap
 
-Goal: move ilex from "can load a VST" to "full support" with a usable TUI
+Goal: move imbolc from "can load a VST" to "full support" with a usable TUI
 workflow (parameter browsing, automation, state recall, and advanced features).
 
 Note: docs/vst-integration.md is legacy notes from an earlier prototype. This
@@ -11,8 +11,8 @@ file reflects the current Rust codebase and the intended direction.
 Implemented in the Rust codebase and SC engine:
 
 - VSTPlugin wrapper SynthDefs exist: `synthdefs/compile_vst.scd` generates
-  `ilex_vst_instrument` and `ilex_vst_effect`.
-- VST registry data model exists (`ilex-core/src/state/vst_plugin.rs`) and is persisted in
+  `imbolc_vst_instrument` and `imbolc_vst_effect`.
+- VST registry data model exists (`imbolc-core/src/state/vst_plugin.rs`) and is persisted in
   SQLite (`vst_plugins`, `vst_plugin_params`).
 - Add pane can import a `.vst` / `.vst3` bundle as a VST instrument. The file
   browser treats bundle directories as selectable.

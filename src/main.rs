@@ -1,11 +1,11 @@
 // Re-export core crate modules so crate::state, crate::audio, etc. resolve throughout the binary
-pub use ilex_core::action;
-pub use ilex_core::audio;
-pub use ilex_core::config;
-pub use ilex_core::dispatch;
-pub use ilex_core::midi;
-pub use ilex_core::scd_parser;
-pub use ilex_core::state;
+pub use imbolc_core::action;
+pub use imbolc_core::audio;
+pub use imbolc_core::config;
+pub use imbolc_core::dispatch;
+pub use imbolc_core::midi;
+pub use imbolc_core::scd_parser;
+pub use imbolc_core::state;
 
 mod panes;
 mod setup;

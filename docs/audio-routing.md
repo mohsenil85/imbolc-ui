@@ -100,7 +100,7 @@ SynthDef(\source_with_send, { |out=16, send_bus=20, send_level=0|
 
 The reverb on bus 20 processes whatever lands there, and its output goes to the main bus. Because `Out.ar` sums, multiple channels sending to bus 20 all mix together into one reverb.
 
-In ilex, each instrument has per-bus send levels (`instrument.sends`). The audio engine creates `ilex_send` nodes that tap the instrument's source bus and write into the target bus before the bus output stage.
+In imbolc, each instrument has per-bus send levels (`instrument.sends`). The audio engine creates `imbolc_send` nodes that tap the instrument's source bus and write into the target bus before the bus output stage.
 
 ## Mixer Architecture
 
@@ -178,7 +178,7 @@ This is important for:
 
 ## Groups (Implemented)
 
-SuperCollider has **groups** - containers for synths that control execution order. ilex uses fixed groups to guarantee ordering:
+SuperCollider has **groups** - containers for synths that control execution order. imbolc uses fixed groups to guarantee ordering:
 
 - Group 100: sources (oscillators, samplers, audio in)
 - Group 200: processing (filters, insert FX, mixer processing)

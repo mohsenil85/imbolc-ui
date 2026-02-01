@@ -508,7 +508,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("ilex_file_browser_test_{}", nanos));
+        dir.push(format!("imbolc_file_browser_test_{}", nanos));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }

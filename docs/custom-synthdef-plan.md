@@ -1,12 +1,12 @@
 > **Status: Implemented**
 >
-> Custom SynthDef support lives in `ilex-core/src/state/custom_synthdef.rs`, `ilex-core/src/scd_parser.rs`, and `ilex-core/src/audio/engine/voices.rs`/`routing.rs`.
-> This plan predates the ilex-core split; paths below use current names.
+> Custom SynthDef support lives in `imbolc-core/src/state/custom_synthdef.rs`, `imbolc-core/src/scd_parser.rs`, and `imbolc-core/src/audio/engine/voices.rs`/`routing.rs`.
+> This plan predates the imbolc-core split; paths below use current names.
 
 Current paths:
-- `ilex-core/src/state/instrument.rs`
-- `ilex-core/src/state/instrument_state.rs`
-- `ilex-core/src/dispatch/mod.rs`
+- `imbolc-core/src/state/instrument.rs`
+- `imbolc-core/src/state/instrument_state.rs`
+- `imbolc-core/src/dispatch/mod.rs`
 
 # Plan: Custom SynthDef Instruments
 
@@ -27,7 +27,7 @@ Add support for user-defined SuperCollider SynthDefs as instrument sources. User
 │  2. File browser opens → user picks .scd file                 │
 │  3. Parse .scd to extract synthdef name + params              │
 │  4. Compile via sclang → generates .scsyndef                  │
-│  5. Copy to ~/.config/ilex/synthdefs/                       │
+│  5. Copy to ~/.config/imbolc/synthdefs/                       │
 │  6. Register in CustomSynthDefRegistry                        │
 │  7. Available as source type for new instruments              │
 └──────────────────────────────────────────────────────────────┘
@@ -81,7 +81,7 @@ impl CustomSynthDefRegistry {
 
 ### 1.2 SourceType Extension
 
-**`ilex-core/src/state/instrument.rs`** modifications:
+**`imbolc-core/src/state/instrument.rs`** modifications:
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceType {
@@ -98,12 +98,12 @@ impl SourceType {
     // Change return type to handle dynamic strings
     pub fn synth_def_name_with_registry(&self, registry: &CustomSynthDefRegistry) -> String {
         match self {
-            SourceType::Saw => "ilex_saw".to_string(),
+            SourceType::Saw => "imbolc_saw".to_string(),
             // ... other built-ins
             SourceType::Custom(id) => {
                 registry.get(*id)
                     .map(|s| s.synthdef_name.clone())
-                    .unwrap_or_else(|| "ilex_saw".to_string())
+                    .unwrap_or_else(|| "imbolc_saw".to_string())
             }
         }
     }
@@ -129,7 +129,7 @@ impl SourceType {
 
 ### 1.3 InstrumentState Integration
 
-**`ilex-core/src/state/instrument_state.rs`** additions:
+**`imbolc-core/src/state/instrument_state.rs`** additions:
 ```rust
 pub struct InstrumentState {
     // ... existing fields
@@ -524,8 +524,8 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 | `src/state/custom_synthdef.rs` | CREATE | CustomSynthDef, ParamSpec, Registry types |
 | `src/scd_parser.rs` | CREATE | Parse .scd files for name and params |
 | `src/panes/file_browser_pane.rs` | CREATE | File selection UI |
-| `ilex-core/src/state/instrument.rs` | MODIFY | Add SourceType::Custom variant |
-| `ilex-core/src/state/instrument_state.rs` | MODIFY | Add custom_synthdefs registry |
+| `imbolc-core/src/state/instrument.rs` | MODIFY | Add SourceType::Custom variant |
+| `imbolc-core/src/state/instrument_state.rs` | MODIFY | Add custom_synthdefs registry |
 | `src/state/mod.rs` | MODIFY | Export new modules |
 | `src/panes/add_pane.rs` | MODIFY | Show custom types + import option |
 | `src/panes/mod.rs` | MODIFY | Export FileBrowserPane |
@@ -582,7 +582,7 @@ Add save/load functions for `CustomSynthDefRegistry` in persistence.rs.
 
 ## Overview
 
-A full-featured code editor pane for writing and editing SuperCollider SynthDefs directly in ilex. Features:
+A full-featured code editor pane for writing and editing SuperCollider SynthDefs directly in imbolc. Features:
 - Tree-sitter syntax highlighting for SCLang
 - Readline/Emacs-style keybindings
 - Live compilation and error feedback
@@ -860,7 +860,7 @@ impl Pane for SclangEditorPane {
 impl SclangEditorPane {
     fn compile(&mut self) -> Action {
         // Save to temp file
-        let temp_path = std::env::temp_dir().join("ilex_compile.scd");
+        let temp_path = std::env::temp_dir().join("imbolc_compile.scd");
         std::fs::write(&temp_path, self.buffer.content()).ok();
 
         // Run sclang

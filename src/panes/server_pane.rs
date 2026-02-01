@@ -65,7 +65,7 @@ impl ServerPane {
 
         let log_path = dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("ilex")
+            .join("imbolc")
             .join("scsynth.log");
 
         Self {

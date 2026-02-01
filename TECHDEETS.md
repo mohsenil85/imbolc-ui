@@ -1,10 +1,10 @@
-# Ilex Architecture Deep Dive
+# Imbolc Architecture Deep Dive
 
-This document details the internal architecture of Ilex, focusing on the low-latency audio engine, concurrency model, and integration with SuperCollider.
+This document details the internal architecture of Imbolc, focusing on the low-latency audio engine, concurrency model, and integration with SuperCollider.
 
 ## High-Level Overview
 
-Ilex follows a strict separation of concerns between the **UI (Main Thread)** and the **Audio Engine (Audio Thread)**.
+Imbolc follows a strict separation of concerns between the **UI (Main Thread)** and the **Audio Engine (Audio Thread)**.
 
 *   **Main Thread:** Runs the TUI (Ratatui), handles user input, manages the "source of truth" `AppState`, and renders the interface.
 *   **Audio Thread:** A dedicated thread that runs the sequencer clock, manages the SuperCollider server (scsynth), and handles all real-time audio logic.
@@ -22,7 +22,7 @@ graph TD
 
 ## The Audio Thread & Low Latency
 
-The core of Ilex's timing stability lies in the `AudioThread` loop (`ilex-core/src/audio/handle.rs`).
+The core of Imbolc's timing stability lies in the `AudioThread` loop (`imbolc-core/src/audio/handle.rs`).
 
 ### 1. The Tick Loop
 The audio thread does not rely on the UI framerate. It runs a tight loop that:
@@ -35,18 +35,18 @@ The audio thread does not rely on the UI framerate. It runs a tight loop that:
 Playback logic is decoupled from wall-clock time. The sequencer advances the playhead by `tick_delta` (derived from elapsed time). This "catch-up" approach ensures that even if the thread sleeps slightly longer than expected (jitter), the playhead stays mathematically correct over time.
 
 ### 3. Jitter Compensation via OSC Timestamps
-To prevent audible jitter caused by the 1ms sleep interval or OS scheduling, Ilex uses **OSC Bundles with Timestamps**.
+To prevent audible jitter caused by the 1ms sleep interval or OS scheduling, Imbolc uses **OSC Bundles with Timestamps**.
 
 When a note is triggered:
 1.  The sequencer determines the note starts at `tick X`.
 2.  It calculates the exact offset in seconds from "now" (`ticks_from_now * secs_per_tick`).
-3.  It calls `osc_time_from_now(offset)` (`ilex-core/src/audio/osc_client.rs`), which computes an NTP timestamp (UTC).
+3.  It calls `osc_time_from_now(offset)` (`imbolc-core/src/audio/osc_client.rs`), which computes an NTP timestamp (UTC).
 4.  This timestamp is attached to the OSC bundle sent to SuperCollider.
 
 **Result:** SuperCollider receives the message *before* the sound needs to play and schedules it for the *exact* sample frame requested. This yields sample-accurate timing independent of Rust thread jitter.
 
 ```rust
-// ilex-core/src/audio/osc_client.rs
+// imbolc-core/src/audio/osc_client.rs
 pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)...;
     // Add offset and convert to NTP (1900 epoch)
@@ -69,16 +69,16 @@ For high-frequency visual data (meters, waveforms) where occasional dropped fram
 
 ## SuperCollider Integration
 
-Ilex acts as a "driver" for `scsynth`.
+Imbolc acts as a "driver" for `scsynth`.
 
 ### Node Management
-The `AudioEngine` (`ilex-core/src/audio/engine/mod.rs`) maps high-level Ilex concepts to SuperCollider nodes.
+The `AudioEngine` (`imbolc-core/src/audio/engine/mod.rs`) maps high-level Imbolc concepts to SuperCollider nodes.
 
 *   **Instruments:** Represented by a group of nodes. Static nodes (like Filters/FX on a track) are always running.
 *   **Voices:** Polyphonic notes spawn temporary "Voice Chains" (Source -> Envelope). These are dynamic and managed via a voice allocator.
 
 ### Routing Graph
-Ilex enforces a strict topological sort using SuperCollider Groups:
+Imbolc enforces a strict topological sort using SuperCollider Groups:
 1.  **Group 100 (Sources):** Oscillators, Samplers, Audio Input.
 2.  **Group 200 (Processing):** Filters, Insert Effects, Mixer processing.
 3.  **Group 300 (Output):** Master bus, Hardware output.
@@ -87,11 +87,11 @@ Ilex enforces a strict topological sort using SuperCollider Groups:
 This ensures that a signal generated in Group 100 is available for processing in Group 200 within the same audio block, preventing one-block latency delays between modules.
 
 ### SynthDefs
-Synth definitions (`.scsyndef`) are compiled from SuperCollider source files (`synthdefs/*.scd`) and loaded into the server. Ilex sends parameters to these synths via `/n_set` messages.
+Synth definitions (`.scsyndef`) are compiled from SuperCollider source files (`synthdefs/*.scd`) and loaded into the server. Imbolc sends parameters to these synths via `/n_set` messages.
 
 ## Key Files Guide
 
-*   `ilex-core/src/audio/handle.rs`: The `AudioThread` loop and `AudioHandle` interface.
-*   `ilex-core/src/audio/osc_client.rs`: UDP socket management and NTP timestamp calculation.
-*   `ilex-core/src/audio/engine/mod.rs`: The central `AudioEngine` struct managing the server state.
-*   `ilex-core/src/dispatch/`: Handles converting UI actions into `AudioCmd`s.
+*   `imbolc-core/src/audio/handle.rs`: The `AudioThread` loop and `AudioHandle` interface.
+*   `imbolc-core/src/audio/osc_client.rs`: UDP socket management and NTP timestamp calculation.
+*   `imbolc-core/src/audio/engine/mod.rs`: The central `AudioEngine` struct managing the server state.
+*   `imbolc-core/src/dispatch/`: Handles converting UI actions into `AudioCmd`s.

@@ -131,7 +131,7 @@ A note in CLAUDE.md (done):
 ```markdown
 ## Build & Test
 cargo build              # compile
-cargo test --bin ilex  # unit tests
+cargo test --bin imbolc  # unit tests
 ```
 
 For even faster feedback, `cargo check` skips codegen and only runs

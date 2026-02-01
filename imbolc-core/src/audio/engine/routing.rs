@@ -1,0 +1,465 @@
+use super::AudioEngine;
+use super::{InstrumentNodes, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, VST_UGEN_INDEX};
+use crate::state::{CustomSynthDefRegistry, EffectType, FilterType, InstrumentId, InstrumentState, ParamValue, SessionState, SourceType};
+
+impl AudioEngine {
+    pub(super) fn source_synth_def(source: SourceType, registry: &CustomSynthDefRegistry) -> String {
+        source.synth_def_name_with_registry(registry)
+    }
+
+    pub(super) fn filter_synth_def(ft: FilterType) -> &'static str {
+        ft.synth_def_name()
+    }
+
+    pub(super) fn effect_synth_def(et: EffectType) -> &'static str {
+        et.synth_def_name()
+    }
+
+    /// Rebuild all routing based on instrument state.
+    /// Per instrument, create a deterministic synth chain:
+    /// 1. Source synth
+    /// 2. Optional filter synth
+    /// 3. Effect synths in order
+    /// 4. Output synth with level/pan/mute
+    pub fn rebuild_instrument_routing(&mut self, state: &InstrumentState, session: &SessionState) -> Result<(), String> {
+        if !self.is_running {
+            return Ok(());
+        }
+
+        self.ensure_groups()?;
+
+        // Free all existing synths and voices
+        if let Some(ref client) = self.client {
+            for nodes in self.node_map.values() {
+                for node_id in nodes.all_node_ids() {
+                    let _ = client.free_node(node_id);
+                }
+            }
+            for &node_id in self.send_node_map.values() {
+                let _ = client.free_node(node_id);
+            }
+            for &node_id in self.bus_node_map.values() {
+                let _ = client.free_node(node_id);
+            }
+            for chain in self.voice_chains.drain(..) {
+                let _ = client.free_node(chain.group_id);
+            }
+        }
+        self.node_map.clear();
+        self.send_node_map.clear();
+        self.bus_node_map.clear();
+        self.bus_audio_buses.clear();
+        self.bus_allocator.reset();
+
+        // Allocate audio buses for each mixer bus first (needed by BusIn instruments)
+        for bus in &session.buses {
+            let bus_audio = self.bus_allocator.get_or_alloc_audio_bus(
+                u32::MAX - bus.id as u32,
+                "bus_out",
+            );
+            self.bus_audio_buses.insert(bus.id, bus_audio);
+        }
+
+        // For each instrument, create a linear chain of synths
+        // We don't create static source synths for polyphonic instruments (voices are spawned dynamically)
+        // But we still need the output synth for summing voice output
+
+        for instrument in &state.instruments {
+            let mut source_node: Option<i32> = None;
+            let mut lfo_node: Option<i32> = None;
+            let mut filter_node: Option<i32> = None;
+            let mut effect_nodes: Vec<i32> = Vec::new();
+
+            // Allocate the audio bus that voices/source write to
+            let source_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "source_out");
+            let mut current_bus = source_out_bus;
+
+            // For AudioIn instruments, create a persistent audio input synth
+            if instrument.source.is_audio_input() {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+
+                let mut params: Vec<(String, f32)> = vec![
+                    ("out".to_string(), source_out_bus as f32),
+                    ("instrument_id".to_string(), instrument.id as f32),
+                ];
+                // Add source params (gain, channel, test_tone, test_freq)
+                for p in &instrument.source_params {
+                    let val = match &p.value {
+                        crate::state::param::ParamValue::Float(v) => *v,
+                        crate::state::param::ParamValue::Int(v) => *v as f32,
+                        crate::state::param::ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                    };
+                    // Gate gain to 0 when instrument is inactive
+                    let val = if p.name == "gain" && !instrument.active {
+                        0.0
+                    } else {
+                        val
+                    };
+                    params.push((p.name.clone(), val));
+                }
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "imbolc_audio_in",
+                    node_id,
+                    GROUP_SOURCES,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                source_node = Some(node_id);
+            } else if instrument.source.is_bus_in() {
+                // BusIn instruments read from an internal mixer bus
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+
+                // Look up which bus to read from
+                let bus_id = instrument.source_params.iter()
+                    .find(|p| p.name == "bus")
+                    .map(|p| match &p.value {
+                        crate::state::param::ParamValue::Int(v) => *v as u8,
+                        _ => 1,
+                    })
+                    .unwrap_or(1);
+
+                let bus_audio_bus = self.bus_audio_buses.get(&bus_id).copied().unwrap_or(16);
+
+                let gain = instrument.source_params.iter()
+                    .find(|p| p.name == "gain")
+                    .map(|p| match &p.value {
+                        crate::state::param::ParamValue::Float(v) => *v,
+                        _ => 1.0,
+                    })
+                    .unwrap_or(1.0);
+
+                let params: Vec<(String, f32)> = vec![
+                    ("out".to_string(), source_out_bus as f32),
+                    ("in".to_string(), bus_audio_bus as f32),
+                    ("gain".to_string(), gain),
+                    ("instrument_id".to_string(), instrument.id as f32),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "imbolc_bus_in",
+                    node_id,
+                    GROUP_SOURCES,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                source_node = Some(node_id);
+            } else if instrument.source.is_vst() {
+                // VSTi instruments: persistent node, MIDI note-on/off sent via /u_cmd
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+
+                let params: Vec<(String, f32)> = vec![
+                    ("out".to_string(), source_out_bus as f32),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "imbolc_vst_instrument",
+                    node_id,
+                    GROUP_SOURCES,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                // Open the VST plugin in the node
+                if let SourceType::Vst(vst_id) = instrument.source {
+                    if let Some(plugin) = session.vst_plugins.get(vst_id) {
+                        let _ = client.send_unit_cmd(
+                            node_id,
+                            VST_UGEN_INDEX,
+                            "/open",
+                            vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                        );
+                    }
+                }
+
+                source_node = Some(node_id);
+            }
+            // For oscillator instruments, voices are spawned dynamically via spawn_voice()
+
+            // LFO (if enabled)
+            let lfo_control_bus: Option<i32> = if instrument.lfo.enabled {
+                let lfo_node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let lfo_out_bus = self.bus_allocator.get_or_alloc_control_bus(instrument.id, "lfo_out");
+
+                let params = vec![
+                    ("out".to_string(), lfo_out_bus as f32),
+                    ("rate".to_string(), instrument.lfo.rate),
+                    ("depth".to_string(), instrument.lfo.depth),
+                    ("shape".to_string(), instrument.lfo.shape.index() as f32),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "imbolc_lfo",
+                    lfo_node_id,
+                    GROUP_SOURCES, // LFO in sources group so it runs before processing
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                lfo_node = Some(lfo_node_id);
+                Some(lfo_out_bus)
+            } else {
+                None
+            };
+
+            // Filter (if present)
+            if let Some(ref filter) = instrument.filter {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let filter_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "filter_out");
+
+                // Determine if LFO should modulate the filter cutoff
+                let cutoff_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == crate::state::LfoTarget::FilterCutoff {
+                    lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
+                } else {
+                    -1.0 // No modulation
+                };
+
+                let params = vec![
+                    ("in".to_string(), current_bus as f32),
+                    ("out".to_string(), filter_out_bus as f32),
+                    ("cutoff".to_string(), filter.cutoff.value),
+                    ("resonance".to_string(), filter.resonance.value),
+                    ("cutoff_mod_in".to_string(), cutoff_mod_bus),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    Self::filter_synth_def(filter.filter_type),
+                    node_id,
+                    GROUP_PROCESSING,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                filter_node = Some(node_id);
+                current_bus = filter_out_bus;
+            }
+
+            // Effects
+            for (i, effect) in instrument.effects.iter().enumerate() {
+                if !effect.enabled {
+                    continue;
+                }
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let effect_out_bus = self.bus_allocator.get_or_alloc_audio_bus(
+                    instrument.id,
+                    &format!("fx_{}_out", i),
+                );
+
+                let mut params: Vec<(String, f32)> = vec![
+                    ("in".to_string(), current_bus as f32),
+                    ("out".to_string(), effect_out_bus as f32),
+                ];
+                for p in &effect.params {
+                    // For SidechainComp, resolve sc_bus to actual SC audio bus number
+                    if effect.effect_type == EffectType::SidechainComp && p.name == "sc_bus" {
+                        let bus_id = match &p.value {
+                            ParamValue::Int(v) => *v as u8,
+                            _ => 0,
+                        };
+                        let sidechain_in = if bus_id == 0 {
+                            0.0 // SynthDef uses self as sidechain
+                        } else {
+                            self.bus_audio_buses.get(&bus_id).copied().unwrap_or(0) as f32
+                        };
+                        params.push(("sidechain_in".to_string(), sidechain_in));
+                        continue;
+                    }
+                    let val = match &p.value {
+                        ParamValue::Float(v) => *v,
+                        ParamValue::Int(v) => *v as f32,
+                        ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                    };
+                    params.push((p.name.clone(), val));
+                }
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    Self::effect_synth_def(effect.effect_type),
+                    node_id,
+                    GROUP_PROCESSING,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                // For VST effects, open the plugin after creating the node
+                if let EffectType::Vst(vst_id) = effect.effect_type {
+                    if let Some(plugin) = session.vst_plugins.get(vst_id) {
+                        let _ = client.send_unit_cmd(
+                            node_id,
+                            VST_UGEN_INDEX,
+                            "/open",
+                            vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                        );
+                    }
+                }
+
+                effect_nodes.push(node_id);
+                current_bus = effect_out_bus;
+            }
+
+            // Output synth
+            let output_node_id;
+            {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let any_solo = state.any_instrument_solo();
+                let mute = if any_solo { !instrument.solo } else { instrument.mute || session.master_mute };
+                let params = vec![
+                    ("in".to_string(), current_bus as f32),
+                    ("level".to_string(), instrument.level * session.master_level),
+                    ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
+                    ("pan".to_string(), instrument.pan),
+                ];
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "imbolc_output",
+                    node_id,
+                    GROUP_OUTPUT,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                output_node_id = node_id;
+            }
+
+            self.node_map.insert(instrument.id, InstrumentNodes {
+                source: source_node,
+                lfo: lfo_node,
+                filter: filter_node,
+                effects: effect_nodes,
+                output: output_node_id,
+            });
+        }
+
+        // Store bus allocator state for voice bus allocation
+        self.next_voice_audio_bus = self.bus_allocator.next_audio_bus;
+        self.next_voice_control_bus = self.bus_allocator.next_control_bus;
+
+        // Create send synths
+        for (instrument_idx, instrument) in state.instruments.iter().enumerate() {
+            // Get the instrument's source_out bus (where voices sum into)
+            let instrument_audio_bus = self.bus_allocator.get_audio_bus(instrument.id, "source_out").unwrap_or(16);
+
+            for send in &instrument.sends {
+                if !send.enabled || send.level <= 0.0 {
+                    continue;
+                }
+                if let Some(&bus_audio) = self.bus_audio_buses.get(&send.bus_id) {
+                    let node_id = self.next_node_id;
+                    self.next_node_id += 1;
+                    let params = vec![
+                        ("in".to_string(), instrument_audio_bus as f32),
+                        ("out".to_string(), bus_audio as f32),
+                        ("level".to_string(), send.level),
+                    ];
+                    if let Some(ref client) = self.client {
+                        client
+                            .create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)
+                            .map_err(|e| e.to_string())?;
+                    }
+                    self.send_node_map.insert((instrument_idx, send.bus_id), node_id);
+                }
+            }
+        }
+
+        // Create bus output synths
+        for bus in &session.buses {
+            if let Some(&bus_audio) = self.bus_audio_buses.get(&bus.id) {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let mute = session.effective_bus_mute(bus);
+                let params = vec![
+                    ("in".to_string(), bus_audio as f32),
+                    ("level".to_string(), bus.level),
+                    ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
+                    ("pan".to_string(), bus.pan),
+                ];
+                if let Some(ref client) = self.client {
+                    client
+                        .create_synth_in_group("imbolc_bus_out", node_id, GROUP_OUTPUT, &params)
+                        .map_err(|e| e.to_string())?;
+                }
+                self.bus_node_map.insert(bus.id, node_id);
+            }
+        }
+
+        // (Re)create meter synth
+        self.restart_meter();
+
+        Ok(())
+    }
+
+    /// Set bus output mixer params (level, mute, pan) in real-time
+    pub fn set_bus_mixer_params(&self, bus_id: u8, level: f32, mute: bool, pan: f32) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let node_id = self.bus_node_map
+            .get(&bus_id)
+            .ok_or_else(|| format!("No bus output node for bus{}", bus_id))?;
+        client.set_param(*node_id, "level", level).map_err(|e| e.to_string())?;
+        client.set_param(*node_id, "mute", if mute { 1.0 } else { 0.0 }).map_err(|e| e.to_string())?;
+        client.set_param(*node_id, "pan", pan).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Update all instrument output mixer params (level, mute, pan) in real-time without rebuilding the graph
+    pub fn update_all_instrument_mixer_params(&self, state: &InstrumentState, session: &SessionState) -> Result<(), String> {
+        if !self.is_running { return Ok(()); }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let any_solo = state.any_instrument_solo();
+        for instrument in &state.instruments {
+            if let Some(nodes) = self.node_map.get(&instrument.id) {
+                let mute = instrument.mute || session.master_mute || (any_solo && !instrument.solo);
+                client.set_param(nodes.output, "level", instrument.level * session.master_level)
+                    .map_err(|e| e.to_string())?;
+                client.set_param(nodes.output, "mute", if mute { 1.0 } else { 0.0 })
+                    .map_err(|e| e.to_string())?;
+                client.set_param(nodes.output, "pan", instrument.pan)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Set a source parameter on an instrument in real-time.
+    /// Updates the persistent source node (AudioIn) and all active voice source nodes.
+    pub fn set_source_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
+        if !self.is_running { return Ok(()); }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        // BusIn "bus" param: translate bus_id (1-8) to SC audio bus number
+        if param == "bus" {
+            let bus_id = value as u8;
+            if let Some(&audio_bus) = self.bus_audio_buses.get(&bus_id) {
+                if let Some(nodes) = self.node_map.get(&instrument_id) {
+                    if let Some(source_node) = nodes.source {
+                        let _ = client.set_param(source_node, "in", audio_bus as f32);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // Set on persistent source node (AudioIn/BusIn instruments)
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(source_node) = nodes.source {
+                let _ = client.set_param(source_node, param, value);
+            }
+        }
+
+        // Set on all active voice source nodes (oscillator/sampler instruments)
+        for voice in &self.voice_chains {
+            if voice.instrument_id == instrument_id {
+                let _ = client.set_param(voice.source_node, param, value);
+            }
+        }
+
+        Ok(())
+    }
+}

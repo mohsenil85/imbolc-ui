@@ -171,11 +171,11 @@ and keep a small `dispatch::dispatch_action()` router in `dispatch/mod.rs`.
 No CLI argument handling. `main()` calls `run()` immediately. Add `clap`:
 
 ```
-ilex                    # launch with default session
-ilex <file.ilex>      # open specific session file
-ilex --new              # start fresh (no auto-load)
-ilex --help             # usage info
-ilex --version          # version string
+imbolc                    # launch with default session
+imbolc <file.imbolc>      # open specific session file
+imbolc --new              # start fresh (no auto-load)
+imbolc --help             # usage info
+imbolc --version          # version string
 ```
 
 **Files:** `Cargo.toml` (add `clap`), `src/main.rs` or new `src/cli.rs`
@@ -206,7 +206,7 @@ Important to do before any persistence format changes.
 No structured logging. Debug output goes through `Frame::push_message()` or `eprintln!` (lost in TUI).
 
 1. Add `log` + `env_logger` (or `tracing`)
-2. File-based logging to `~/.config/ilex/ilex.log`
+2. File-based logging to `~/.config/imbolc/imbolc.log`
 3. Replace `eprintln!` with `log::error!`, `log::warn!`, etc.
 4. Keep `Frame::push_message()` for user-visible messages
 5. Default to `warn`, `debug` with `--verbose` flag
@@ -470,7 +470,7 @@ Proposed widgets:
 
 Pane for selecting and configuring audio hardware devices — choose DAC, set headphones as output, configure input devices, sample rate, and block size.
 
-**Status:** Output/input device selection UI exists in `ServerPane`, and `AudioEngine` starts scsynth with selected devices. Device config is persisted to `~/.config/ilex/audio_devices.json`.
+**Status:** Output/input device selection UI exists in `ServerPane`, and `AudioEngine` starts scsynth with selected devices. Device config is persisted to `~/.config/imbolc/audio_devices.json`.
 
 **Device enumeration options:**
 1. **scsynth -H ?** — prints available devices to stdout. Parse output. No new deps.

@@ -200,7 +200,7 @@ instrument_edit → [press 'a'] → add_effect → [select effect] → dispatch 
 ## Verification
 
 1. `cargo build` — should compile without errors
-2. `cargo test --bin ilex` — existing tests pass
+2. `cargo test --bin imbolc` — existing tests pass
 3. Manual testing:
    - Open instrument edit (press Enter on an instrument)
    - Press `a` — should show effect selection menu

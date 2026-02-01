@@ -15,7 +15,7 @@ src/
   ui/              — TUI framework (pane trait, keymap, input, style, widgets)
   setup.rs         — Auto-startup for SuperCollider
 
-ilex-core/src/
+imbolc-core/src/
   action.rs        — Action enums + DispatchResult
   audio/           — SuperCollider OSC client and audio engine
     handle.rs        — AudioHandle (main-thread interface) and AudioThread (audio thread)
@@ -43,16 +43,16 @@ ilex-core/src/
 
 | Type | Location | What It Is |
 |------|----------|------------|
-| `AppState` | `ilex-core/src/state/mod.rs` | Top-level state, owned by `main.rs`, passed to panes as `&AppState` |
-| `InstrumentState` | `ilex-core/src/state/instrument_state.rs` | Collection of instruments and selection state |
-| `SessionState` | `ilex-core/src/state/session.rs` | Global session data: buses, mixer, piano roll, automation |
-| `Instrument` | `ilex-core/src/state/instrument.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
-| `InstrumentId` | `ilex-core/src/state/instrument.rs` | `u32` — unique identifier for instruments |
-| `SourceType` | `ilex-core/src/state/instrument.rs` | Oscillator/Source types (Saw/Sin/etc, AudioIn, BusIn, PitchedSampler, Kit, Custom, VST) |
-| `Action` | `ilex-core/src/action.rs` | Action enum (re-exported in `src/ui/pane.rs`) |
+| `AppState` | `imbolc-core/src/state/mod.rs` | Top-level state, owned by `main.rs`, passed to panes as `&AppState` |
+| `InstrumentState` | `imbolc-core/src/state/instrument_state.rs` | Collection of instruments and selection state |
+| `SessionState` | `imbolc-core/src/state/session.rs` | Global session data: buses, mixer, piano roll, automation |
+| `Instrument` | `imbolc-core/src/state/instrument.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
+| `InstrumentId` | `imbolc-core/src/state/instrument.rs` | `u32` — unique identifier for instruments |
+| `SourceType` | `imbolc-core/src/state/instrument.rs` | Oscillator/Source types (Saw/Sin/etc, AudioIn, BusIn, PitchedSampler, Kit, Custom, VST) |
+| `Action` | `imbolc-core/src/action.rs` | Action enum (re-exported in `src/ui/pane.rs`) |
 | `Pane` | `src/ui/pane.rs` | Trait: `id()`, `handle_action()`, `handle_raw_input()`, `handle_mouse()`, `render()`, `keymap()` |
 | `PaneManager` | `src/ui/pane.rs` | Owns all panes, manages active pane, coordinates input |
-| `AudioHandle` | `ilex-core/src/audio/handle.rs` | Main-thread interface; sends AudioCmd via MPSC channel to audio thread |
+| `AudioHandle` | `imbolc-core/src/audio/handle.rs` | Main-thread interface; sends AudioCmd via MPSC channel to audio thread |
 
 ## Critical Patterns
 
@@ -60,12 +60,12 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture, stat
 
 ### Action Dispatch
 
-Panes return `Action` values from `handle_action()` / `handle_raw_input()`. `ilex-core/src/dispatch/` matches on them and mutates state. Panes never mutate state directly.
+Panes return `Action` values from `handle_action()` / `handle_raw_input()`. `imbolc-core/src/dispatch/` matches on them and mutates state. Panes never mutate state directly.
 
 When adding a new action:
-1. Add variant to `Action` enum in `ilex-core/src/action.rs`
+1. Add variant to `Action` enum in `imbolc-core/src/action.rs`
 2. Return it from the pane's `handle_action()` (or `handle_raw_input()` if it bypasses layers)
-3. Handle it in `dispatch::dispatch_action()` in `ilex-core/src/dispatch/mod.rs`
+3. Handle it in `dispatch::dispatch_action()` in `imbolc-core/src/dispatch/mod.rs`
 
 ### Navigation
 
@@ -109,7 +109,7 @@ Use `ui::layout_helpers::center_rect(area, width, height)` to center a sub-rect.
 
 ```bash
 cargo build               # compile
-cargo test --bin ilex   # unit tests
+cargo test --bin imbolc   # unit tests
 cargo test                # all tests including e2e
 ```
 
@@ -117,9 +117,9 @@ cargo test                # all tests including e2e
 
 TOML-based configuration system with embedded defaults and optional user overrides.
 
-- **Musical defaults:** `config.toml` (embedded) + `~/.config/ilex/config.toml` (user override)
-- **Keybindings:** `keybindings.toml` (embedded) + `~/.config/ilex/keybindings.toml` (user override)
-- Config loading: `ilex-core/src/config.rs` — `Config::load()` parses embedded defaults, layers user overrides
+- **Musical defaults:** `config.toml` (embedded) + `~/.config/imbolc/config.toml` (user override)
+- **Keybindings:** `keybindings.toml` (embedded) + `~/.config/imbolc/keybindings.toml` (user override)
+- Config loading: `imbolc-core/src/config.rs` — `Config::load()` parses embedded defaults, layers user overrides
 - Keybinding loading: `src/ui/keybindings.rs` — same embedded + user override pattern
 - User override files are optional; missing fields fall back to embedded defaults
 
@@ -127,9 +127,9 @@ Musical defaults (`[defaults]` section): `bpm`, `key`, `scale`, `tuning_a4`, `ti
 
 ## Persistence
 
-- Format: SQLite database (`.ilex` / `.sqlite`)
-- Save/load: `save_project()` / `load_project()` in `ilex-core/src/state/persistence/mod.rs`
-- Default path: `~/.config/ilex/default.sqlite`
+- Format: SQLite database (`.imbolc` / `.sqlite`)
+- Save/load: `save_project()` / `load_project()` in `imbolc-core/src/state/persistence/mod.rs`
+- Default path: `~/.config/imbolc/default.sqlite`
 - Persists: instruments, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs, drum sequencer, midi settings
 
 ## LSP Integration (CCLSP)

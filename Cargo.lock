@@ -365,13 +365,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
-name = "ilex"
+name = "imbolc"
 version = "0.1.0"
 dependencies = [
  "crossterm",
  "dirs",
  "hound",
- "ilex-core",
+ "imbolc-core",
  "midir",
  "ratatui",
  "regex",
@@ -384,7 +384,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ilex-core"
+name = "imbolc-core"
 version = "0.1.0"
 dependencies = [
  "dirs",

@@ -1,8 +1,8 @@
-# ilex
+# imbolc
 
-![ilex](ilex.png)
+![imbolc](imbolc.png)
 
-ilex is a terminal-based digital audio workstation (DAW) built in Rust. The UI is a TUI (ratatui) and the audio engine runs on SuperCollider (scsynth) via OSC. It is optimized for keyboard-first instrument editing, sequencing, and mixing inside the terminal.
+imbolc is a terminal-based digital audio workstation (DAW) built in Rust. The UI is a TUI (ratatui) and the audio engine runs on SuperCollider (scsynth) via OSC. It is optimized for keyboard-first instrument editing, sequencing, and mixing inside the terminal.
 
 ## Highlights
 
@@ -28,7 +28,7 @@ ilex is a terminal-based digital audio workstation (DAW) built in Rust. The UI i
 cargo run --release
 ```
 
-ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devices, compile/load synthdefs, or restart the server.
+imbolc will attempt to auto-start scsynth. Use the Server pane (F5) to manage devices, compile/load synthdefs, or restart the server.
 
 ## Low-latency timing
 
@@ -57,14 +57,14 @@ ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devi
 ## Keybindings and config
 
 - Default bindings live in `keybindings.toml` and are embedded at build time.
-- Override bindings in `~/.config/ilex/keybindings.toml`.
-- Default musical settings can be overridden in `~/.config/ilex/config.toml`.
+- Override bindings in `~/.config/imbolc/keybindings.toml`.
+- Default musical settings can be overridden in `~/.config/imbolc/config.toml`.
 
 ## Project files
 
-- Default project file: `~/.config/ilex/default.sqlite`
-- Custom synthdefs: `~/.config/ilex/synthdefs/`
-- Audio device preferences: `~/.config/ilex/audio_devices.json`
+- Default project file: `~/.config/imbolc/default.sqlite`
+- Custom synthdefs: `~/.config/imbolc/synthdefs/`
+- Audio device preferences: `~/.config/imbolc/audio_devices.json`
 - Recordings: `master_<timestamp>.wav` in the current working directory
 
 ## Docs
@@ -76,13 +76,13 @@ ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devi
 
 ## Architecture (from TECHDEETS)
 
-ilex uses an MVU-inspired architecture adapted for a TUI with a dedicated audio engine.
+imbolc uses an MVU-inspired architecture adapted for a TUI with a dedicated audio engine.
 
 ### Core components
 
 - AppState: single source of truth (SessionState, InstrumentState, and UI-related state).
 - Panes: stateless views that render from AppState and emit Action enums.
-- dispatch module (`ilex-core/src/dispatch`): central event handler; mutates AppState and drives AudioHandle (command interface to the audio thread).
+- dispatch module (`imbolc-core/src/dispatch`): central event handler; mutates AppState and drives AudioHandle (command interface to the audio thread).
 - AudioEngine: manages scsynth and mirrors InstrumentState into a concrete DSP graph. Runs on a dedicated audio thread, communicated via MPSC commands.
 
 ### Data flow
@@ -111,14 +111,14 @@ Source -> Filter -> FX Chain -> Output (Master or Bus)
 
 ### Polyphony and voice chaining
 
-- Each note spawns a voice group with an `ilex_midi` control synth feeding a source synth.
+- Each note spawns a voice group with an `imbolc_midi` control synth feeding a source synth.
 - Voices for an instrument feed a single shared filter/FX chain (paraphonic-ish).
 - Voice stealing is FIFO at 16 voices per instrument.
 
 ### Modulation
 
 - SynthDefs expose *_mod_in inputs; LFOs write to control buses and are selected via `Select.kr` inside SynthDefs.
-- The audio engine currently wires LFOs to filter cutoff; additional targets are outlined in `ilex-core/src/state/instrument.rs`.
+- The audio engine currently wires LFOs to filter cutoff; additional targets are outlined in `imbolc-core/src/state/instrument.rs`.
 
 ## Persistence
 

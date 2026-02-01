@@ -12,7 +12,7 @@ pub struct TmuxHarness {
 impl TmuxHarness {
     pub fn new(test_name: &str) -> Self {
         let session_name = format!(
-            "ilex-{}-{}",
+            "imbolc-{}-{}",
             test_name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -27,7 +27,7 @@ impl TmuxHarness {
         // Create new detached tmux session running the command.
         // Env vars must be set via set-environment (not .env()) because the
         // tmux server spawns child processes in its own environment.
-        let wrapped = format!("ILEX_NO_AUDIO=1 {}", command);
+        let wrapped = format!("IMBOLC_NO_AUDIO=1 {}", command);
         let status = Command::new("tmux")
             .args([
                 "new-session",
