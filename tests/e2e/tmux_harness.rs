@@ -2,8 +2,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-const WIDTH: u32 = 80;
-const HEIGHT: u32 = 24;
+const WIDTH: u32 = 120;
+const HEIGHT: u32 = 40;
 
 pub struct TmuxHarness {
     session_name: String,
@@ -24,7 +24,10 @@ impl TmuxHarness {
 
     /// Start the app in a new tmux session
     pub fn start(&self, command: &str) -> Result<(), String> {
-        // Create new detached tmux session running the command
+        // Create new detached tmux session running the command.
+        // Env vars must be set via set-environment (not .env()) because the
+        // tmux server spawns child processes in its own environment.
+        let wrapped = format!("ILEX_NO_AUDIO=1 {}", command);
         let status = Command::new("tmux")
             .args([
                 "new-session",
@@ -35,7 +38,7 @@ impl TmuxHarness {
                 &WIDTH.to_string(),
                 "-y",
                 &HEIGHT.to_string(),
-                command,
+                &wrapped,
             ])
             .env_remove("TMUX") // Allow nested tmux
             .status()
@@ -46,7 +49,7 @@ impl TmuxHarness {
         }
 
         // Wait for app to start
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(1000));
         Ok(())
     }
 

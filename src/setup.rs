@@ -9,6 +9,10 @@ pub fn auto_start_sc(
     audio: &mut AudioHandle,
     state: &AppState,
 ) -> Vec<StatusEvent> {
+    if std::env::var("ILEX_NO_AUDIO").is_ok() {
+        return Vec::new();
+    }
+
     let mut events = Vec::new();
 
     // Load saved device preferences
