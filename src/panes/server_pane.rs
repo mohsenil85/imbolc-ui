@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::path::PathBuf;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
@@ -29,6 +30,8 @@ pub struct ServerPane {
     focus: ServerPaneFocus,
     /// Whether device selection changed since last server start
     device_config_dirty: bool,
+    log_lines: Vec<String>,
+    log_path: PathBuf,
 }
 
 impl ServerPane {
@@ -60,6 +63,11 @@ impl ServerPane {
             None => 0,
         };
 
+        let log_path = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ilex")
+            .join("scsynth.log");
+
         Self {
             keymap,
             status: ServerStatus::Stopped,
@@ -70,16 +78,34 @@ impl ServerPane {
             selected_input,
             focus: ServerPaneFocus::Controls,
             device_config_dirty: false,
+            log_lines: Vec::new(),
+            log_path,
         }
     }
 
     pub fn set_status(&mut self, status: ServerStatus, message: &str) {
         self.status = status;
         self.message = message.to_string();
+        self.refresh_log();
     }
 
     pub fn set_server_running(&mut self, running: bool) {
         self.server_running = running;
+        self.refresh_log();
+    }
+
+    pub fn refresh_log(&mut self) {
+        if let Ok(content) = std::fs::read_to_string(&self.log_path) {
+            self.log_lines = content
+                .lines()
+                .rev()
+                .take(50)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(String::from)
+                .collect();
+        }
     }
 
     #[allow(dead_code)]
@@ -180,6 +206,7 @@ impl Pane for ServerPane {
             "record_master" => Action::Server(ServerAction::RecordMaster),
             "refresh_devices" => {
                 self.refresh_devices();
+                self.refresh_log();
                 if self.server_running {
                     Action::Server(ServerAction::Restart {
                         input_device: self.selected_input_device(),
@@ -272,13 +299,7 @@ impl Pane for ServerPane {
         let output_devs = self.output_devices();
         let input_devs = self.input_devices();
 
-        // Calculate height: status(4) + output header(1) + output items + gap(1) + input header(1) + input items + gap(1) + help(2) + borders(2)
-        let output_list_h = output_devs.len() + 1; // +1 for "System Default"
-        let input_list_h = input_devs.len() + 1;
-        let content_h = 4 + 1 + output_list_h + 1 + 1 + input_list_h + 1 + 2;
-        let total_h = (content_h + 2).min(area.height as usize).max(15) as u16;
-
-        let rect = center_rect(area, 70, total_h);
+        let rect = center_rect(area, 70, area.height.saturating_sub(2).max(15));
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -378,6 +399,30 @@ impl Pane for ServerPane {
             let hint = Line::from(Span::styled("(restart server to apply device changes)", hint_style));
             if y < rect.y + rect.height - 3 {
                 Paragraph::new(hint).render(RatatuiRect::new(x, y, w, 1), buf);
+                y += 1;
+            }
+        }
+
+        // Server log section
+        let help_lines_count: u16 = 2;
+        let bottom_reserved = help_lines_count + 2; // help + border + gap
+        let log_bottom = rect.y + rect.height - bottom_reserved;
+        if y < log_bottom {
+            let section_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let header = Line::from(Span::styled("── Server Log ──", section_style));
+            Paragraph::new(header).render(RatatuiRect::new(x, y, w, 1), buf);
+            y += 1;
+
+            let log_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let available = (log_bottom.saturating_sub(y)) as usize;
+            let skip = self.log_lines.len().saturating_sub(available);
+            for line_text in self.log_lines.iter().skip(skip) {
+                if y >= log_bottom {
+                    break;
+                }
+                let truncated: String = line_text.chars().take(w as usize).collect();
+                Paragraph::new(Line::from(Span::styled(truncated, log_style)))
+                    .render(RatatuiRect::new(x, y, w, 1), buf);
                 y += 1;
             }
         }
