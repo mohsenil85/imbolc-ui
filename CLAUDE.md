@@ -13,7 +13,6 @@ src/
   main.rs          — Event loop, global keybindings, render loop
   config.rs        — TOML config loading (musical defaults)
   dispatch.rs      — Action handler (all state mutation happens here)
-  playback.rs      — Piano roll playback engine (tick-based, runs in main loop)
   setup.rs         — Auto-startup for SuperCollider
   scd_parser.rs    — SuperCollider .scd file parser
   state/           — All application state
@@ -32,6 +31,8 @@ src/
   panes/           — UI views (see docs/architecture.md for full list)
   ui/              — TUI framework (pane trait, keymap, input, style, widgets)
   audio/           — SuperCollider OSC client and audio engine
+    handle.rs        — AudioHandle (main-thread interface) and AudioThread (dedicated audio thread)
+    commands.rs      — AudioCmd and AudioFeedback enums for cross-thread communication
   midi/            — MIDI utilities
 ```
 
@@ -48,6 +49,7 @@ src/
 | `Action` | `ui/pane.rs` | ~50-variant enum for all user-dispatchable actions |
 | `Pane` | `ui/pane.rs` | Trait: `id()`, `handle_action()`, `handle_raw_input()`, `handle_mouse()`, `render()`, `keymap()` |
 | `PaneManager` | `ui/pane.rs` | Owns all panes, manages active pane, coordinates input |
+| `AudioHandle` | `audio/handle.rs` | Main-thread interface; sends AudioCmd via MPSC channel to audio thread |
 
 ## Critical Patterns
 

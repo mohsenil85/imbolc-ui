@@ -135,7 +135,7 @@ is called only when the layer stack resolves a key to an action string; otherwis
 Panes communicate exclusively through `Action` values. A pane's `handle_action()` or
 `handle_raw_input()` returns an `Action`, which is dispatched by
 `dispatch::dispatch_action()` in `src/dispatch.rs`. This function receives
-`&mut AppState`, `&mut PaneManager`, `&mut AudioEngine`, etc. and can mutate anything.
+`&mut AppState`, `&mut PaneManager`, `&mut AudioHandle`, etc. and can mutate anything.
 
 For cross-pane data passing (e.g., opening the editor with a specific instrument's data), the dispatch function uses `PaneManager::get_pane_mut::<T>()` to downcast and configure the target pane before switching to it.
 
@@ -166,18 +166,21 @@ User Input
   → Pane::handle_action(action, event, state) OR Pane::handle_raw_input(event, state)
   → returns Action
   → dispatch::dispatch_action() matches on Action
-  → mutates AppState / calls AudioEngine / configures panes
+  → mutates AppState / sends commands via AudioHandle / configures panes
 ```
 
 The `dispatch_action()` function (`src/dispatch.rs`) handles all action variants. It returns `bool` — `true` means quit.
 
 ## Audio Engine
 
-Located in `src/audio/`. Communicates with SuperCollider (scsynth) via OSC over UDP.
+Located in `src/audio/`. Communicates with SuperCollider (scsynth) via OSC over UDP. `AudioEngine` runs on a dedicated audio thread; the main thread communicates with it via MPSC command/feedback channels through `AudioHandle`.
 
 ### Key Components
 
-- `AudioEngine` (`engine.rs`) — manages synth nodes, bus allocation, routing, voice allocation
+- `AudioHandle` (`handle.rs`) — main-thread interface; sends `AudioCmd` to audio thread, receives `AudioFeedback`
+- `AudioThread` (`handle.rs`) — dedicated thread; owns `AudioEngine`, runs tick loop at ~1ms resolution
+- `AudioCmd` / `AudioFeedback` (`commands.rs`) — command and feedback enums for cross-thread communication
+- `AudioEngine` (`engine.rs`) — manages synth nodes, bus allocation, routing, voice allocation (lives on audio thread)
 - `OscClient` (`osc_client.rs`) — OSC message/bundle sending
 - `BusAllocator` (`bus_allocator.rs`) — audio/control bus allocation
 
@@ -209,16 +212,16 @@ Use bundles for timing-sensitive operations (note events). Individual messages a
 
 ## Playback Engine
 
-Lives in `src/playback.rs`, called from the main event loop every frame (~16ms):
+Lives on the dedicated audio thread (`AudioThread::tick_playback` in `handle.rs`), ticking at ~1ms resolution independently of the UI frame rate:
 
-1. Compute elapsed real time since last frame
+1. Compute elapsed real time since last tick
 2. Convert to ticks: `seconds * (bpm / 60) * ticks_per_beat`
 3. Advance playhead, handle loop wrapping
 4. Scan all tracks for notes starting in the elapsed tick range
 5. Call `AudioEngine::spawn_voice()` for note-ons (sends OSC bundles)
 6. Track active notes and call `AudioEngine::release_voice()` when expired
 
-Tick resolution: 480 ticks per beat. Notes are sent as OSC bundles with NTP timetags for sample-accurate scheduling.
+Tick resolution: 480 ticks per beat. Notes are sent as OSC bundles with NTP timetags for sample-accurate scheduling. Because the audio thread is decoupled from UI rendering, playback timing is unaffected by UI load.
 
 ## Persistence
 

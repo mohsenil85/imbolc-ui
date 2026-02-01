@@ -113,13 +113,16 @@ deferred to Phase 3.
 `src/dispatch/mod.rs`, `src/dispatch/instrument.rs`,
 `src/dispatch/piano_roll.rs`
 
-### Phase 3: Thread separation
+### Phase 3: Thread separation [DONE]
 Split AudioHandle into sender (main thread) + AudioThread (new thread
-with 1ms tick loop). Wire up MPSC channels. Playback now ticks at ~1ms
-resolution instead of ~16ms.
+with 1ms tick loop). AudioHandle wraps MPSC channels and cached state;
+AudioThread owns AudioEngine, state snapshots, active_notes, and runs
+tick_playback/tick_drum_sequencer at ~1ms resolution. Feedback
+(playhead, BPM, server status, recording, compile results) flows back
+via AudioFeedback channel, polled each frame in main.rs.
 
-**Files:** `src/audio/handle.rs`, `src/audio/commands.rs` (ensure all
-types are `Send`)
+**Files:** `ilex-core/src/audio/handle.rs`,
+`ilex-core/src/audio/commands.rs`, `src/main.rs`
 
 ### Phase 4: State snapshot optimization
 Add dirty-flag batching -- only clone and send

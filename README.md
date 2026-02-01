@@ -12,7 +12,7 @@ ilex is a terminal-based digital audio workstation (DAW) built in Rust. The UI i
 - Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat, plus a step sequencer for kits and a sample chopper for slicing/assigning pads.
 - Mixer with level/pan/mute/solo, 8 buses, sends, and master control.
 - Performance modes: computer keyboard piano/pad, two-digit instrument select, fully keybound UI.
-- Audio backend: Rust scheduler plus scsynth DSP with OSC bundles and NTP timetags for sample-accurate note timing.
+- Audio backend: dedicated audio thread with ~1ms tick resolution, decoupled from UI. scsynth DSP with OSC bundles and NTP timetags for sample-accurate note timing.
 - Recording: toggle master recording to WAV and view audio input or recorded waveform.
 - Persistence: project model stored in SQLite; the audio graph is rebuilt on load.
 
@@ -74,16 +74,16 @@ ilex uses an MVU-inspired architecture adapted for a TUI with a dedicated audio 
 
 - AppState: single source of truth (SessionState, InstrumentState, and UI-related state).
 - Panes: stateless views that render from AppState and emit Action enums.
-- dispatch.rs: central event handler; mutates AppState and drives the AudioEngine.
-- AudioEngine: manages scsynth and mirrors InstrumentState into a concrete DSP graph.
+- dispatch.rs: central event handler; mutates AppState and drives AudioHandle (command interface to the audio thread).
+- AudioEngine: manages scsynth and mirrors InstrumentState into a concrete DSP graph. Runs on a dedicated audio thread, communicated via MPSC commands.
 
 ### Data flow
 
-User input -> Pane::handle_input -> Action -> dispatch -> mutate state / send OSC -> render
+User input -> Pane::handle_input -> Action -> dispatch -> mutate state / AudioHandle -> [MPSC channel] -> AudioThread -> send OSC -> render
 
 ## Audio engine details
 
-- Scheduling runs in Rust (see `playback.rs`). The main loop polls input every 2 ms and renders at ~60 fps. Note events are sent as OSC bundles with future NTP timetags for sample-accurate playback.
+- Scheduling runs on a dedicated audio thread at ~1ms tick resolution, fully decoupled from the UI. The main loop polls input every 2 ms and renders at ~60 fps. Note events are sent as OSC bundles with future NTP timetags for sample-accurate playback. UI jank cannot affect playback timing.
 - BusAllocator deterministically assigns audio/control buses and resets on project load or engine restart.
 - SynthDefs live in `synthdefs/` and are loaded into scsynth at startup. Execution order is enforced via groups:
   - 100: Sources
@@ -118,7 +118,7 @@ Projects are stored as SQLite databases. The database captures the project model
 
 ## Known limitations
 
-- UI and input are on the main thread; input polling (2 ms) is decoupled from rendering (~60 fps) to keep live-play latency low, but heavy dispatch work could still jitter scheduling (OSC bundles mitigate this).
+- UI and input are on the main thread; input polling (2 ms) is decoupled from rendering (~60 fps). Audio scheduling runs on a separate thread at ~1ms resolution, so UI load does not affect playback timing.
 - Voice stealing is FIFO; smarter strategies are not implemented.
 - Parameter smoothing is limited; rapid changes can cause zippering.
 - LFO target wiring beyond filter cutoff is still in progress.
