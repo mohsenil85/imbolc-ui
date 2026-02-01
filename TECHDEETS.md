@@ -82,6 +82,7 @@ Ilex enforces a strict topological sort using SuperCollider Groups:
 1.  **Group 100 (Sources):** Oscillators, Samplers, Audio Input.
 2.  **Group 200 (Processing):** Filters, Insert Effects, Mixer processing.
 3.  **Group 300 (Output):** Master bus, Hardware output.
+4.  **Group 400 (Record):** Disk recording (DiskOut).
 
 This ensures that a signal generated in Group 100 is available for processing in Group 200 within the same audio block, preventing one-block latency delays between modules.
 
