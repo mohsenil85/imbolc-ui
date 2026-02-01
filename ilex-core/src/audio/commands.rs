@@ -30,6 +30,11 @@ pub enum AudioCmd {
         reply: Sender<Result<(), String>>,
     },
     StopServer,
+    RestartServer {
+        input_device: Option<String>,
+        output_device: Option<String>,
+        server_addr: String,
+    },
     CompileSynthDefs {
         scd_path: PathBuf,
         reply: Sender<Result<(), String>>,

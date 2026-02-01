@@ -124,21 +124,34 @@ via AudioFeedback channel, polled each frame in main.rs.
 **Files:** `ilex-core/src/audio/handle.rs`,
 `ilex-core/src/audio/commands.rs`, `src/main.rs`
 
-### Phase 4: State snapshot optimization
-Add dirty-flag batching -- only clone and send
-`InstrumentState`/`SessionSnapshot` when state actually changed,
-batched once per frame rather than per-mutation.
+### Phase 4: State snapshot optimization [DONE]
+Added dirty-flag batching via `AudioDirty` struct with 6 boolean flags
+(`instruments`, `session`, `piano_roll`, `automation`, `routing`,
+`mixer_params`). All ~90 dispatch handler sites set appropriate flags on
+`DispatchResult.audio_dirty`. Main loop accumulates flags via
+`pending_audio_dirty.merge()` and calls `audio.flush_dirty()` once per
+frame. `flush_dirty()` checks each flag individually and only clones the
+relevant state snapshots. Type aliases in `snapshot.rs` document the
+snapshot types.
 
-**Files:** `src/dispatch.rs`, `src/main.rs`, create
-`src/audio/snapshot.rs`
+**Files:** `ilex-core/src/action.rs`, `ilex-core/src/audio/handle.rs`,
+`ilex-core/src/audio/snapshot.rs`, `src/main.rs`,
+`src/dispatch/instrument.rs`, `src/dispatch/mixer.rs`,
+`src/dispatch/piano_roll.rs`, `src/dispatch/sequencer.rs`,
+`src/dispatch/automation.rs`, `src/dispatch/session.rs`,
+`src/dispatch/server.rs`
 
-### Phase 5: Server management async responses
-Refactor `dispatch_server` -- server actions (Connect, Start, Stop,
-Restart) become fire-and-forget commands. Results come back as
-`AudioFeedback::ServerStatus` and update `ServerPane` in the feedback
-polling loop.
+### Phase 5: Server management async responses [DONE]
+Refactored `dispatch_server` so Connect/Start/Stop/Restart send
+fire-and-forget commands via new async `AudioHandle` helpers. Added
+`AudioCmd::RestartServer`, and `AudioThread` now emits
+`AudioFeedback::ServerStatus` for lifecycle actions (including
+connect/restart synthdef + drum sample loading). ServerPane updates
+already happen in the feedback polling loop.
 
-**Files:** `src/dispatch.rs`, `src/main.rs`
+**Files:** `ilex-core/src/audio/commands.rs`,
+`ilex-core/src/audio/handle.rs`, `ilex-core/src/dispatch/server.rs`,
+`src/main.rs`
 
 ## Risks
 

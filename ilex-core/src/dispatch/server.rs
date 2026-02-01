@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::audio::{self, AudioHandle};
+use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::action::{DispatchResult, ServerAction};
 
@@ -13,88 +13,20 @@ pub(super) fn dispatch_server(
 
     match action {
         ServerAction::Connect => {
-            let connect_result = audio.connect("127.0.0.1:57110");
-            match connect_result {
-                Ok(()) => {
-                    // Load built-in synthdefs
-                    let synthdef_dir = std::path::Path::new("synthdefs");
-                    let builtin_result = audio.load_synthdefs(synthdef_dir);
-
-                    // Also load custom synthdefs from config dir
-                    let config_dir = config_synthdefs_dir();
-                    let custom_result = if config_dir.exists() {
-                        audio.load_synthdefs(&config_dir)
-                    } else {
-                        Ok(())
-                    };
-
-                    // Load drum sequencer samples for all drum machine instruments
-                    for instrument in &state.instruments.instruments {
-                        if let Some(seq) = &instrument.drum_sequencer {
-                            for pad in &seq.pads {
-                                if let Some(buffer_id) = pad.buffer_id {
-                                    if let Some(ref path) = pad.path {
-                                        let _ = audio.load_sample(buffer_id, path);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    match (builtin_result, custom_result) {
-                        (Ok(()), Ok(())) => {
-                            result.push_status(audio::ServerStatus::Connected, "Connected");
-                        }
-                        (Err(e), _) | (_, Err(e)) => {
-                            result.push_status(
-                                audio::ServerStatus::Connected,
-                                &format!("Connected (synthdef warning: {})", e),
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    result.push_status(audio::ServerStatus::Error, &e.to_string());
-                }
-            }
+            audio.update_state(&state.instruments, &state.session);
+            let _ = audio.connect_async("127.0.0.1:57110");
         }
         ServerAction::Disconnect => {
-            audio.disconnect();
-            result.push_status_with_running(
-                audio.status(),
-                "Disconnected",
-                audio.server_running(),
-            );
+            let _ = audio.disconnect_async();
         }
         ServerAction::Start { input_device, output_device } => {
-            let start_result = audio.start_server_with_devices(
+            let _ = audio.start_server_async(
                 input_device.as_deref(),
                 output_device.as_deref(),
             );
-            match start_result {
-                Ok(()) => {
-                    result.push_status_with_running(
-                        audio::ServerStatus::Running,
-                        "Server started",
-                        true,
-                    );
-                }
-                Err(e) => {
-                    result.push_status_with_running(
-                        audio::ServerStatus::Error,
-                        &e,
-                        false,
-                    );
-                }
-            }
         }
         ServerAction::Stop => {
-            audio.stop_server();
-            result.push_status_with_running(
-                audio::ServerStatus::Stopped,
-                "Server stopped",
-                false,
-            );
+            let _ = audio.stop_server_async();
         }
         ServerAction::CompileSynthDefs => {
             let scd_path = std::path::Path::new("synthdefs/compile.scd");
@@ -221,86 +153,15 @@ pub(super) fn dispatch_server(
             }
         }
         ServerAction::Restart { input_device, output_device } => {
-            // Stop
-            audio.stop_server();
-            result.push_status_with_running(
-                audio::ServerStatus::Stopped,
-                "Restarting server...",
-                false,
-            );
-
-            // Start with selected devices
-            let start_result = audio.start_server_with_devices(
+            audio.update_state(&state.instruments, &state.session);
+            let _ = audio.restart_server_async(
                 input_device.as_deref(),
                 output_device.as_deref(),
+                "127.0.0.1:57110",
             );
-            match start_result {
-                Ok(()) => {
-                    result.push_status_with_running(
-                        audio::ServerStatus::Running,
-                        "Server restarted, connecting...",
-                        true,
-                    );
-
-                    // Connect
-                    let connect_result = audio.connect("127.0.0.1:57110");
-                    match connect_result {
-                        Ok(()) => {
-                            // Load built-in synthdefs
-                            let synthdef_dir = std::path::Path::new("synthdefs");
-                            let builtin_result = audio.load_synthdefs(synthdef_dir);
-
-                            // Load custom synthdefs
-                            let config_dir = config_synthdefs_dir();
-                            let custom_result = if config_dir.exists() {
-                                audio.load_synthdefs(&config_dir)
-                            } else {
-                                Ok(())
-                            };
-
-                            // Load drum samples
-                            for instrument in &state.instruments.instruments {
-                                if let Some(seq) = &instrument.drum_sequencer {
-                                    for pad in &seq.pads {
-                                        if let Some(buffer_id) = pad.buffer_id {
-                                            if let Some(ref path) = pad.path {
-                                                let _ = audio.load_sample(buffer_id, path);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            result.audio_dirty.instruments = true;
-                            result.audio_dirty.session = true;
-                            result.audio_dirty.routing = true;
-
-                            match (builtin_result, custom_result) {
-                                (Ok(()), Ok(())) => {
-                                    result.push_status(audio::ServerStatus::Connected, "Server restarted");
-                                }
-                                (Err(e), _) | (_, Err(e)) => {
-                                    result.push_status(
-                                        audio::ServerStatus::Connected,
-                                        &format!("Restarted (synthdef warning: {})", e),
-                                    );
-                                }
-                            }
-                            // clear_device_config_dirty() skipped — pane-local UI state
-                        }
-                        Err(e) => {
-                            result.push_status(audio::ServerStatus::Error, &e.to_string());
-                        }
-                    }
-                }
-                Err(e) => {
-                    result.push_status_with_running(
-                        audio::ServerStatus::Error,
-                        &e,
-                        false,
-                    );
-                }
-            }
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.session = true;
+            result.audio_dirty.routing = true;
         }
     }
 

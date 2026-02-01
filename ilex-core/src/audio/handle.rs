@@ -3,7 +3,7 @@
 //! Owns the command/feedback channels and shared monitor state. The
 //! AudioEngine and playback ticking live on the audio thread.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -33,6 +33,17 @@ pub struct AudioHandle {
     playhead: u32,
     bpm: f32,
     join_handle: Option<JoinHandle<()>>,
+}
+
+fn config_synthdefs_dir() -> PathBuf {
+    if let Some(home) = std::env::var_os("HOME") {
+        PathBuf::from(home)
+            .join(".config")
+            .join("ilex")
+            .join("synthdefs")
+    } else {
+        PathBuf::from("synthdefs")
+    }
 }
 
 impl AudioHandle {
@@ -195,6 +206,48 @@ impl AudioHandle {
     }
 
     // ── Server lifecycle ──────────────────────────────────────────
+
+    pub fn connect_async(&mut self, server_addr: &str) -> Result<(), String> {
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        self.send_cmd(AudioCmd::Connect {
+            server_addr: server_addr.to_string(),
+            reply: reply_tx,
+        })
+    }
+
+    pub fn disconnect_async(&mut self) -> Result<(), String> {
+        self.send_cmd(AudioCmd::Disconnect)
+    }
+
+    pub fn start_server_async(
+        &mut self,
+        input_device: Option<&str>,
+        output_device: Option<&str>,
+    ) -> Result<(), String> {
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        self.send_cmd(AudioCmd::StartServer {
+            input_device: input_device.map(|s| s.to_string()),
+            output_device: output_device.map(|s| s.to_string()),
+            reply: reply_tx,
+        })
+    }
+
+    pub fn stop_server_async(&mut self) -> Result<(), String> {
+        self.send_cmd(AudioCmd::StopServer)
+    }
+
+    pub fn restart_server_async(
+        &mut self,
+        input_device: Option<&str>,
+        output_device: Option<&str>,
+        server_addr: &str,
+    ) -> Result<(), String> {
+        self.send_cmd(AudioCmd::RestartServer {
+            input_device: input_device.map(|s| s.to_string()),
+            output_device: output_device.map(|s| s.to_string()),
+            server_addr: server_addr.to_string(),
+        })
+    }
 
     pub fn connect(&mut self, server_addr: &str) -> std::io::Result<()> {
         let (reply_tx, reply_rx) = mpsc::channel();
@@ -563,20 +616,68 @@ impl AudioThread {
         match cmd {
             AudioCmd::Connect { server_addr, reply } => {
                 let result = self.engine.connect_with_monitor(&server_addr, self.monitor.clone());
+                match &result {
+                    Ok(()) => {
+                        let message = match self.load_synthdefs_and_samples() {
+                            Ok(()) => "Connected".to_string(),
+                            Err(e) => format!("Connected (synthdef warning: {})", e),
+                        };
+                        self.send_server_status(ServerStatus::Connected, message);
+                    }
+                    Err(err) => {
+                        self.send_server_status(ServerStatus::Error, err.to_string());
+                    }
+                }
                 let _ = reply.send(result);
             }
             AudioCmd::Disconnect => {
                 self.engine.disconnect();
+                self.send_server_status(self.engine.status(), "Disconnected");
             }
             AudioCmd::StartServer { input_device, output_device, reply } => {
                 let result = self.engine.start_server_with_devices(
                     input_device.as_deref(),
                     output_device.as_deref(),
                 );
+                match &result {
+                    Ok(()) => self.send_server_status(ServerStatus::Running, "Server started"),
+                    Err(err) => self.send_server_status(ServerStatus::Error, err),
+                }
                 let _ = reply.send(result);
             }
             AudioCmd::StopServer => {
                 self.engine.stop_server();
+                self.send_server_status(ServerStatus::Stopped, "Server stopped");
+            }
+            AudioCmd::RestartServer { input_device, output_device, server_addr } => {
+                self.engine.stop_server();
+                self.send_server_status(ServerStatus::Stopped, "Restarting server...");
+
+                let start_result = self.engine.start_server_with_devices(
+                    input_device.as_deref(),
+                    output_device.as_deref(),
+                );
+                match start_result {
+                    Ok(()) => {
+                        self.send_server_status(ServerStatus::Running, "Server restarted, connecting...");
+                        let connect_result = self.engine.connect_with_monitor(&server_addr, self.monitor.clone());
+                        match connect_result {
+                            Ok(()) => {
+                                let message = match self.load_synthdefs_and_samples() {
+                                    Ok(()) => "Server restarted".to_string(),
+                                    Err(e) => format!("Restarted (synthdef warning: {})", e),
+                                };
+                                self.send_server_status(ServerStatus::Connected, message);
+                            }
+                            Err(err) => {
+                                self.send_server_status(ServerStatus::Error, err.to_string());
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        self.send_server_status(ServerStatus::Error, err);
+                    }
+                }
             }
             AudioCmd::CompileSynthDefs { scd_path, reply } => {
                 let result = self.engine.compile_synthdefs_async(&scd_path);
@@ -684,6 +785,45 @@ impl AudioThread {
         self.piano_roll = updated;
         self.piano_roll.playhead = playhead;
         self.piano_roll.playing = playing;
+    }
+
+    fn send_server_status(&self, status: ServerStatus, message: impl Into<String>) {
+        let _ = self.feedback_tx.send(AudioFeedback::ServerStatus {
+            status,
+            message: message.into(),
+            server_running: self.engine.server_running(),
+        });
+    }
+
+    fn load_synthdefs_and_samples(&mut self) -> Result<(), String> {
+        let synthdef_dir = Path::new("synthdefs");
+        let builtin_result = self.engine.load_synthdefs(synthdef_dir);
+
+        let config_dir = config_synthdefs_dir();
+        let custom_result = if config_dir.exists() {
+            self.engine.load_synthdefs(&config_dir)
+        } else {
+            Ok(())
+        };
+
+        self.load_drum_samples();
+
+        match (builtin_result, custom_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        }
+    }
+
+    fn load_drum_samples(&mut self) {
+        for instrument in &self.instruments.instruments {
+            if let Some(seq) = &instrument.drum_sequencer {
+                for pad in &seq.pads {
+                    if let (Some(buffer_id), Some(path)) = (pad.buffer_id, pad.path.as_ref()) {
+                        let _ = self.engine.load_sample(buffer_id, path);
+                    }
+                }
+            }
+        }
     }
 
     fn tick(&mut self, elapsed: Duration) {
