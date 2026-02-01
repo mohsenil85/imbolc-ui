@@ -19,7 +19,7 @@ pub use instrument_state::InstrumentState;
 pub use param::{Param, ParamValue};
 pub use sampler::BufferId;
 pub use session::{MixerSelection, MusicalSettings, SessionState, MAX_BUSES};
-pub use vst_plugin::{VstPlugin, VstPluginId, VstPluginKind, VstPluginRegistry};
+pub use vst_plugin::{VstParamSpec, VstPlugin, VstPluginId, VstPluginKind, VstPluginRegistry};
 
 /// Keyboard layout configuration for key translation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

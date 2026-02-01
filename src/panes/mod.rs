@@ -14,6 +14,7 @@ mod instrument_pane;
 mod sample_chopper_pane;
 mod logo_pane;
 mod track_pane;
+mod vst_param_pane;
 mod waveform_pane;
 
 pub use add_effect_pane::AddEffectPane;
@@ -32,4 +33,5 @@ pub use instrument_pane::InstrumentPane;
 pub use sample_chopper_pane::SampleChopperPane;
 pub use logo_pane::LogoPane;
 pub use track_pane::TrackPane;
+pub use vst_param_pane::VstParamPane;
 pub use waveform_pane::WaveformPane;

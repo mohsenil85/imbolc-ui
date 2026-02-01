@@ -8,6 +8,7 @@ use std::sync::mpsc::Sender;
 
 use crate::audio::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use crate::state::automation::AutomationTarget;
+use crate::state::vst_plugin::VstPluginId;
 use crate::state::{BufferId, InstrumentId};
 
 /// Commands sent from the main thread to the audio engine.
@@ -134,6 +135,24 @@ pub enum AudioCmd {
         value: f32,
     },
 
+    // ── VST parameter control ──────────────────────────────────
+    QueryVstParams {
+        instrument_id: InstrumentId,
+    },
+    SetVstParam {
+        instrument_id: InstrumentId,
+        param_index: u32,
+        value: f32,
+    },
+    SaveVstState {
+        instrument_id: InstrumentId,
+        path: PathBuf,
+    },
+    LoadVstState {
+        instrument_id: InstrumentId,
+        path: PathBuf,
+    },
+
     // ── Lifecycle ─────────────────────────────────────────────────
     Shutdown,
 }
@@ -162,4 +181,13 @@ pub enum AudioFeedback {
     RecordingStopped(PathBuf),
     CompileResult(Result<String, String>),
     PendingBufferFreed,
+    VstParamsDiscovered {
+        instrument_id: InstrumentId,
+        vst_plugin_id: VstPluginId,
+        params: Vec<(u32, String, Option<String>, f32)>, // (index, name, label, default)
+    },
+    VstStateSaved {
+        instrument_id: InstrumentId,
+        path: PathBuf,
+    },
 }

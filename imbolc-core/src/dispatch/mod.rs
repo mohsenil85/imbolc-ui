@@ -6,6 +6,7 @@ mod piano_roll;
 mod sequencer;
 mod server;
 mod session;
+mod vst_param;
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -56,6 +57,7 @@ pub fn dispatch_action(
         Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio),
         Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio),
         Action::Automation(a) => automation::dispatch_automation(a, state, audio),
+        Action::VstParam(a) => vst_param::dispatch_vst_param(a, state, audio),
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),

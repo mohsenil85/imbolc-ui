@@ -138,6 +138,19 @@ impl AudioEngine {
             AutomationTarget::Bpm => {
                 // Handled in playback.rs, not here
             }
+            AutomationTarget::VstParam(instrument_id, param_index) => {
+                if let Some(nodes) = self.node_map.get(instrument_id) {
+                    if let Some(source_node) = nodes.source {
+                        use rosc::OscType;
+                        client.send_unit_cmd(
+                            source_node,
+                            super::VST_UGEN_INDEX,
+                            "/set",
+                            vec![OscType::Int(*param_index as i32), OscType::Float(value)],
+                        ).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
         }
 
         Ok(())

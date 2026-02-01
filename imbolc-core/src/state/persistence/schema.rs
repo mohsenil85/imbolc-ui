@@ -42,7 +42,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 mute INTEGER NOT NULL,
                 solo INTEGER NOT NULL,
                 active INTEGER NOT NULL DEFAULT 1,
-                output_target TEXT NOT NULL
+                output_target TEXT NOT NULL,
+                vst_state_path TEXT
             );
 
             CREATE TABLE IF NOT EXISTS instrument_source_params (
@@ -197,6 +198,13 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 FOREIGN KEY (synthdef_id) REFERENCES custom_synthdefs(id)
             );
 
+            CREATE TABLE IF NOT EXISTS instrument_vst_params (
+                instrument_id INTEGER NOT NULL,
+                param_index INTEGER NOT NULL,
+                value REAL NOT NULL,
+                PRIMARY KEY (instrument_id, param_index)
+            );
+
             CREATE TABLE IF NOT EXISTS vst_plugins (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -300,6 +308,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             DELETE FROM drum_steps;
             DELETE FROM drum_patterns;
             DELETE FROM drum_pads;
+            DELETE FROM instrument_vst_params;
             DELETE FROM vst_plugin_params;
             DELETE FROM vst_plugins;
             DELETE FROM custom_synthdef_params;

@@ -856,6 +856,10 @@ pub struct Instrument {
     pub sampler_config: Option<SamplerConfig>,
     // Kit sequencer (only used when source is SourceType::Kit)
     pub drum_sequencer: Option<DrumSequencerState>,
+    // Per-instance VST parameter values: (param_index, normalized_value)
+    pub vst_param_values: Vec<(u32, f32)>,
+    // Path to saved VST plugin state file (.fxp)
+    pub vst_state_path: Option<std::path::PathBuf>,
 }
 
 impl Instrument {
@@ -892,6 +896,8 @@ impl Instrument {
             sends,
             sampler_config,
             drum_sequencer,
+            vst_param_values: Vec::new(),
+            vst_state_path: None,
         }
     }
 }

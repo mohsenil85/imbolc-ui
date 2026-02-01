@@ -287,6 +287,14 @@ impl InstrumentEditPane {
                 self.lfo.target = self.lfo.target.next();
                 self.emit_update()
             }
+            "vst_params" => {
+                // Navigate to VST params pane for VST instruments
+                if self.source.is_vst() {
+                    Action::Nav(crate::ui::NavAction::PushPane("vst_params"))
+                } else {
+                    Action::None
+                }
+            }
             "next_section" => {
                 // Jump to first row of next section
                 let current = self.current_section();

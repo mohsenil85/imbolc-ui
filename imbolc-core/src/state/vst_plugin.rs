@@ -16,6 +16,7 @@ pub struct VstParamSpec {
     pub index: u32,      // VST param index (0-based)
     pub name: String,
     pub default: f32,    // 0.0–1.0 normalized
+    pub label: Option<String>, // unit string from plugin, e.g. "Hz", "dB"
 }
 
 /// A registered VST plugin
@@ -77,5 +78,9 @@ impl VstPluginRegistry {
 
     pub fn effects(&self) -> impl Iterator<Item = &VstPlugin> {
         self.plugins.iter().filter(|p| p.kind == VstPluginKind::Effect)
+    }
+
+    pub fn get_mut(&mut self, id: VstPluginId) -> Option<&mut VstPlugin> {
+        self.plugins.iter_mut().find(|p| p.id == id)
     }
 }

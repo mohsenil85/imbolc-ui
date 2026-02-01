@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use audio::AudioHandle;
 use audio::commands::AudioFeedback;
 use action::AudioDirty;
-use panes::{AddEffectPane, AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, DispatchResult, Frame, InputSource, KeyCode, Keymap, LayerResult,
@@ -73,6 +73,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(TrackPane::new(pane_keymap(&mut keymaps, "track"))));
     panes.add_pane(Box::new(WaveformPane::new(pane_keymap(&mut keymaps, "waveform"))));
     panes.add_pane(Box::new(AutomationPane::new(pane_keymap(&mut keymaps, "automation"))));
+    panes.add_pane(Box::new(VstParamPane::new(pane_keymap(&mut keymaps, "vst_params"))));
 
     // Create layer stack
     let mut layer_stack = LayerStack::new(layers);
@@ -268,6 +269,32 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                             }
                             panes.switch_to("waveform", &state);
                         }
+                    }
+                }
+                AudioFeedback::VstParamsDiscovered { instrument_id, vst_plugin_id, params } => {
+                    // Update plugin registry with discovered param specs
+                    if let Some(plugin) = state.session.vst_plugins.get_mut(vst_plugin_id) {
+                        plugin.params.clear();
+                        for (index, name, label, default) in &params {
+                            plugin.params.push(state::VstParamSpec {
+                                index: *index,
+                                name: name.clone(),
+                                default: *default,
+                                label: label.clone(),
+                            });
+                        }
+                    }
+                    // Initialize per-instance param values from defaults
+                    if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
+                        instrument.vst_param_values.clear();
+                        for (index, _, _, default) in &params {
+                            instrument.vst_param_values.push((*index, *default));
+                        }
+                    }
+                }
+                AudioFeedback::VstStateSaved { instrument_id, path } => {
+                    if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
+                        instrument.vst_state_path = Some(path);
                     }
                 }
             }

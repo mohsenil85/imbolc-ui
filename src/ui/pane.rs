@@ -11,7 +11,7 @@ pub use crate::action::{
     Action, AutomationAction, ChopperAction, DispatchResult, FileSelectAction,
     InstrumentAction, InstrumentUpdate, MixerAction, NavAction, NavIntent,
     PianoRollAction, SequencerAction, ServerAction, SessionAction, StatusEvent,
-    ToggleResult,
+    ToggleResult, VstParamAction,
 };
 
 /// Trait for UI panes (screens/views).

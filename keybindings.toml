@@ -153,6 +153,7 @@ bindings = [
   { key = "Shift+Tab", action = "prev_section", description = "Previous section" },
   { key = "x", action = "toggle_active", description = "Toggle active (AudioIn)" },
   { key = "o", action = "load_sample", description = "Load sample" },
+  { key = "v", action = "vst_params", description = "VST parameters" },
 ]
 
 [layers.server]
@@ -301,6 +302,25 @@ bindings = [
 
 [layers.track]
 bindings = []
+
+[layers.vst_params]
+bindings = [
+  { key = "Up", action = "up", description = "Select previous param" },
+  { key = "Down", action = "down", description = "Select next param" },
+  { key = "k", action = "up", description = "Select previous param" },
+  { key = "j", action = "down", description = "Select next param" },
+  { key = "Left", action = "left", description = "Adjust value down (fine)" },
+  { key = "Right", action = "right", description = "Adjust value up (fine)" },
+  { key = "Shift+Left", action = "coarse_left", description = "Adjust value down (coarse)" },
+  { key = "Shift+Right", action = "coarse_right", description = "Adjust value up (coarse)" },
+  { key = "/", action = "search", description = "Search params" },
+  { key = "r", action = "reset", description = "Reset to default" },
+  { key = "a", action = "automate", description = "Add automation lane" },
+  { key = "d", action = "discover", description = "Re-discover params" },
+  { key = "g", action = "goto_top", description = "Go to top" },
+  { key = "G", action = "goto_bottom", description = "Go to bottom" },
+  { key = "Escape", action = "cancel", description = "Exit search / go back" },
+]
 
 [layers.waveform]
 bindings = []

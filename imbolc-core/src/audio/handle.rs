@@ -73,7 +73,7 @@ impl AudioHandle {
         }
     }
 
-    fn send_cmd(&self, cmd: AudioCmd) -> Result<(), String> {
+    pub(crate) fn send_cmd(&self, cmd: AudioCmd) -> Result<(), String> {
         self.cmd_tx
             .send(cmd)
             .map_err(|_| "Audio thread disconnected".to_string())
@@ -113,6 +113,8 @@ impl AudioHandle {
             AudioFeedback::RecordingStopped(_) => {}
             AudioFeedback::CompileResult(_) => {}
             AudioFeedback::PendingBufferFreed => {}
+            AudioFeedback::VstParamsDiscovered { .. } => {}
+            AudioFeedback::VstStateSaved { .. } => {}
         }
     }
 
@@ -757,6 +759,22 @@ impl AudioThread {
             }
             AudioCmd::ApplyAutomation { target, value } => {
                 let _ = self.engine.apply_automation(&target, value, &self.instruments, &self.session);
+            }
+            AudioCmd::QueryVstParams { instrument_id } => {
+                let _ = self.engine.query_vst_param_count(instrument_id);
+            }
+            AudioCmd::SetVstParam { instrument_id, param_index, value } => {
+                let _ = self.engine.set_vst_param(instrument_id, param_index, value);
+            }
+            AudioCmd::SaveVstState { instrument_id, path } => {
+                let _ = self.engine.save_vst_state(instrument_id, &path);
+                let _ = self.feedback_tx.send(AudioFeedback::VstStateSaved {
+                    instrument_id,
+                    path,
+                });
+            }
+            AudioCmd::LoadVstState { instrument_id, path } => {
+                let _ = self.engine.load_vst_state(instrument_id, &path);
             }
             AudioCmd::Shutdown => return true,
         }

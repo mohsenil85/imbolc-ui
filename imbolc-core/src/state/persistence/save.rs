@@ -12,8 +12,8 @@ pub(super) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
         "INSERT INTO instruments (id, name, position, source_type, filter_type, filter_cutoff, filter_resonance,
              lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
              amp_attack, amp_decay, amp_sustain, amp_release, polyphonic,
-             level, pan, mute, solo, active, output_target)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+             level, pan, mute, solo, active, output_target, vst_state_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
     )?;
     for (pos, inst) in instruments.instruments.iter().enumerate() {
         let source_str = match inst.source {
@@ -82,6 +82,7 @@ pub(super) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
             inst.solo,
             inst.active,
             output_str,
+            inst.vst_state_path.as_ref().map(|p| p.to_string_lossy().to_string()),
         ])?;
     }
     Ok(())
@@ -445,6 +446,23 @@ pub(super) fn save_vst_plugins(conn: &SqlConnection, session: &SessionState) -> 
         }
     }
 
+    Ok(())
+}
+
+pub(super) fn save_vst_param_values(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO instrument_vst_params (instrument_id, param_index, value)
+             VALUES (?1, ?2, ?3)",
+    )?;
+    for inst in &instruments.instruments {
+        for (idx, value) in &inst.vst_param_values {
+            stmt.execute(rusqlite::params![
+                inst.id,
+                *idx as i32,
+                *value as f64,
+            ])?;
+        }
+    }
     Ok(())
 }
 

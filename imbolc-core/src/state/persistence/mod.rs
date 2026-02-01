@@ -41,6 +41,7 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     save::save_drum_sequencers(&conn, instruments)?;
     save::save_chopper_states(&conn, instruments)?;
     save::save_midi_recording(&conn, session)?;
+    save::save_vst_param_values(&conn, instruments)?;
 
     Ok(())
 }
@@ -69,6 +70,8 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let vst_plugins = load::load_vst_plugins(&conn)?;
     load::load_drum_sequencers(&conn, &mut instruments)?;
     load::load_chopper_states(&conn, &mut instruments)?;
+    load::load_vst_state_paths(&conn, &mut instruments)?;
+    load::load_vst_param_values(&conn, &mut instruments)?;
     let midi_recording = load::load_midi_recording(&conn)?;
 
     // Restore selected_lane from DB, falling back to Some(0) if lanes exist

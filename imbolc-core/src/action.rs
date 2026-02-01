@@ -138,6 +138,16 @@ pub enum ServerAction {
     RecordInput,
 }
 
+/// VST parameter actions
+#[derive(Debug, Clone, PartialEq)]
+pub enum VstParamAction {
+    SetParam(InstrumentId, u32, f32),       // instrument_id, param_index, value
+    AdjustParam(InstrumentId, u32, f32),    // instrument_id, param_index, delta
+    ResetParam(InstrumentId, u32),          // instrument_id, param_index
+    DiscoverParams(InstrumentId),
+    SaveState(InstrumentId),
+}
+
 /// Automation actions
 #[derive(Debug, Clone, PartialEq)]
 pub enum AutomationAction {
@@ -180,6 +190,7 @@ pub enum Action {
     Sequencer(SequencerAction),
     Chopper(ChopperAction),
     Automation(AutomationAction),
+    VstParam(VstParamAction),
     /// Pane signals: pop piano_mode/pad_mode layer
     ExitPerformanceMode,
     /// Push a named layer onto the layer stack

@@ -169,6 +169,8 @@ pub(super) fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument
             pan: pan as f32,
             mute, solo, active, output_target, sends,
             sampler_config, drum_sequencer,
+            vst_param_values: Vec::new(),
+            vst_state_path: None,
         });
     }
     Ok(instruments)
@@ -870,6 +872,48 @@ pub(super) fn load_custom_synthdefs(conn: &SqlConnection) -> SqlResult<CustomSyn
     Ok(registry)
 }
 
+pub(super) fn load_vst_state_paths(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, vst_state_path FROM instruments WHERE vst_state_path IS NOT NULL",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, InstrumentId>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for result in rows {
+                if let Ok((id, path_str)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == id) {
+                        inst.vst_state_path = Some(PathBuf::from(path_str));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn load_vst_param_values(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT instrument_id, param_index, value FROM instrument_vst_params",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, InstrumentId>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((instrument_id, param_index, value)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        inst.vst_param_values.push((param_index, value as f32));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn load_vst_plugins(conn: &SqlConnection) -> SqlResult<VstPluginRegistry> {
     let mut registry = VstPluginRegistry::new();
 
@@ -913,6 +957,7 @@ pub(super) fn load_vst_plugins(conn: &SqlConnection) -> SqlResult<VstPluginRegis
                             index: param_index,
                             name,
                             default: default_val as f32,
+                            label: None,
                         });
                     }
                 }

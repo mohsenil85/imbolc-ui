@@ -87,6 +87,8 @@ pub enum AutomationTarget {
     BusLevel(u8),
     /// Global BPM (30.0–300.0)
     Bpm,
+    /// VST plugin parameter (instrument_id, param_index, 0.0–1.0 normalized)
+    VstParam(InstrumentId, u32),
 }
 
 impl AutomationTarget {
@@ -109,6 +111,7 @@ impl AutomationTarget {
             AutomationTarget::SendLevel(id, _) => Some(*id),
             AutomationTarget::BusLevel(_) => None,
             AutomationTarget::Bpm => None,
+            AutomationTarget::VstParam(id, _) => Some(*id),
         }
     }
 
@@ -133,6 +136,7 @@ impl AutomationTarget {
             AutomationTarget::SendLevel(_, idx) => format!("Send {}", idx + 1),
             AutomationTarget::BusLevel(bus) => format!("Bus {} Level", bus),
             AutomationTarget::Bpm => "BPM".to_string(),
+            AutomationTarget::VstParam(_, idx) => format!("VST P{}", idx),
         }
     }
 
@@ -155,6 +159,7 @@ impl AutomationTarget {
             AutomationTarget::SendLevel(_, _) => "Send",
             AutomationTarget::BusLevel(_) => "BusLv",
             AutomationTarget::Bpm => "BPM",
+            AutomationTarget::VstParam(_, _) => "VstP",
         }
     }
 
@@ -193,6 +198,7 @@ impl AutomationTarget {
             AutomationTarget::SendLevel(_, _) => (0.0, 1.0),
             AutomationTarget::BusLevel(_) => (0.0, 1.0),
             AutomationTarget::Bpm => (30.0, 300.0),
+            AutomationTarget::VstParam(_, _) => (0.0, 1.0),
         }
     }
 }
