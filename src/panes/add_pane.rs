@@ -305,7 +305,7 @@ impl Pane for AddPane {
         "add"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
         match action {
             "confirm" => {
                 if let Some(option) = self.cached_options.get(self.selected) {
@@ -323,7 +323,13 @@ impl Pane for AddPane {
                     Action::None
                 }
             }
-            "cancel" => Action::Nav(NavAction::SwitchPane("instrument")),
+            "cancel" => {
+                if state.instruments.instruments.is_empty() {
+                    Action::Nav(NavAction::SwitchPane("server"))
+                } else {
+                    Action::Nav(NavAction::SwitchPane("instrument"))
+                }
+            }
             "next" => {
                 self.select_next();
                 Action::None

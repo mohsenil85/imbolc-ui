@@ -21,7 +21,11 @@ pub(super) fn dispatch_instrument(
             if audio.is_running() {
                 let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
             }
-            DispatchResult::none()
+            if state.instruments.instruments.is_empty() {
+                DispatchResult::with_nav(NavIntent::SwitchTo("add"))
+            } else {
+                DispatchResult::none()
+            }
         }
         InstrumentAction::Edit(id) => {
             state.instruments.editing_instrument_id = Some(*id);

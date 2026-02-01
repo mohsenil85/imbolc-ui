@@ -75,6 +75,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     // Create layer stack
     let mut layer_stack = LayerStack::new(layers);
     layer_stack.push("global");
+    if state.instruments.instruments.is_empty() {
+        panes.switch_to("add", &state);
+    }
     layer_stack.set_pane_layer(panes.active().id());
 
     let mut audio = AudioHandle::new();

@@ -42,6 +42,9 @@ pub(super) fn dispatch_session(
                             .unwrap_or("default")
                             .to_string();
                         result.project_name = Some(name);
+                        if state.instruments.instruments.is_empty() {
+                            result.nav.push(NavIntent::SwitchTo("add"));
+                        }
                     }
                     Err(e) => {
                         eprintln!("Failed to load: {}", e);
