@@ -1,6 +1,6 @@
 use super::{InstrumentEditPane, Section};
 use crate::state::{Param, ParamValue};
-use crate::ui::{Action, InstrumentAction};
+use crate::ui::{Action, InstrumentAction, InstrumentUpdate};
 
 impl InstrumentEditPane {
     pub(super) fn adjust_value(&mut self, increase: bool, big: bool) {
@@ -82,7 +82,16 @@ impl InstrumentEditPane {
 
     pub(super) fn emit_update(&self) -> Action {
         if let Some(id) = self.instrument_id {
-            Action::Instrument(InstrumentAction::Update(id))
+            Action::Instrument(InstrumentAction::Update(Box::new(InstrumentUpdate {
+                id,
+                source: self.source,
+                source_params: self.source_params.clone(),
+                filter: self.filter.clone(),
+                effects: self.effects.clone(),
+                amp_envelope: self.amp_envelope.clone(),
+                polyphonic: self.polyphonic,
+                active: self.active,
+            })))
         } else {
             Action::None
         }

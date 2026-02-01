@@ -1,6 +1,7 @@
 # Architecture
 
 Detailed architecture reference for the ilex codebase. See [CLAUDE.md](../CLAUDE.md) for quick reference.
+For VST3 plans and UI targets, see `docs/vst3-support-roadmap.md`.
 
 ## State Ownership
 

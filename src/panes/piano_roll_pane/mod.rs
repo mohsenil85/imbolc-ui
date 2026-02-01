@@ -50,14 +50,9 @@ impl PianoRollPane {
         }
     }
 
-    // Accessors for main.rs
-    pub fn cursor_pitch(&self) -> u8 { self.cursor_pitch }
-    pub fn cursor_tick(&self) -> u32 { self.cursor_tick }
-    pub fn default_duration(&self) -> u32 { self.default_duration }
-    pub fn default_velocity(&self) -> u8 { self.default_velocity }
+    /// Set current track index directly (for external syncing from global instrument selection)
+    #[allow(dead_code)]
     pub fn current_track(&self) -> usize { self.current_track }
-    pub fn is_recording(&self) -> bool { self.recording }
-    pub fn set_recording(&mut self, recording: bool) { self.recording = recording; }
 
     pub fn adjust_default_duration(&mut self, delta: i32) {
         let new_dur = (self.default_duration as i32 + delta).max(self.ticks_per_cell() as i32);
@@ -69,6 +64,7 @@ impl PianoRollPane {
         self.default_velocity = new_vel as u8;
     }
 
+    #[allow(dead_code)]
     pub fn change_track(&mut self, delta: i8, track_count: usize) {
         if track_count == 0 { return; }
         let new_idx = (self.current_track as i32 + delta as i32).clamp(0, track_count as i32 - 1);
@@ -270,6 +266,6 @@ mod tests {
         let state = AppState::new();
 
         let action = pane.handle_action("toggle_note", &dummy_event(), &state);
-        assert!(matches!(action, Action::PianoRoll(PianoRollAction::ToggleNote)));
+        assert!(matches!(action, Action::PianoRoll(PianoRollAction::ToggleNote { .. })));
     }
 }

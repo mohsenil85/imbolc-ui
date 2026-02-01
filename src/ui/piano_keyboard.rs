@@ -1,9 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum KeyboardLayout {
-    #[default]
-    Qwerty,
-    Colemak,
-}
+pub use crate::state::KeyboardLayout;
 
 /// Translate a key character from the configured layout to QWERTY physical position.
 pub fn translate_key(c: char, layout: KeyboardLayout) -> char {

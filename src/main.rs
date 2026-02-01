@@ -1,12 +1,15 @@
-mod audio;
-mod config;
-mod dispatch;
-mod midi;
+// Re-export core crate modules so crate::state, crate::audio, etc. resolve throughout the binary
+pub use ilex_core::action;
+pub use ilex_core::audio;
+pub use ilex_core::config;
+pub use ilex_core::dispatch;
+pub use ilex_core::midi;
+pub use ilex_core::playback;
+pub use ilex_core::scd_parser;
+pub use ilex_core::state;
+
 mod panes;
-mod playback;
-mod scd_parser;
 mod setup;
-mod state;
 mod ui;
 
 use std::time::{Duration, Instant};
@@ -15,8 +18,9 @@ use audio::AudioEngine;
 use panes::{AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
-    Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult, LayerStack,
-    PaneManager, RatatuiBackend, SessionAction, ToggleResult, ViewState, keybindings,
+    Action, AppEvent, DispatchResult, Frame, InputSource, KeyCode, Keymap, LayerResult,
+    LayerStack, NavIntent, PaneManager, RatatuiBackend, SessionAction, StatusEvent,
+    ToggleResult, ViewState, keybindings,
 };
 
 fn main() -> std::io::Result<()> {
@@ -80,7 +84,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut active_notes: Vec<(u32, u8, u32)> = Vec::new();
     let mut select_mode = InstrumentSelectMode::Normal;
 
-    setup::auto_start_sc(&mut audio_engine, &state, &mut panes);
+    // Auto-start SuperCollider and apply status events
+    {
+        let startup_events = setup::auto_start_sc(&mut audio_engine, &state);
+        apply_status_events(&startup_events, &mut panes);
+    }
 
     // Track last render area for mouse hit-testing
     let mut last_area = ratatui::layout::Rect::new(0, 0, 80, 24);
@@ -195,9 +203,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
-            if dispatch::dispatch_action(&pane_action, &mut state, &mut panes, &mut audio_engine, &mut app_frame, &mut active_notes) {
+            let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio_engine, &mut active_notes);
+            if dispatch_result.quit {
                 break;
             }
+            apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame);
         }
 
         // Poll for background compile completion
@@ -233,7 +243,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             if let Some(path) = state.pending_recording_path.take() {
                 let peaks = dispatch::compute_waveform_peaks(&path.to_string_lossy()).0;
                 if !peaks.is_empty() {
-                    state.recorded_waveform = Some(peaks);
+                    if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
+                        wf.recorded_waveform = Some(peaks);
+                    }
                     panes.switch_to("waveform", &state);
                 }
             }
@@ -264,14 +276,18 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
             // Update waveform cache for waveform pane
             if panes.active().id() == "waveform" {
-                if state.recorded_waveform.is_none() {
-                    state.audio_in_waveform = state.instruments.selected_instrument()
-                        .filter(|s| s.source.is_audio_input() || s.source.is_bus_in())
-                        .map(|s| audio_engine.audio_in_waveform(s.id));
+                if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
+                    if wf.recorded_waveform.is_none() {
+                        wf.audio_in_waveform = state.instruments.selected_instrument()
+                            .filter(|s| s.source.is_audio_input() || s.source.is_bus_in())
+                            .map(|s| audio_engine.audio_in_waveform(s.id));
+                    }
                 }
             } else {
-                state.audio_in_waveform = None;
-                state.recorded_waveform = None;
+                if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
+                    wf.audio_in_waveform = None;
+                    wf.recorded_waveform = None;
+                }
             }
 
             // Render
@@ -405,10 +421,12 @@ fn handle_global_action(
     match action {
         "quit" => return GlobalResult::Quit,
         "save" => {
-            dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, panes, audio_engine, app_frame, active_notes);
+            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio_engine, active_notes);
+            apply_dispatch_result(r, state, panes, app_frame);
         }
         "load" => {
-            dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, panes, audio_engine, app_frame, active_notes);
+            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio_engine, active_notes);
+            apply_dispatch_result(r, state, panes, app_frame);
         }
         "master_mute" => {
             state.session.master_mute = !state.session.master_mute;
@@ -417,7 +435,8 @@ fn handle_global_action(
             }
         }
         "record_master" => {
-            dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, panes, audio_engine, app_frame, active_notes);
+            let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio_engine, active_notes);
+            apply_dispatch_result(r, state, panes, app_frame);
         }
         "switch:instrument" => {
             switch_to_pane("instrument", panes, state, app_frame, layer_stack);
@@ -571,4 +590,46 @@ fn handle_global_action(
         _ => return GlobalResult::NotHandled,
     }
     GlobalResult::Handled
+}
+
+/// Apply status events from dispatch or setup to the server pane
+fn apply_status_events(events: &[StatusEvent], panes: &mut PaneManager) {
+    for event in events {
+        if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+            server.set_status(event.status, &event.message);
+            if let Some(running) = event.server_running {
+                server.set_server_running(running);
+            }
+        }
+    }
+}
+
+/// Apply a DispatchResult to the UI layer: process nav intents, status events, project name
+fn apply_dispatch_result(
+    result: DispatchResult,
+    state: &mut AppState,
+    panes: &mut PaneManager,
+    app_frame: &mut Frame,
+) {
+    // Process nav intents
+    for intent in &result.nav {
+        match intent {
+            NavIntent::OpenFileBrowser(file_action) => {
+                if let Some(fb) = panes.get_pane_mut::<FileBrowserPane>("file_browser") {
+                    fb.open_for(file_action.clone(), None);
+                }
+                panes.push_to("file_browser", state);
+            }
+            _ => {}
+        }
+    }
+    panes.process_nav_intents(&result.nav, state);
+
+    // Process status events
+    apply_status_events(&result.status, panes);
+
+    // Process project name
+    if let Some(ref name) = result.project_name {
+        app_frame.set_project_name(name.to_string());
+    }
 }

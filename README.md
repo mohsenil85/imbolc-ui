@@ -59,6 +59,13 @@ ilex will attempt to auto-start scsynth. Use the Server pane (F5) to manage devi
 - Audio device preferences: `~/.config/ilex/audio_devices.json`
 - Recordings: `master_<timestamp>.wav` in the current working directory
 
+## Docs
+
+- `docs/architecture.md` — state ownership and pane/dispatch flow
+- `docs/sc-engine-architecture.md` — SuperCollider engine details
+- `docs/vst3-support-roadmap.md` — current VST3 plan and UI targets
+- `docs/vst-integration.md` — legacy notes (superseded)
+
 ## Architecture (from TECHDEETS)
 
 ilex uses an MVU-inspired architecture adapted for a TUI with a dedicated audio engine.

@@ -27,11 +27,19 @@ fn waveform_color(frac: f32) -> Color {
 
 pub struct WaveformPane {
     keymap: Keymap,
+    /// Waveform peaks from a recorded audio file
+    pub recorded_waveform: Option<Vec<f32>>,
+    /// Live waveform from audio input
+    pub audio_in_waveform: Option<Vec<f32>>,
 }
 
 impl WaveformPane {
     pub fn new(keymap: Keymap) -> Self {
-        Self { keymap }
+        Self {
+            keymap,
+            recorded_waveform: None,
+            audio_in_waveform: None,
+        }
     }
 }
 
@@ -51,9 +59,9 @@ impl Pane for WaveformPane {
     }
 
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
-        let is_recorded = state.recorded_waveform.is_some();
-        let waveform = state.recorded_waveform.as_deref()
-            .or(state.audio_in_waveform.as_deref())
+        let is_recorded = self.recorded_waveform.is_some();
+        let waveform = self.recorded_waveform.as_deref()
+            .or(self.audio_in_waveform.as_deref())
             .unwrap_or(&[]);
 
         let rect = center_rect(area, 97, 29);

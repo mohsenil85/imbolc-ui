@@ -7,6 +7,16 @@ use crate::ui::{Action, InputEvent, KeyCode, MouseButton, MouseEvent, MouseEvent
 use super::PianoRollPane;
 
 impl PianoRollPane {
+    /// Get the instrument ID for the current track from state
+    fn current_instrument_id(&self, state: &AppState) -> u32 {
+        state.session.piano_roll.track_order
+            .get(self.current_track)
+            .copied()
+            .unwrap_or(0)
+    }
+}
+
+impl PianoRollPane {
     pub(super) fn handle_action_impl(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
         match action {
             // Piano mode actions (from piano layer)
@@ -36,10 +46,16 @@ impl PianoRollPane {
                 if let KeyCode::Char(c) = event.key {
                     let c = translate_key(c, state.keyboard_layout);
                     if let Some(pitches) = self.piano.key_to_pitches(c) {
+                        let instrument_id = self.current_instrument_id(state);
+                        let track = self.current_track;
                         if pitches.len() == 1 {
-                            return Action::PianoRoll(PianoRollAction::PlayNote(pitches[0], 100));
+                            return Action::PianoRoll(PianoRollAction::PlayNote {
+                                pitch: pitches[0], velocity: 100, instrument_id, track,
+                            });
                         } else {
-                            return Action::PianoRoll(PianoRollAction::PlayNotes(pitches, 100));
+                            return Action::PianoRoll(PianoRollAction::PlayNotes {
+                                pitches, velocity: 100, instrument_id, track,
+                            });
                         }
                     }
                 }
@@ -71,15 +87,33 @@ impl PianoRollPane {
                 self.scroll_to_cursor();
                 Action::None
             }
-            "toggle_note" => Action::PianoRoll(PianoRollAction::ToggleNote),
-            "grow_duration" => Action::PianoRoll(PianoRollAction::AdjustDuration(self.ticks_per_cell() as i32)),
-            "shrink_duration" => Action::PianoRoll(PianoRollAction::AdjustDuration(-(self.ticks_per_cell() as i32))),
-            "vel_up" => Action::PianoRoll(PianoRollAction::AdjustVelocity(10)),
-            "vel_down" => Action::PianoRoll(PianoRollAction::AdjustVelocity(-10)),
+            "toggle_note" => Action::PianoRoll(PianoRollAction::ToggleNote {
+                pitch: self.cursor_pitch,
+                tick: self.cursor_tick,
+                duration: self.default_duration,
+                velocity: self.default_velocity,
+                track: self.current_track,
+            }),
+            "grow_duration" => {
+                self.adjust_default_duration(self.ticks_per_cell() as i32);
+                Action::None
+            }
+            "shrink_duration" => {
+                self.adjust_default_duration(-(self.ticks_per_cell() as i32));
+                Action::None
+            }
+            "vel_up" => {
+                self.adjust_default_velocity(10);
+                Action::None
+            }
+            "vel_down" => {
+                self.adjust_default_velocity(-10);
+                Action::None
+            }
             "play_stop" => Action::PianoRoll(PianoRollAction::PlayStop),
             "loop" => Action::PianoRoll(PianoRollAction::ToggleLoop),
-            "loop_start" => Action::PianoRoll(PianoRollAction::SetLoopStart),
-            "loop_end" => Action::PianoRoll(PianoRollAction::SetLoopEnd),
+            "loop_start" => Action::PianoRoll(PianoRollAction::SetLoopStart(self.cursor_tick)),
+            "loop_end" => Action::PianoRoll(PianoRollAction::SetLoopEnd(self.cursor_tick)),
             "octave_up" => {
                 self.cursor_pitch = (self.cursor_pitch as i16 + 12).min(127) as u8;
                 self.scroll_to_cursor();
@@ -95,7 +129,10 @@ impl PianoRollPane {
                 self.view_start_tick = 0;
                 Action::None
             }
-            "end" => Action::PianoRoll(PianoRollAction::Jump(1)),
+            "end" => {
+                self.jump_to_end();
+                Action::None
+            }
             "zoom_in" => {
                 if self.zoom_level > 1 {
                     self.zoom_level -= 1;
@@ -113,7 +150,7 @@ impl PianoRollPane {
                 Action::None
             }
             "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
-            "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode),
+            "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode(self.current_track)),
             "toggle_automation" => {
                 self.automation_overlay_visible = !self.automation_overlay_visible;
                 Action::None
@@ -171,7 +208,13 @@ impl PianoRollPane {
                     if pitch <= 127 {
                         self.cursor_pitch = pitch;
                         self.cursor_tick = tick;
-                        return Action::PianoRoll(PianoRollAction::ToggleNote);
+                        return Action::PianoRoll(PianoRollAction::ToggleNote {
+                            pitch,
+                            tick,
+                            duration: self.default_duration,
+                            velocity: self.default_velocity,
+                            track: self.current_track,
+                        });
                     }
                 }
                 // Click on piano key column to set pitch

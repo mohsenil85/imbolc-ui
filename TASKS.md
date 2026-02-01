@@ -526,6 +526,8 @@ Pane for selecting and configuring audio hardware devices — choose DAC, set he
 
 Custom SynthDef import already exists (`state/custom_synthdef.rs`, `scd_parser.rs`). Remaining:
 
+See `docs/vst3-support-roadmap.md` for the current VST3 support plan and UI goals.
+
 **Phase 1 — Custom synthdef polish:**
 - Management screen (list, rename, delete imported synthdefs)
 - Show discovered parameters with ranges and defaults

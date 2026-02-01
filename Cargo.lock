@@ -371,8 +371,25 @@ dependencies = [
  "crossterm",
  "dirs",
  "hound",
+ "ilex-core",
  "midir",
  "ratatui",
+ "regex",
+ "rosc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
+name = "ilex-core"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "hound",
+ "midir",
  "regex",
  "rosc",
  "rusqlite",

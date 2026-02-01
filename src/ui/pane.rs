@@ -1,216 +1,18 @@
 use std::any::Any;
-use std::path::PathBuf;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 
 use super::{InputEvent, Keymap, MouseEvent};
-use crate::state::{AppState, EffectType, FilterType, InstrumentId, MixerSelection, MusicalSettings, SourceType};
-use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
+use crate::state::AppState;
 
-/// Drum sequencer actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum SequencerAction {
-    ToggleStep(usize, usize),         // (pad_idx, step_idx)
-    AdjustVelocity(usize, usize, i8), // (pad_idx, step_idx, delta)
-    PlayStop,
-    LoadSample(usize),              // pad_idx
-    ClearPad(usize),                // pad_idx
-    ClearPattern,
-    CyclePatternLength,
-    NextPattern,
-    PrevPattern,
-    AdjustPadLevel(usize, f32),     // (pad_idx, delta)
-    LoadSampleResult(usize, PathBuf), // (pad_idx, path) — from file browser
-}
-
-/// Navigation actions (pane switching, modal stack)
-#[derive(Debug, Clone, PartialEq)]
-pub enum NavAction {
-    SwitchPane(&'static str),
-    #[allow(dead_code)]
-    PushPane(&'static str),
-    PopPane,
-}
-
-/// Instrument actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum InstrumentAction {
-    Add(SourceType),
-    Delete(InstrumentId),
-    Edit(InstrumentId),
-    Update(InstrumentId),
-    #[allow(dead_code)]
-    SetParam(InstrumentId, String, f32),
-    #[allow(dead_code)]
-    AddEffect(InstrumentId, EffectType),
-    #[allow(dead_code)]
-    RemoveEffect(InstrumentId, usize),
-    #[allow(dead_code)]
-    MoveEffect(InstrumentId, usize, i8),
-    #[allow(dead_code)]
-    SetFilter(InstrumentId, Option<FilterType>),
-    PlayNote(u8, u8),
-    PlayNotes(Vec<u8>, u8),
-    Select(usize),
-    SelectNext,
-    SelectPrev,
-    SelectFirst,
-    SelectLast,
-    PlayDrumPad(usize),
-    LoadSampleResult(InstrumentId, PathBuf),
-}
-
-/// Mixer actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum MixerAction {
-    Move(i8),
-    Jump(i8),
-    SelectAt(MixerSelection),
-    AdjustLevel(f32),
-    ToggleMute,
-    ToggleSolo,
-    CycleSection,
-    CycleOutput,
-    CycleOutputReverse,
-    AdjustSend(u8, f32),
-    ToggleSend(u8),
-}
-
-/// Piano roll actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum PianoRollAction {
-    ToggleNote,
-    #[allow(dead_code)]
-    MoveCursor(i8, i32),
-    AdjustDuration(i32),
-    AdjustVelocity(i8),
-    PlayStop,
-    ToggleLoop,
-    SetLoopStart,
-    SetLoopEnd,
-    #[allow(dead_code)]
-    ChangeTrack(i8),
-    #[allow(dead_code)]
-    SetBpm(f32),
-    #[allow(dead_code)]
-    Zoom(i8),
-    #[allow(dead_code)]
-    ScrollOctave(i8),
-    Jump(i8),
-    CycleTimeSig,
-    TogglePolyMode,
-    PlayNote(u8, u8),
-    PlayNotes(Vec<u8>, u8),
-    PlayStopRecord,
-}
-
-/// Sample chopper actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum ChopperAction {
-    LoadSample,
-    LoadSampleResult(PathBuf),
-    AddSlice(f32),           // cursor_pos
-    RemoveSlice,
-    AssignToPad(usize),
-    AutoSlice(usize),
-    PreviewSlice,
-    SelectSlice(i8),         // +1/-1
-    NudgeSliceStart(f32),
-    NudgeSliceEnd(f32),
-    MoveCursor(i8),          // direction
-    CommitAll,               // assign all slices to pads and return
-}
-
-/// Audio server actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum ServerAction {
-    Connect,
-    Disconnect,
-    Start,
-    Stop,
-    CompileSynthDefs,
-    LoadSynthDefs,
-    Restart,
-    RecordMaster,
-    RecordInput,
-}
-
-/// Automation actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum AutomationAction {
-    AddLane(AutomationTarget),
-    RemoveLane(AutomationLaneId),
-    ToggleLaneEnabled(AutomationLaneId),
-    AddPoint(AutomationLaneId, u32, f32),          // lane, tick, value
-    RemovePoint(AutomationLaneId, u32),             // lane, tick
-    MovePoint(AutomationLaneId, u32, u32, f32),     // lane, old_tick, new_tick, new_value
-    SetCurveType(AutomationLaneId, u32, CurveType), // lane, tick, curve
-    SelectLane(i8),                                  // +1/-1
-    ClearLane(AutomationLaneId),
-    ToggleRecording,
-    RecordValue(AutomationTarget, f32),
-}
-
-/// Session/file actions
-#[derive(Debug, Clone, PartialEq)]
-pub enum SessionAction {
-    Save,
-    Load,
-    UpdateSession(MusicalSettings),
-    UpdateSessionLive(MusicalSettings),
-    OpenFileBrowser(FileSelectAction),
-    ImportCustomSynthDef(PathBuf),
-    ImportVstPlugin(PathBuf),
-}
-
-/// Actions that can be returned from pane input handling
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action {
-    None,
-    Quit,
-    Nav(NavAction),
-    Instrument(InstrumentAction),
-    Mixer(MixerAction),
-    PianoRoll(PianoRollAction),
-    Server(ServerAction),
-    Session(SessionAction),
-    Sequencer(SequencerAction),
-    Chopper(ChopperAction),
-    Automation(AutomationAction),
-    /// Pane signals: pop piano_mode/pad_mode layer
-    ExitPerformanceMode,
-    /// Push a named layer onto the layer stack
-    PushLayer(&'static str),
-    /// Pop a named layer from the layer stack
-    PopLayer(&'static str),
-}
-
-/// Result of toggling performance mode (piano/pad keyboard)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToggleResult {
-    /// Pane doesn't support performance mode
-    NotSupported,
-    /// Piano keyboard was activated
-    ActivatedPiano,
-    /// Pad keyboard was activated
-    ActivatedPad,
-    /// Layout cycled (still in piano mode)
-    CycledLayout,
-    /// Performance mode was deactivated
-    Deactivated,
-}
-
-/// Action to take when a file is selected in the file browser
-#[derive(Debug, Clone, PartialEq)]
-pub enum FileSelectAction {
-    ImportCustomSynthDef,
-    ImportVstInstrument,
-    ImportVstEffect,
-    LoadDrumSample(usize), // pad index
-    LoadChopperSample,
-    LoadPitchedSample(InstrumentId),
-}
+// Re-export all action types from the core crate
+pub use crate::action::{
+    Action, AutomationAction, ChopperAction, DispatchResult, FileSelectAction,
+    InstrumentAction, InstrumentUpdate, MixerAction, NavAction, NavIntent,
+    PianoRollAction, SequencerAction, ServerAction, SessionAction, StatusEvent,
+    ToggleResult,
+};
 
 /// Trait for UI panes (screens/views).
 pub trait Pane {
@@ -345,6 +147,30 @@ impl PaneManager {
                 self.pop(state);
             }
             _ => {}
+        }
+    }
+
+    /// Process navigation intents returned from dispatch
+    pub fn process_nav_intents(&mut self, intents: &[NavIntent], state: &AppState) {
+        for intent in intents {
+            match intent {
+                NavIntent::SwitchTo(id) => { self.switch_to(id, state); }
+                NavIntent::PushTo(id) => { self.push_to(id, state); }
+                NavIntent::Pop => { self.pop(state); }
+                NavIntent::ConditionalPop(pane_id) => {
+                    if self.active().id() == *pane_id {
+                        self.pop(state);
+                    }
+                }
+                NavIntent::PopOrSwitchTo(fallback) => {
+                    if !self.pop(state) {
+                        self.switch_to(fallback, state);
+                    }
+                }
+                NavIntent::OpenFileBrowser(_) => {
+                    // Handled by main.rs which configures the file browser pane before pushing
+                }
+            }
         }
     }
 

@@ -26,7 +26,7 @@ impl InstrumentEditPane {
                         if pitches.len() == 1 {
                             return Action::Instrument(InstrumentAction::PlayNote(pitches[0], 100));
                         } else {
-                            return Action::Instrument(InstrumentAction::PlayNotes(pitches, 100));
+                            return Action::Instrument(InstrumentAction::PlayNotes(pitches.clone(), 100));
                         }
                     }
                 }

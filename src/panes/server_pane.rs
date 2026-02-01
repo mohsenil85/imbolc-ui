@@ -82,6 +82,7 @@ impl ServerPane {
         self.server_running = running;
     }
 
+    #[allow(dead_code)]
     pub fn clear_device_config_dirty(&mut self) {
         self.device_config_dirty = false;
     }
@@ -167,7 +168,10 @@ impl Pane for ServerPane {
 
     fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "start" => Action::Server(ServerAction::Start),
+            "start" => Action::Server(ServerAction::Start {
+                input_device: self.selected_input_device(),
+                output_device: self.selected_output_device(),
+            }),
             "stop" => Action::Server(ServerAction::Stop),
             "connect" => Action::Server(ServerAction::Connect),
             "disconnect" => Action::Server(ServerAction::Disconnect),
@@ -177,7 +181,10 @@ impl Pane for ServerPane {
             "refresh_devices" => {
                 self.refresh_devices();
                 if self.server_running {
-                    Action::Server(ServerAction::Restart)
+                    Action::Server(ServerAction::Restart {
+                        input_device: self.selected_input_device(),
+                        output_device: self.selected_output_device(),
+                    })
                 } else {
                     Action::None
                 }
@@ -212,7 +219,10 @@ impl Pane for ServerPane {
                         self.save_config();
                         if self.server_running {
                             self.device_config_dirty = false;
-                            return Action::Server(ServerAction::Restart);
+                            return Action::Server(ServerAction::Restart {
+                                input_device: self.selected_input_device(),
+                                output_device: self.selected_output_device(),
+                            });
                         } else {
                             self.device_config_dirty = true;
                             return Action::None;
@@ -240,7 +250,10 @@ impl Pane for ServerPane {
                         self.save_config();
                         if self.server_running {
                             self.device_config_dirty = false;
-                            return Action::Server(ServerAction::Restart);
+                            return Action::Server(ServerAction::Restart {
+                                input_device: self.selected_input_device(),
+                                output_device: self.selected_output_device(),
+                            });
                         } else {
                             self.device_config_dirty = true;
                             return Action::None;

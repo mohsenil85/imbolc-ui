@@ -16,7 +16,7 @@ pub use input::{AppEvent, InputEvent, InputSource, KeyCode, Modifiers, MouseEven
 pub use keymap::Keymap;
 pub use layer::{LayerResult, LayerStack};
 pub use pad_keyboard::PadKeyboard;
-pub use pane::{Action, AutomationAction, ChopperAction, FileSelectAction, InstrumentAction, MixerAction, NavAction, Pane, PaneManager, PianoRollAction, SequencerAction, ServerAction, SessionAction, ToggleResult};
+pub use pane::{Action, AutomationAction, ChopperAction, DispatchResult, FileSelectAction, InstrumentAction, InstrumentUpdate, MixerAction, NavAction, NavIntent, Pane, PaneManager, PianoRollAction, SequencerAction, ServerAction, SessionAction, StatusEvent, ToggleResult};
 pub use piano_keyboard::{KeyboardLayout, PianoKeyboard, translate_key};
 pub use ratatui_impl::RatatuiBackend;
 pub use style::{Color, Style};

@@ -65,6 +65,7 @@ impl InstrumentEditPane {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_instrument(&mut self, instrument: &Instrument) {
         self.instrument_id = Some(instrument.id);
         self.instrument_name = instrument.name.clone();
@@ -115,6 +116,7 @@ impl InstrumentEditPane {
     }
 
     /// Apply edits back to an instrument
+    #[allow(dead_code)]
     pub fn apply_to(&self, instrument: &mut Instrument) {
         instrument.source = self.source;
         instrument.source_params = self.source_params.clone();
