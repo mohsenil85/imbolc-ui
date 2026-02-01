@@ -49,29 +49,17 @@ pub fn dispatch_action(
         Action::Quit => DispatchResult::with_quit(),
         Action::Nav(_) => DispatchResult::none(), // Handled by PaneManager
         Action::Instrument(a) => instrument::dispatch_instrument(a, state, audio),
-        Action::Mixer(a) => { mixer::dispatch_mixer(a, state, audio); DispatchResult::none() }
+        Action::Mixer(a) => mixer::dispatch_mixer(a, state, audio),
         Action::PianoRoll(a) => piano_roll::dispatch_piano_roll(a, state, audio),
         Action::Server(a) => server::dispatch_server(a, state, audio),
         Action::Session(a) => session::dispatch_session(a, state, audio),
         Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio),
         Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio),
-        Action::Automation(a) => { automation::dispatch_automation(a, state, audio); DispatchResult::none() }
+        Action::Automation(a) => automation::dispatch_automation(a, state, audio),
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),
     };
-
-    match action {
-        Action::Nav(_)
-        | Action::None
-        | Action::ExitPerformanceMode
-        | Action::PushLayer(_)
-        | Action::PopLayer(_)
-        | Action::Quit => {}
-        _ => {
-            audio.sync_state(state);
-        }
-    }
 
     result
 }

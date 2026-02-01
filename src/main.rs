@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use audio::AudioHandle;
 use audio::commands::AudioFeedback;
+use action::AudioDirty;
 use panes::{AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, WaveformPane};
 use state::AppState;
 use ui::{
@@ -85,6 +86,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut app_frame = Frame::new();
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
+    let mut pending_audio_dirty = AudioDirty::default();
 
     // Auto-start SuperCollider and apply status events
     {
@@ -146,6 +148,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 &mut audio,
                                 &mut app_frame,
                                 &mut select_mode,
+                                &mut pending_audio_dirty,
                                 &mut layer_stack,
                             ) {
                                 GlobalResult::Quit => break,
@@ -208,7 +211,13 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             if dispatch_result.quit {
                 break;
             }
+            pending_audio_dirty.merge(dispatch_result.audio_dirty);
             apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame);
+        }
+
+        if pending_audio_dirty.any() {
+            audio.flush_dirty(&state, pending_audio_dirty);
+            pending_audio_dirty.clear();
         }
 
         // Drain audio feedback
@@ -402,6 +411,7 @@ fn handle_global_action(
     audio: &mut AudioHandle,
     app_frame: &mut Frame,
     select_mode: &mut InstrumentSelectMode,
+    pending_audio_dirty: &mut AudioDirty,
     layer_stack: &mut LayerStack,
 ) -> GlobalResult {
     // Helper to capture current view state
@@ -445,20 +455,22 @@ fn handle_global_action(
         "quit" => return GlobalResult::Quit,
         "save" => {
             let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio);
+            pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "load" => {
             let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio);
+            pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "master_mute" => {
             state.session.master_mute = !state.session.master_mute;
-            if audio.is_running() {
-                let _ = audio.update_all_instrument_mixer_params(&state.instruments, &state.session);
-            }
+            pending_audio_dirty.session = true;
+            pending_audio_dirty.mixer_params = true;
         }
         "record_master" => {
             let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio);
+            pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "switch:instrument" => {
@@ -615,6 +627,7 @@ fn handle_global_action(
             if let Some(instrument) = state.instruments.selected_instrument() {
                 let id = instrument.id;
                 let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio);
+                pending_audio_dirty.merge(r.audio_dirty);
                 apply_dispatch_result(r, state, panes, app_frame);
                 // Re-sync edit pane after deletion
                 sync_instrument_edit(state, panes);

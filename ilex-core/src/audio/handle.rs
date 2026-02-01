@@ -11,8 +11,10 @@ use std::time::{Duration, Instant};
 use super::commands::{AudioCmd, AudioFeedback};
 use super::engine::AudioEngine;
 use super::osc_client::AudioMonitor;
+use super::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use super::ServerStatus;
-use crate::state::automation::{AutomationLane, AutomationTarget};
+use crate::action::AudioDirty;
+use crate::state::automation::AutomationTarget;
 use crate::state::piano_roll::PianoRollState;
 use crate::state::{AppState, BufferId, InstrumentId, InstrumentState, SessionState};
 
@@ -104,27 +106,48 @@ impl AudioHandle {
     }
 
     pub fn sync_state(&mut self, state: &AppState) {
-        self.update_state(&state.instruments, &state.session);
-        self.update_piano_roll_data(&state.session.piano_roll);
-        self.update_automation_lanes(&state.session.automation.lanes);
+        self.flush_dirty(state, AudioDirty::all());
     }
 
-    pub fn update_state(&mut self, instruments: &InstrumentState, session: &SessionState) {
+    pub fn flush_dirty(&mut self, state: &AppState, dirty: AudioDirty) {
+        if !dirty.any() {
+            return;
+        }
+
+        let needs_state = dirty.instruments || dirty.session || dirty.routing || dirty.mixer_params;
+        if needs_state {
+            self.update_state(&state.instruments, &state.session);
+        }
+        if dirty.piano_roll {
+            self.update_piano_roll_data(&state.session.piano_roll);
+        }
+        if dirty.automation {
+            self.update_automation_lanes(&state.session.automation.lanes);
+        }
+        if dirty.routing {
+            let _ = self.send_cmd(AudioCmd::RebuildRouting);
+        }
+        if dirty.mixer_params {
+            let _ = self.send_cmd(AudioCmd::UpdateMixerParams);
+        }
+    }
+
+    pub fn update_state(&mut self, instruments: &InstrumentSnapshot, session: &SessionSnapshot) {
         let _ = self.send_cmd(AudioCmd::UpdateState {
             instruments: instruments.clone(),
             session: session.clone(),
         });
     }
 
-    pub fn update_piano_roll_data(&mut self, piano_roll: &PianoRollState) {
+    pub fn update_piano_roll_data(&mut self, piano_roll: &PianoRollSnapshot) {
         let _ = self.send_cmd(AudioCmd::UpdatePianoRollData {
             piano_roll: piano_roll.clone(),
         });
     }
 
-    pub fn update_automation_lanes(&mut self, lanes: &[AutomationLane]) {
+    pub fn update_automation_lanes(&mut self, lanes: &AutomationSnapshot) {
         let _ = self.send_cmd(AudioCmd::UpdateAutomationLanes {
-            lanes: lanes.to_vec(),
+            lanes: lanes.clone(),
         });
     }
 
@@ -293,10 +316,9 @@ impl AudioHandle {
 
     pub fn rebuild_instrument_routing(
         &mut self,
-        instruments: &InstrumentState,
-        session: &SessionState,
+        _instruments: &InstrumentState,
+        _session: &SessionState,
     ) -> Result<(), String> {
-        self.update_state(instruments, session);
         self.send_cmd(AudioCmd::RebuildRouting)
     }
 
@@ -317,13 +339,9 @@ impl AudioHandle {
 
     pub fn update_all_instrument_mixer_params(
         &self,
-        instruments: &InstrumentState,
-        session: &SessionState,
+        _instruments: &InstrumentState,
+        _session: &SessionState,
     ) -> Result<(), String> {
-        let _ = self.send_cmd(AudioCmd::UpdateState {
-            instruments: instruments.clone(),
-            session: session.clone(),
-        });
         self.send_cmd(AudioCmd::UpdateMixerParams)
     }
 
@@ -451,13 +469,9 @@ impl AudioHandle {
         &self,
         target: &AutomationTarget,
         value: f32,
-        instruments: &InstrumentState,
-        session: &SessionState,
+        _instruments: &InstrumentState,
+        _session: &SessionState,
     ) -> Result<(), String> {
-        let _ = self.send_cmd(AudioCmd::UpdateState {
-            instruments: instruments.clone(),
-            session: session.clone(),
-        });
         self.send_cmd(AudioCmd::ApplyAutomation {
             target: target.clone(),
             value,
@@ -485,10 +499,10 @@ struct AudioThread {
     cmd_rx: Receiver<AudioCmd>,
     feedback_tx: Sender<AudioFeedback>,
     monitor: AudioMonitor,
-    instruments: InstrumentState,
-    session: SessionState,
-    piano_roll: PianoRollState,
-    automation_lanes: Vec<AutomationLane>,
+    instruments: InstrumentSnapshot,
+    session: SessionSnapshot,
+    piano_roll: PianoRollSnapshot,
+    automation_lanes: AutomationSnapshot,
     active_notes: Vec<(u32, u8, u32)>,
     last_tick: Instant,
     last_recording_secs: u64,
@@ -648,7 +662,7 @@ impl AudioThread {
         false
     }
 
-    fn apply_state_update(&mut self, mut instruments: InstrumentState, session: SessionState) {
+    fn apply_state_update(&mut self, mut instruments: InstrumentSnapshot, session: SessionSnapshot) {
         for new_inst in instruments.instruments.iter_mut() {
             if let Some(old_inst) = self.instruments.instruments.iter().find(|i| i.id == new_inst.id) {
                 if let (Some(old_seq), Some(new_seq)) = (&old_inst.drum_sequencer, &mut new_inst.drum_sequencer) {
@@ -664,7 +678,7 @@ impl AudioThread {
         self.session = session;
     }
 
-    fn apply_piano_roll_update(&mut self, updated: PianoRollState) {
+    fn apply_piano_roll_update(&mut self, updated: PianoRollSnapshot) {
         let playhead = self.piano_roll.playhead;
         let playing = self.piano_roll.playing;
         self.piano_roll = updated;

@@ -45,6 +45,12 @@ pub(super) fn dispatch_session(
                         if state.instruments.instruments.is_empty() {
                             result.nav.push(NavIntent::SwitchTo("add"));
                         }
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.session = true;
+                        result.audio_dirty.piano_roll = true;
+                        result.audio_dirty.automation = true;
+                        result.audio_dirty.routing = true;
+                        result.audio_dirty.mixer_params = true;
                     }
                     Err(e) => {
                         eprintln!("Failed to load: {}", e);
@@ -57,11 +63,15 @@ pub(super) fn dispatch_session(
             state.session.piano_roll.time_signature = state.session.time_signature;
             state.session.piano_roll.bpm = state.session.bpm as f32;
             result.push_nav(NavIntent::PopOrSwitchTo("instrument"));
+            result.audio_dirty.session = true;
+            result.audio_dirty.piano_roll = true;
         }
         SessionAction::UpdateSessionLive(ref settings) => {
             state.session.apply_musical_settings(settings);
             state.session.piano_roll.time_signature = state.session.time_signature;
             state.session.piano_roll.bpm = state.session.bpm as f32;
+            result.audio_dirty.session = true;
+            result.audio_dirty.piano_roll = true;
         }
         SessionAction::OpenFileBrowser(ref file_action) => {
             result.push_nav(NavIntent::OpenFileBrowser(file_action.clone()));
@@ -100,6 +110,7 @@ pub(super) fn dispatch_session(
 
                             // Register it
                             let _id = state.session.custom_synthdefs.add(custom);
+                            result.audio_dirty.session = true;
 
                             // Copy the .scd file to the config synthdefs directory
                             let config_dir = config_synthdefs_dir();
@@ -160,6 +171,7 @@ pub(super) fn dispatch_session(
             result.push_status(audio.status(), &format!("Imported VST: {}", name));
 
             result.push_nav(NavIntent::Pop);
+            result.audio_dirty.session = true;
         }
     }
 

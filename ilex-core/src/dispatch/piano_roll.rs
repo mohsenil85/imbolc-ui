@@ -10,6 +10,9 @@ pub(super) fn dispatch_piano_roll(
     match action {
         PianoRollAction::ToggleNote { pitch, tick, duration, velocity, track } => {
             state.session.piano_roll.toggle_note(*track, *pitch, *tick, *duration, *velocity);
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::PlayStop => {
             let pr = &mut state.session.piano_roll;
@@ -25,6 +28,7 @@ pub(super) fn dispatch_piano_roll(
             }
             // Clear recording if stopping via normal play/stop
             state.session.piano_roll.recording = false;
+            return DispatchResult::none();
         }
         PianoRollAction::PlayStopRecord => {
             let is_playing = state.session.piano_roll.playing;
@@ -47,15 +51,25 @@ pub(super) fn dispatch_piano_roll(
                 audio.clear_active_notes();
                 state.session.piano_roll.recording = false;
             }
+            return DispatchResult::none();
         }
         PianoRollAction::ToggleLoop => {
             state.session.piano_roll.looping = !state.session.piano_roll.looping;
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::SetLoopStart(tick) => {
             state.session.piano_roll.loop_start = *tick;
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::SetLoopEnd(tick) => {
             state.session.piano_roll.loop_end = *tick;
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::CycleTimeSig => {
             let pr = &mut state.session.piano_roll;
@@ -66,11 +80,17 @@ pub(super) fn dispatch_piano_roll(
                 (5, 4) => (7, 8),
                 _ => (4, 4),
             };
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::TogglePolyMode(track_idx) => {
             if let Some(track) = state.session.piano_roll.track_at_mut(*track_idx) {
                 track.polyphonic = !track.polyphonic;
             }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
         }
         PianoRollAction::PlayNote { pitch, velocity, instrument_id, track } => {
             let pitch = *pitch;
@@ -90,7 +110,11 @@ pub(super) fn dispatch_piano_roll(
                 let playhead = state.session.piano_roll.playhead;
                 let duration = 480; // One beat for live recording
                 state.session.piano_roll.toggle_note(track, pitch, playhead, duration, velocity);
+                let mut result = DispatchResult::none();
+                result.audio_dirty.piano_roll = true;
+                return result;
             }
+            return DispatchResult::none();
         }
         PianoRollAction::PlayNotes { pitches, velocity, instrument_id, track } => {
             let velocity = *velocity;
@@ -112,7 +136,11 @@ pub(super) fn dispatch_piano_roll(
                 for &pitch in pitches {
                     state.session.piano_roll.toggle_note(track, pitch, playhead, duration, velocity);
                 }
+                let mut result = DispatchResult::none();
+                result.audio_dirty.piano_roll = true;
+                return result;
             }
+            return DispatchResult::none();
         }
         PianoRollAction::MoveCursor(_, _)
         | PianoRollAction::SetBpm(_)

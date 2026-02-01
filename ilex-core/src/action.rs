@@ -246,6 +246,7 @@ pub struct DispatchResult {
     pub nav: Vec<NavIntent>,
     pub status: Vec<StatusEvent>,
     pub project_name: Option<String>,
+    pub audio_dirty: AudioDirty,
 }
 
 impl Default for DispatchResult {
@@ -255,7 +256,53 @@ impl Default for DispatchResult {
             nav: Vec::new(),
             status: Vec::new(),
             project_name: None,
+            audio_dirty: AudioDirty::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AudioDirty {
+    pub instruments: bool,
+    pub session: bool,
+    pub piano_roll: bool,
+    pub automation: bool,
+    pub routing: bool,
+    pub mixer_params: bool,
+}
+
+impl AudioDirty {
+    pub fn all() -> Self {
+        Self {
+            instruments: true,
+            session: true,
+            piano_roll: true,
+            automation: true,
+            routing: true,
+            mixer_params: true,
+        }
+    }
+
+    pub fn any(&self) -> bool {
+        self.instruments
+            || self.session
+            || self.piano_roll
+            || self.automation
+            || self.routing
+            || self.mixer_params
+    }
+
+    pub fn merge(&mut self, other: AudioDirty) {
+        self.instruments |= other.instruments;
+        self.session |= other.session;
+        self.piano_roll |= other.piano_roll;
+        self.automation |= other.automation;
+        self.routing |= other.routing;
+        self.mixer_params |= other.mixer_params;
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
     }
 }
 
@@ -292,6 +339,10 @@ impl DispatchResult {
         self.status.push(StatusEvent { status, message: message.into(), server_running: Some(running) });
     }
 
+    pub fn mark_audio_dirty(&mut self, dirty: AudioDirty) {
+        self.audio_dirty.merge(dirty);
+    }
+
     pub fn merge(&mut self, other: DispatchResult) {
         self.quit = self.quit || other.quit;
         self.nav.extend(other.nav);
@@ -299,5 +350,6 @@ impl DispatchResult {
         if other.project_name.is_some() {
             self.project_name = other.project_name;
         }
+        self.audio_dirty.merge(other.audio_dirty);
     }
 }

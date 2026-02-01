@@ -4,6 +4,7 @@ pub mod devices;
 pub mod engine;
 pub mod handle;
 pub mod osc_client;
+pub mod snapshot;
 
 pub use engine::{AudioEngine, ServerStatus};
 pub use handle::AudioHandle;

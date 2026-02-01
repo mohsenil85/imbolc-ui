@@ -23,7 +23,9 @@ pub(super) fn dispatch_sequencer(
                     step.active = !step.active;
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::AdjustVelocity(pad_idx, step_idx, delta) => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -36,7 +38,9 @@ pub(super) fn dispatch_sequencer(
                     step.velocity = (step.velocity as i16 + *delta as i16).clamp(1, 127) as u8;
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::ClearPad(pad_idx) => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -50,14 +54,18 @@ pub(super) fn dispatch_sequencer(
                     step.active = false;
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::ClearPattern => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
                 let len = seq.pattern().length;
                 *seq.pattern_mut() = DrumPattern::new(len);
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::CyclePatternLength => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -76,13 +84,17 @@ pub(super) fn dispatch_sequencer(
                 }
                 *seq.pattern_mut() = new_pattern;
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::NextPattern => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
                 seq.current_pattern = (seq.current_pattern + 1) % seq.patterns.len();
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::PrevPattern => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -92,7 +104,9 @@ pub(super) fn dispatch_sequencer(
                     seq.current_pattern - 1
                 };
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::AdjustPadLevel(pad_idx, delta) => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -100,7 +114,9 @@ pub(super) fn dispatch_sequencer(
                     pad.level = (pad.level + delta).clamp(0.0, 1.0);
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::PlayStop => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -110,10 +126,12 @@ pub(super) fn dispatch_sequencer(
                     seq.step_accumulator = 0.0;
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         SequencerAction::LoadSample(pad_idx) => {
-            DispatchResult::with_nav(NavIntent::OpenFileBrowser(crate::action::FileSelectAction::LoadDrumSample(*pad_idx)))
+            return DispatchResult::with_nav(NavIntent::OpenFileBrowser(crate::action::FileSelectAction::LoadDrumSample(*pad_idx)));
         }
         SequencerAction::LoadSampleResult(pad_idx, path) => {
             let path_str = path.to_string_lossy().to_string();
@@ -137,9 +155,12 @@ pub(super) fn dispatch_sequencer(
                 }
             }
 
-            DispatchResult::with_nav(NavIntent::Pop)
+            let mut result = DispatchResult::with_nav(NavIntent::Pop);
+            result.audio_dirty.instruments = true;
+            return result;
         }
     }
+
 }
 
 pub(super) fn dispatch_chopper(
@@ -149,7 +170,7 @@ pub(super) fn dispatch_chopper(
 ) -> DispatchResult {
     match action {
         ChopperAction::LoadSample => {
-            DispatchResult::with_nav(NavIntent::OpenFileBrowser(crate::action::FileSelectAction::LoadChopperSample))
+            return DispatchResult::with_nav(NavIntent::OpenFileBrowser(crate::action::FileSelectAction::LoadChopperSample));
         }
         ChopperAction::LoadSampleResult(path) => {
             let path_str = path.to_string_lossy().to_string();
@@ -182,7 +203,9 @@ pub(super) fn dispatch_chopper(
                 });
             }
 
-            DispatchResult::with_nav(NavIntent::ConditionalPop("file_browser"))
+            let mut result = DispatchResult::with_nav(NavIntent::ConditionalPop("file_browser"));
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::AddSlice(cursor_pos) => {
             let cursor_pos = *cursor_pos;
@@ -201,7 +224,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::RemoveSlice => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -221,7 +246,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::AssignToPad(pad_idx) => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -241,7 +268,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::AutoSlice(n) => {
             let n = *n;
@@ -258,7 +287,9 @@ pub(super) fn dispatch_chopper(
                     chopper.selected_slice = 0;
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::PreviewSlice => {
             if let Some(instrument) = state.instruments.selected_instrument() {
@@ -289,7 +320,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::NudgeSliceStart(delta) => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -299,7 +332,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::NudgeSliceEnd(delta) => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -309,7 +344,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::CommitAll => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
@@ -329,7 +366,9 @@ pub(super) fn dispatch_chopper(
                     }
                 }
             }
-            DispatchResult::with_nav(NavIntent::Pop)
+            let mut result = DispatchResult::with_nav(NavIntent::Pop);
+            result.audio_dirty.instruments = true;
+            return result;
         }
         ChopperAction::MoveCursor(_) => {
             // Cursor tracked locally in pane

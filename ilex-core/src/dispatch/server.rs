@@ -139,7 +139,8 @@ pub(super) fn dispatch_server(
                     if let Some(inst) = state.instruments.selected_instrument_mut() {
                         if inst.source.is_audio_input() && inst.active {
                             inst.active = false;
-                            let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
+                            result.audio_dirty.instruments = true;
+                            result.audio_dirty.routing = true;
                         }
                     }
                     // Defer waveform load — scsynth needs time to flush the WAV
@@ -154,7 +155,8 @@ pub(super) fn dispatch_server(
                 if let Some(inst) = state.instruments.selected_instrument_mut() {
                     if inst.source.is_audio_input() && !inst.active {
                         inst.active = true;
-                        let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.routing = true;
                     }
                 }
                 let path = super::recording_path("master");
@@ -178,7 +180,8 @@ pub(super) fn dispatch_server(
                     if let Some(inst) = state.instruments.selected_instrument_mut() {
                         if inst.source.is_audio_input() && inst.active {
                             inst.active = false;
-                            let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
+                            result.audio_dirty.instruments = true;
+                            result.audio_dirty.routing = true;
                         }
                     }
                     // Defer waveform load — scsynth needs time to flush the WAV
@@ -197,7 +200,8 @@ pub(super) fn dispatch_server(
                         if let Some(inst_mut) = state.instruments.instrument_mut(inst_id) {
                             inst_mut.active = true;
                         }
-                        let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.routing = true;
                     }
                     let path = super::recording_path(&format!("input_{}", inst_id));
                     // Bus 0 is hardware out; for instrument recording we use bus 0
@@ -267,8 +271,9 @@ pub(super) fn dispatch_server(
                                 }
                             }
 
-                            // Rebuild instrument routing
-                            let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
+                            result.audio_dirty.instruments = true;
+                            result.audio_dirty.session = true;
+                            result.audio_dirty.routing = true;
 
                             match (builtin_result, custom_result) {
                                 (Ok(()), Ok(())) => {

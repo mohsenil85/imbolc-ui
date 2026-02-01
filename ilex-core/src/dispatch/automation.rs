@@ -1,7 +1,7 @@
 use crate::audio::AudioHandle;
 use crate::state::automation::AutomationTarget;
 use crate::state::AppState;
-use crate::action::AutomationAction;
+use crate::action::{AutomationAction, DispatchResult};
 
 /// Minimum value change threshold for recording (0.5%)
 const RECORD_VALUE_THRESHOLD: f32 = 0.005;
@@ -12,39 +12,47 @@ pub(super) fn dispatch_automation(
     action: &AutomationAction,
     state: &mut AppState,
     audio: &mut AudioHandle,
-) {
+) -> DispatchResult {
+    let mut result = DispatchResult::none();
     match action {
         AutomationAction::AddLane(target) => {
             state.session.automation.add_lane(target.clone());
+            result.audio_dirty.automation = true;
         }
         AutomationAction::RemoveLane(id) => {
             state.session.automation.remove_lane(*id);
+            result.audio_dirty.automation = true;
         }
         AutomationAction::ToggleLaneEnabled(id) => {
             if let Some(lane) = state.session.automation.lane_mut(*id) {
                 lane.enabled = !lane.enabled;
+                result.audio_dirty.automation = true;
             }
         }
         AutomationAction::AddPoint(lane_id, tick, value) => {
             if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
                 lane.add_point(*tick, *value);
+                result.audio_dirty.automation = true;
             }
         }
         AutomationAction::RemovePoint(lane_id, tick) => {
             if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
                 lane.remove_point(*tick);
+                result.audio_dirty.automation = true;
             }
         }
         AutomationAction::MovePoint(lane_id, old_tick, new_tick, new_value) => {
             if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
                 lane.remove_point(*old_tick);
                 lane.add_point(*new_tick, *new_value);
+                result.audio_dirty.automation = true;
             }
         }
         AutomationAction::SetCurveType(lane_id, tick, curve) => {
             if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
                 if let Some(point) = lane.point_at_mut(*tick) {
                     point.curve = *curve;
+                    result.audio_dirty.automation = true;
                 }
             }
         }
@@ -58,6 +66,7 @@ pub(super) fn dispatch_automation(
         AutomationAction::ClearLane(id) => {
             if let Some(lane) = state.session.automation.lane_mut(*id) {
                 lane.points.clear();
+                result.audio_dirty.automation = true;
             }
         }
         AutomationAction::ToggleRecording => {
@@ -69,6 +78,7 @@ pub(super) fn dispatch_automation(
             let playhead = state.session.piano_roll.playhead;
             if let Some(lane) = state.session.automation.lane_mut(lane_id) {
                 lane.add_point(playhead, *value);
+                result.audio_dirty.automation = true;
             }
             // Apply immediately for audio feedback
             if audio.is_running() {
@@ -79,6 +89,8 @@ pub(super) fn dispatch_automation(
             }
         }
     }
+
+    result
 }
 
 /// Record an automation point with thinning

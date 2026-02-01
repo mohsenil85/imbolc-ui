@@ -6,9 +6,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
-use crate::state::automation::{AutomationLane, AutomationTarget};
-use crate::state::piano_roll::PianoRollState;
-use crate::state::{BufferId, InstrumentId, InstrumentState, SessionState};
+use crate::audio::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
+use crate::state::automation::AutomationTarget;
+use crate::state::{BufferId, InstrumentId};
 
 /// Commands sent from the main thread to the audio engine.
 ///
@@ -45,14 +45,14 @@ pub enum AudioCmd {
 
     // ── State snapshots ───────────────────────────────────────────
     UpdateState {
-        instruments: InstrumentState,
-        session: SessionState,
+        instruments: InstrumentSnapshot,
+        session: SessionSnapshot,
     },
     UpdatePianoRollData {
-        piano_roll: PianoRollState,
+        piano_roll: PianoRollSnapshot,
     },
     UpdateAutomationLanes {
-        lanes: Vec<AutomationLane>,
+        lanes: AutomationSnapshot,
     },
 
     // ── Playback control ──────────────────────────────────────────

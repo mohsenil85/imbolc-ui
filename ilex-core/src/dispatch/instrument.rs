@@ -10,22 +10,25 @@ pub(super) fn dispatch_instrument(
     match action {
         InstrumentAction::Add(osc_type) => {
             state.add_instrument(*osc_type);
-            if audio.is_running() {
-                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
-            }
-            DispatchResult::with_nav(NavIntent::SwitchTo("instrument"))
+            let mut result = DispatchResult::with_nav(NavIntent::SwitchTo("instrument"));
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.piano_roll = true;
+            result.audio_dirty.routing = true;
+            result
         }
         InstrumentAction::Delete(inst_id) => {
             let inst_id = *inst_id;
             state.remove_instrument(inst_id);
-            if audio.is_running() {
-                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
-            }
-            if state.instruments.instruments.is_empty() {
+            let mut result = if state.instruments.instruments.is_empty() {
                 DispatchResult::with_nav(NavIntent::SwitchTo("add"))
             } else {
                 DispatchResult::none()
-            }
+            };
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.piano_roll = true;
+            result.audio_dirty.automation = true;
+            result.audio_dirty.routing = true;
+            result
         }
         InstrumentAction::Edit(id) => {
             state.instruments.editing_instrument_id = Some(*id);
@@ -41,11 +44,10 @@ pub(super) fn dispatch_instrument(
                 instrument.polyphonic = update.polyphonic;
                 instrument.active = update.active;
             }
-            if audio.is_running() {
-                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
-            }
-            // Don't switch pane - stay in edit
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
         }
         InstrumentAction::SetParam(instrument_id, ref param, value) => {
             // Update state
@@ -58,7 +60,9 @@ pub(super) fn dispatch_instrument(
             if audio.is_running() {
                 let _ = audio.set_source_param(*instrument_id, param, *value);
             }
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
         }
         InstrumentAction::PlayNote(pitch, velocity) => {
             let pitch = *pitch;
@@ -153,14 +157,19 @@ pub(super) fn dispatch_instrument(
                 }
             }
 
-            DispatchResult::with_nav(NavIntent::Pop)
+            let mut result = DispatchResult::with_nav(NavIntent::Pop);
+            result.audio_dirty.instruments = true;
+            result
         }
         InstrumentAction::AddEffect(_, _)
         | InstrumentAction::RemoveEffect(_, _)
         | InstrumentAction::MoveEffect(_, _, _)
         | InstrumentAction::SetFilter(_, _) => {
             // Reserved for future direct dispatch (currently handled inside InstrumentEditPane)
-            DispatchResult::none()
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
         }
     }
 }

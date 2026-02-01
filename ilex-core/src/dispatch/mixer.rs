@@ -1,7 +1,7 @@
 use crate::audio::AudioHandle;
 use crate::state::automation::AutomationTarget;
 use crate::state::{AppState, MixerSelection};
-use crate::action::MixerAction;
+use crate::action::{DispatchResult, MixerAction};
 
 use super::automation::record_automation_point;
 
@@ -9,7 +9,8 @@ pub(super) fn dispatch_mixer(
     action: &MixerAction,
     state: &mut AppState,
     audio: &mut AudioHandle,
-) {
+) -> DispatchResult {
+    let mut result = DispatchResult::none();
     match action {
         MixerAction::Move(delta) => {
             state.mixer_move(*delta);
@@ -27,6 +28,8 @@ pub(super) fn dispatch_mixer(
                 MixerSelection::Instrument(idx) => {
                     if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
                         instrument.level = (instrument.level + delta).clamp(0.0, 1.0);
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.mixer_params = true;
                         if state.automation_recording && state.session.piano_roll.playing {
                             record_target = Some((
                                 AutomationTarget::InstrumentLevel(instrument.id),
@@ -38,6 +41,8 @@ pub(super) fn dispatch_mixer(
                 MixerSelection::Bus(id) => {
                     if let Some(bus) = state.session.bus_mut(id) {
                         bus.level = (bus.level + delta).clamp(0.0, 1.0);
+                        result.audio_dirty.session = true;
+                        result.audio_dirty.mixer_params = true;
                     }
                     if let Some(bus) = state.session.bus(id) {
                         let mute = state.session.effective_bus_mute(bus);
@@ -52,17 +57,19 @@ pub(super) fn dispatch_mixer(
                 }
                 MixerSelection::Master => {
                     state.session.master_level = (state.session.master_level + delta).clamp(0.0, 1.0);
+                    result.audio_dirty.session = true;
+                    result.audio_dirty.mixer_params = true;
                 }
             }
             if audio.is_running() {
                 if let Some((bus_id, level, mute, pan)) = bus_update {
                     let _ = audio.set_bus_mixer_params(bus_id, level, mute, pan);
                 }
-                let _ = audio.update_all_instrument_mixer_params(&state.instruments, &state.session);
             }
             // Record automation point
             if let Some((target, value)) = record_target {
                 record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
             }
         }
         MixerAction::ToggleMute => {
@@ -71,11 +78,15 @@ pub(super) fn dispatch_mixer(
                 MixerSelection::Instrument(idx) => {
                     if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
                         instrument.mute = !instrument.mute;
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.mixer_params = true;
                     }
                 }
                 MixerSelection::Bus(id) => {
                     if let Some(bus) = state.session.bus_mut(id) {
                         bus.mute = !bus.mute;
+                        result.audio_dirty.session = true;
+                        result.audio_dirty.mixer_params = true;
                     }
                     if let Some(bus) = state.session.bus(id) {
                         let mute = state.session.effective_bus_mute(bus);
@@ -84,13 +95,14 @@ pub(super) fn dispatch_mixer(
                 }
                 MixerSelection::Master => {
                     state.session.master_mute = !state.session.master_mute;
+                    result.audio_dirty.session = true;
+                    result.audio_dirty.mixer_params = true;
                 }
             }
             if audio.is_running() {
                 if let Some((bus_id, level, mute, pan)) = bus_update {
                     let _ = audio.set_bus_mixer_params(bus_id, level, mute, pan);
                 }
-                let _ = audio.update_all_instrument_mixer_params(&state.instruments, &state.session);
             }
         }
         MixerAction::ToggleSolo => {
@@ -99,11 +111,15 @@ pub(super) fn dispatch_mixer(
                 MixerSelection::Instrument(idx) => {
                     if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
                         instrument.solo = !instrument.solo;
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.mixer_params = true;
                     }
                 }
                 MixerSelection::Bus(id) => {
                     if let Some(bus) = state.session.bus_mut(id) {
                         bus.solo = !bus.solo;
+                        result.audio_dirty.session = true;
+                        result.audio_dirty.mixer_params = true;
                     }
                 }
                 MixerSelection::Master => {}
@@ -116,7 +132,6 @@ pub(super) fn dispatch_mixer(
                 for (bus_id, level, mute, pan) in bus_updates {
                     let _ = audio.set_bus_mixer_params(bus_id, level, mute, pan);
                 }
-                let _ = audio.update_all_instrument_mixer_params(&state.instruments, &state.session);
             }
         }
         MixerAction::CycleSection => {
@@ -136,6 +151,7 @@ pub(super) fn dispatch_mixer(
                 if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
                     if let Some((send_idx, send)) = instrument.sends.iter_mut().enumerate().find(|(_, s)| s.bus_id == bus_id) {
                         send.level = (send.level + delta).clamp(0.0, 1.0);
+                        result.audio_dirty.instruments = true;
                         if state.automation_recording && state.session.piano_roll.playing {
                             record_target = Some((
                                 AutomationTarget::SendLevel(instrument.id, send_idx),
@@ -147,6 +163,7 @@ pub(super) fn dispatch_mixer(
             }
             if let Some((target, value)) = record_target {
                 record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
             }
         }
         MixerAction::ToggleSend(bus_id) => {
@@ -158,12 +175,13 @@ pub(super) fn dispatch_mixer(
                         if send.enabled && send.level <= 0.0 {
                             send.level = 0.5;
                         }
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.routing = true;
                     }
                 }
             }
-            if audio.is_running() {
-                let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
-            }
         }
     }
+
+    result
 }
