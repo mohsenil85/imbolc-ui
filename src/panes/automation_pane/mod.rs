@@ -1,0 +1,215 @@
+mod input;
+mod rendering;
+
+use std::any::Any;
+
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect as RatatuiRect;
+use ratatui::widgets::{Block, Borders, Widget};
+
+use crate::state::automation::{AutomationLaneId, AutomationTarget};
+use crate::state::AppState;
+use crate::ui::layout_helpers::center_rect;
+use crate::ui::{Action, Color, InputEvent, Keymap, Pane, Style};
+
+/// Focus area within the automation pane
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutomationFocus {
+    LaneList,
+    Timeline,
+}
+
+/// Sub-mode for adding a new lane target
+#[derive(Debug, Clone)]
+enum TargetPickerState {
+    Inactive,
+    Active { options: Vec<AutomationTarget>, cursor: usize },
+}
+
+pub struct AutomationPane {
+    keymap: Keymap,
+    focus: AutomationFocus,
+    // Timeline cursor
+    cursor_tick: u32,
+    cursor_value: f32,
+    // Timeline viewport
+    view_start_tick: u32,
+    zoom_level: u8,
+    snap_to_grid: bool,
+    // Target picker sub-mode
+    target_picker: TargetPickerState,
+}
+
+impl AutomationPane {
+    pub fn new(keymap: Keymap) -> Self {
+        Self {
+            keymap,
+            focus: AutomationFocus::LaneList,
+            cursor_tick: 0,
+            cursor_value: 0.5,
+            view_start_tick: 0,
+            zoom_level: 3,
+            snap_to_grid: true,
+            target_picker: TargetPickerState::Inactive,
+        }
+    }
+
+    fn ticks_per_cell(&self) -> u32 {
+        match self.zoom_level {
+            1 => 60,   // 1/8 beat
+            2 => 120,  // 1/4 beat (sixteenth)
+            3 => 240,  // 1/2 beat (eighth)
+            4 => 480,  // 1 beat
+            5 => 960,  // 2 beats
+            _ => 480,
+        }
+    }
+
+    fn snap_tick(&self, tick: u32) -> u32 {
+        if self.snap_to_grid {
+            let grid = self.ticks_per_cell();
+            (tick / grid) * grid
+        } else {
+            tick
+        }
+    }
+
+    /// Get the currently selected lane id
+    fn selected_lane_id(&self, state: &AppState) -> Option<AutomationLaneId> {
+        state.session.automation.selected().map(|l| l.id)
+    }
+}
+
+impl Pane for AutomationPane {
+    fn id(&self) -> &'static str {
+        "automation"
+    }
+
+    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+        self.handle_action_impl(action, event, state)
+    }
+
+    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+        let rect = center_rect(area, 100.min(area.width), 30.min(area.height));
+
+        // Title
+        let inst_name = state.instruments.selected_instrument()
+            .map(|i| format!("Inst {} ({})", i.id, &i.name))
+            .unwrap_or_else(|| "—".to_string());
+        let title = format!(" Automation: {} ", inst_name);
+
+        let border_color = Color::CYAN;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(ratatui::style::Style::from(Style::new().fg(border_color)))
+            .title_style(ratatui::style::Style::from(Style::new().fg(border_color)));
+        let inner = block.inner(rect);
+        block.render(rect, buf);
+
+        if inner.height < 5 {
+            return;
+        }
+
+        // Split inner area: top half for lane list, bottom half for timeline
+        let lane_list_height = (inner.height / 3).max(3);
+        let timeline_height = inner.height.saturating_sub(lane_list_height + 1);
+
+        let lane_list_area = RatatuiRect::new(inner.x, inner.y, inner.width, lane_list_height);
+        let separator_y = inner.y + lane_list_height;
+        let timeline_area = RatatuiRect::new(inner.x, separator_y + 1, inner.width, timeline_height);
+
+        // Render lane list
+        self.render_lane_list(buf, lane_list_area, state);
+
+        // Separator
+        let sep_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let timeline_title = state.session.automation.selected()
+            .map(|l| {
+                let (min, max) = (l.min_value, l.max_value);
+                format!("─ {} ({:.1}–{:.1}) ", l.target.name(), min, max)
+            })
+            .unwrap_or_else(|| "─".to_string());
+
+        for x in inner.x..inner.x + inner.width {
+            if let Some(cell) = buf.cell_mut((x, separator_y)) {
+                cell.set_char('─').set_style(sep_style);
+            }
+        }
+        // Overlay title on separator
+        let title_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN));
+        for (i, ch) in timeline_title.chars().enumerate() {
+            let x = inner.x + 1 + i as u16;
+            if x >= inner.x + inner.width { break; }
+            if let Some(cell) = buf.cell_mut((x, separator_y)) {
+                cell.set_char(ch).set_style(title_style);
+            }
+        }
+
+        // Render timeline
+        self.render_timeline(buf, timeline_area, state);
+
+        // Render target picker overlay (if active)
+        self.render_target_picker(buf, rect);
+    }
+
+    fn keymap(&self) -> &Keymap {
+        &self.keymap
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use crate::ui::{InputEvent, KeyCode, Modifiers};
+
+    fn dummy_event() -> InputEvent {
+        InputEvent::new(KeyCode::Char('x'), Modifiers::default())
+    }
+
+    #[test]
+    fn automation_pane_id() {
+        let pane = AutomationPane::new(Keymap::new());
+        assert_eq!(pane.id(), "automation");
+    }
+
+    #[test]
+    fn switch_focus_toggles() {
+        let mut pane = AutomationPane::new(Keymap::new());
+        let state = AppState::new();
+        assert_eq!(pane.focus, AutomationFocus::LaneList);
+
+        pane.handle_action("switch_focus", &dummy_event(), &state);
+        assert_eq!(pane.focus, AutomationFocus::Timeline);
+
+        pane.handle_action("switch_focus", &dummy_event(), &state);
+        assert_eq!(pane.focus, AutomationFocus::LaneList);
+    }
+
+    #[test]
+    fn timeline_cursor_moves() {
+        let mut pane = AutomationPane::new(Keymap::new());
+        let state = AppState::new();
+        pane.focus = AutomationFocus::Timeline;
+
+        let start_tick = pane.cursor_tick;
+        pane.handle_action("right", &dummy_event(), &state);
+        assert!(pane.cursor_tick > start_tick);
+
+        pane.handle_action("left", &dummy_event(), &state);
+        assert_eq!(pane.cursor_tick, start_tick);
+    }
+
+    #[test]
+    fn add_lane_opens_target_picker() {
+        let mut pane = AutomationPane::new(Keymap::new());
+        let state = AppState::new();
+        pane.handle_action("add_lane", &dummy_event(), &state);
+        assert!(matches!(pane.target_picker, TargetPickerState::Active { .. }));
+    }
+}
