@@ -211,6 +211,7 @@ pub enum SessionAction {
     ImportVstPlugin(PathBuf, VstPluginKind),
     AdjustHumanizeVelocity(f32),
     AdjustHumanizeTiming(f32),
+    ToggleMasterMute,
 }
 
 /// Actions that can be returned from pane input handling
@@ -228,6 +229,7 @@ pub enum Action {
     Chopper(ChopperAction),
     Automation(AutomationAction),
     VstParam(VstParamAction),
+    AudioFeedback(crate::audio::commands::AudioFeedback),
     /// Pane signals: pop piano_mode/pad_mode layer
     ExitPerformanceMode,
     /// Push a named layer onto the layer stack

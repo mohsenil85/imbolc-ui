@@ -93,7 +93,8 @@ impl PianoRollState {
             if let Some(pos) = track.notes.iter().position(|n| n.pitch == pitch && n.tick == tick) {
                 track.notes.remove(pos);
             } else {
-                track.notes.push(Note {
+                let insert_pos = track.notes.partition_point(|n| n.tick < tick);
+                track.notes.insert(insert_pos, Note {
                     tick,
                     duration,
                     pitch,
@@ -207,5 +208,17 @@ mod tests {
     fn beat_to_tick_uses_ticks_per_beat() {
         let pr = PianoRollState::new();
         assert_eq!(pr.beat_to_tick(2), pr.ticks_per_beat * 2);
+    }
+
+    #[test]
+    fn notes_stay_sorted_after_toggle() {
+        let mut pr = PianoRollState::new();
+        pr.add_track(1);
+        pr.toggle_note(0, 60, 480, 480, 100);
+        pr.toggle_note(0, 62, 0, 480, 100);
+        pr.toggle_note(0, 64, 240, 480, 100);
+        let track = pr.track_at(0).unwrap();
+        let ticks: Vec<u32> = track.notes.iter().map(|n| n.tick).collect();
+        assert_eq!(ticks, vec![0, 240, 480]);
     }
 }

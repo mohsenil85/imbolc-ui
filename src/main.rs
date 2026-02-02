@@ -14,7 +14,7 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioHandle;
-use audio::commands::{AudioCmd, AudioFeedback};
+use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
 use panes::{AddEffectPane, AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
@@ -358,101 +358,10 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
         // Drain audio feedback
         for feedback in audio.drain_feedback() {
-            match feedback {
-                AudioFeedback::PlayheadPosition(playhead) => {
-                    state.session.piano_roll.playhead = playhead;
-                }
-                AudioFeedback::BpmUpdate(bpm) => {
-                    state.session.piano_roll.bpm = bpm;
-                }
-                AudioFeedback::DrumSequencerStep { instrument_id, step } => {
-                    if let Some(inst) = state.instruments.instrument_mut(instrument_id) {
-                        if let Some(seq) = inst.drum_sequencer.as_mut() {
-                            seq.current_step = step;
-                            seq.last_played_step = Some(step);
-                        }
-                    }
-                }
-                AudioFeedback::ServerStatus { status, message, server_running } => {
-                    if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
-                        server.set_status(status, &message);
-                        server.set_server_running(server_running);
-                    }
-                }
-                AudioFeedback::RecordingState { is_recording, elapsed_secs } => {
-                    state.recording = is_recording;
-                    state.recording_secs = elapsed_secs;
-                }
-                AudioFeedback::RecordingStopped(path) => {
-                    state.pending_recording_path = Some(path);
-                }
-                AudioFeedback::CompileResult(result) => {
-                    if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
-                        match result {
-                            Ok(msg) => server.set_status(audio.status(), &msg),
-                            Err(e) => server.set_status(audio.status(), &e),
-                        }
-                    }
-                }
-                AudioFeedback::PendingBufferFreed => {
-                    if let Some(path) = state.pending_recording_path.take() {
-                        let peaks = dispatch::compute_waveform_peaks(&path.to_string_lossy()).0;
-                        if !peaks.is_empty() {
-                            if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
-                                wf.recorded_waveform = Some(peaks);
-                            }
-                            panes.switch_to("waveform", &state);
-                        }
-                    }
-                }
-                AudioFeedback::VstParamsDiscovered { instrument_id, target, vst_plugin_id, params } => {
-                    // Update plugin registry with discovered param specs
-                    if let Some(plugin) = state.session.vst_plugins.get_mut(vst_plugin_id) {
-                        plugin.params.clear();
-                        for (index, name, label, default) in &params {
-                            plugin.params.push(state::VstParamSpec {
-                                index: *index,
-                                name: name.clone(),
-                                default: *default,
-                                label: label.clone(),
-                            });
-                        }
-                    }
-                    // Initialize per-instance param values from defaults
-                    if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
-                        match target {
-                            action::VstTarget::Source => {
-                                instrument.vst_param_values.clear();
-                                for (index, _, _, default) in &params {
-                                    instrument.vst_param_values.push((*index, *default));
-                                }
-                            }
-                            action::VstTarget::Effect(idx) => {
-                                if let Some(effect) = instrument.effects.get_mut(idx) {
-                                    effect.vst_param_values.clear();
-                                    for (index, _, _, default) in &params {
-                                        effect.vst_param_values.push((*index, *default));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                AudioFeedback::VstStateSaved { instrument_id, target, path } => {
-                    if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
-                        match target {
-                            action::VstTarget::Source => {
-                                instrument.vst_state_path = Some(path);
-                            }
-                            action::VstTarget::Effect(idx) => {
-                                if let Some(effect) = instrument.effects.get_mut(idx) {
-                                    effect.vst_state_path = Some(path);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            let action = Action::AudioFeedback(feedback);
+            let r = dispatch::dispatch_action(&action, &mut state, &mut audio, &io_tx);
+            pending_audio_dirty.merge(r.audio_dirty);
+            apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame);
         }
 
         // Visual updates and rendering at ~60fps
@@ -492,7 +401,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             // Update waveform cache for waveform pane
             if panes.active().id() == "waveform" {
                 if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
-                    if wf.recorded_waveform.is_none() {
+                    if state.recorded_waveform_peaks.is_none() {
                         wf.audio_in_waveform = state.instruments.selected_instrument()
                             .filter(|s| s.source.is_audio_input() || s.source.is_bus_in())
                             .map(|s| audio.audio_in_waveform(s.id));
@@ -501,8 +410,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             } else {
                 if let Some(wf) = panes.get_pane_mut::<WaveformPane>("waveform") {
                     wf.audio_in_waveform = None;
-                    wf.recorded_waveform = None;
                 }
+                state.recorded_waveform_peaks = None;
             }
 
             // Render
@@ -670,9 +579,10 @@ fn handle_global_action(
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "master_mute" => {
-            state.session.master_mute = !state.session.master_mute;
-            pending_audio_dirty.session = true;
-            pending_audio_dirty.mixer_params = true;
+            let r = dispatch::dispatch_action(
+                &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
+            pending_audio_dirty.merge(r.audio_dirty);
+            apply_dispatch_result(r, state, panes, app_frame);
         }
         "record_master" => {
             let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio, io_tx);
