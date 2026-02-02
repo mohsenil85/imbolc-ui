@@ -14,8 +14,8 @@ mod ui;
 use std::time::{Duration, Instant};
 
 use audio::AudioHandle;
-use audio::commands::AudioFeedback;
-use action::AudioDirty;
+use audio::commands::{AudioCmd, AudioFeedback};
+use action::{AudioDirty, IoFeedback};
 use panes::{AddEffectPane, AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
@@ -46,6 +46,7 @@ enum InstrumentSelectMode {
 }
 
 fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
+    let (io_tx, io_rx) = std::sync::mpsc::channel::<IoFeedback>();
     let config = config::Config::load();
     let mut state = AppState::new_with_defaults(config.defaults());
     state.keyboard_layout = config.keyboard_layout();
@@ -152,6 +153,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 &mut select_mode,
                                 &mut pending_audio_dirty,
                                 &mut layer_stack,
+                                &io_tx,
                             ) {
                                 GlobalResult::Quit => break,
                                 GlobalResult::Handled => continue,
@@ -209,7 +211,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
-            let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio);
+            let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
             if dispatch_result.quit {
                 break;
             }
@@ -220,6 +222,138 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         if pending_audio_dirty.any() {
             audio.flush_dirty(&state, pending_audio_dirty);
             pending_audio_dirty.clear();
+        }
+
+        // Drain I/O feedback
+        while let Ok(feedback) = io_rx.try_recv() {
+            match feedback {
+                IoFeedback::SaveComplete { id, result } => {
+                    if id != state.io_generation.save {
+                        continue;
+                    }
+                    let status = match result {
+                        Ok(name) => {
+                            app_frame.set_project_name(name);
+                            "Saved project".to_string()
+                        }
+                        Err(e) => format!("Save failed: {}", e),
+                    };
+                    if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                        server.set_status(audio.status(), &status);
+                    }
+                }
+                IoFeedback::LoadComplete { id, result } => {
+                    if id != state.io_generation.load {
+                        continue;
+                    }
+                     match result {
+                         Ok((new_session, new_instruments, name)) => {
+                             state.session = new_session;
+                             state.instruments = new_instruments;
+                             app_frame.set_project_name(name);
+                             
+                             if state.instruments.instruments.is_empty() {
+                                 panes.switch_to("add", &state);
+                             }
+
+                             let dirty = AudioDirty::all();
+                             pending_audio_dirty.merge(dirty);
+                             
+                             // Queue VST state restores
+                             for inst in &state.instruments.instruments {
+                                if let (state::SourceType::Vst(_), Some(ref path)) = (&inst.source, &inst.vst_state_path) {
+                                    let _ = audio.send_cmd(audio::commands::AudioCmd::LoadVstState {
+                                        instrument_id: inst.id,
+                                        target: action::VstTarget::Source,
+                                        path: path.clone(),
+                                    });
+                                }
+                                for (idx, effect) in inst.effects.iter().enumerate() {
+                                    if let (state::EffectType::Vst(_), Some(ref path)) = (&effect.effect_type, &effect.vst_state_path) {
+                                        let _ = audio.send_cmd(audio::commands::AudioCmd::LoadVstState {
+                                            instrument_id: inst.id,
+                                            target: action::VstTarget::Effect(idx),
+                                            path: path.clone(),
+                                        });
+                                    }
+                                }
+                             }
+
+                             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                                 server.set_status(audio.status(), "Project loaded");
+                             }
+                         }
+                         Err(e) => {
+                             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                                 server.set_status(audio.status(), &format!("Load failed: {}", e));
+                             }
+                         }
+                     }
+                }
+                IoFeedback::ImportSynthDefComplete { id, result } => {
+                    if id != state.io_generation.import_synthdef {
+                        continue;
+                    }
+                     match result {
+                         Ok((custom, synthdef_name, scsyndef_path)) => {
+                             // Register it
+                             let _id = state.session.custom_synthdefs.add(custom);
+                             pending_audio_dirty.session = true;
+
+                             if audio.is_running() {
+                                 if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                                     server.set_status(audio.status(), &format!("Loading custom synthdef: {}", synthdef_name));
+                                 }
+
+                                 let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                                 let load_path = scsyndef_path.clone();
+                                 let io_tx = io_tx.clone();
+                                 let load_id = id;
+                                 let name = synthdef_name.clone();
+
+                                 match audio.send_cmd(AudioCmd::LoadSynthDefFile { path: load_path, reply: reply_tx }) {
+                                     Ok(()) => {
+                                         std::thread::spawn(move || {
+                                             let result = match reply_rx.recv() {
+                                                 Ok(Ok(())) => Ok(name),
+                                                 Ok(Err(e)) => Err(e),
+                                                 Err(_) => Err("Audio thread disconnected".to_string()),
+                                             };
+                                             let _ = io_tx.send(IoFeedback::ImportSynthDefLoaded { id: load_id, result });
+                                         });
+                                     }
+                                     Err(e) => {
+                                         if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                                             server.set_status(audio.status(), &format!("Failed to load synthdef: {}", e));
+                                         }
+                                     }
+                                 }
+                             } else {
+                                 if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                                     server.set_status(audio.status(), &format!("Imported custom synthdef: {}", synthdef_name));
+                                 }
+                             }
+                         }
+                         Err(e) => {
+                             if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                                 server.set_status(audio.status(), &format!("Import error: {}", e));
+                             }
+                         }
+                     }
+                }
+                IoFeedback::ImportSynthDefLoaded { id, result } => {
+                    if id != state.io_generation.import_synthdef {
+                        continue;
+                    }
+                    let status = match result {
+                        Ok(name) => format!("Loaded custom synthdef: {}", name),
+                        Err(e) => format!("Failed to load synthdef: {}", e),
+                    };
+                    if let Some(server) = panes.get_pane_mut::<ServerPane>("server") {
+                        server.set_status(audio.status(), &status);
+                    }
+                }
+            }
         }
 
         // Drain audio feedback
@@ -478,6 +612,7 @@ fn handle_global_action(
     select_mode: &mut InstrumentSelectMode,
     pending_audio_dirty: &mut AudioDirty,
     layer_stack: &mut LayerStack,
+    io_tx: &std::sync::mpsc::Sender<IoFeedback>,
 ) -> GlobalResult {
     // Helper to capture current view state
     let capture_view = |panes: &mut PaneManager, state: &AppState| -> ViewState {
@@ -525,12 +660,12 @@ fn handle_global_action(
     match action {
         "quit" => return GlobalResult::Quit,
         "save" => {
-            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio);
+            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "load" => {
-            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio);
+            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
         }
@@ -540,7 +675,7 @@ fn handle_global_action(
             pending_audio_dirty.mixer_params = true;
         }
         "record_master" => {
-            let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio);
+            let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
         }
@@ -700,7 +835,7 @@ fn handle_global_action(
         "delete_instrument" => {
             if let Some(instrument) = state.instruments.selected_instrument() {
                 let id = instrument.id;
-                let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio);
+                let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
                 apply_dispatch_result(r, state, panes, app_frame);
                 // Re-sync edit pane after deletion

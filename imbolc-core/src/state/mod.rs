@@ -58,6 +58,31 @@ impl Default for VisualizationState {
     }
 }
 
+/// Generation counters for async I/O results (ignore stale completions).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IoGeneration {
+    pub save: u64,
+    pub load: u64,
+    pub import_synthdef: u64,
+}
+
+impl IoGeneration {
+    pub fn next_save(&mut self) -> u64 {
+        self.save = self.save.wrapping_add(1);
+        self.save
+    }
+
+    pub fn next_load(&mut self) -> u64 {
+        self.load = self.load.wrapping_add(1);
+        self.load
+    }
+
+    pub fn next_import_synthdef(&mut self) -> u64 {
+        self.import_synthdef = self.import_synthdef.wrapping_add(1);
+        self.import_synthdef
+    }
+}
+
 /// Top-level application state, owned by main.rs and passed to panes by reference.
 pub struct AppState {
     pub session: SessionState,
@@ -68,6 +93,7 @@ pub struct AppState {
     pub recording: bool,
     pub recording_secs: u64,
     pub automation_recording: bool,
+    pub io_generation: IoGeneration,
     /// Real-time visualization data from audio analysis
     pub visualization: VisualizationState,
 }
@@ -83,6 +109,7 @@ impl AppState {
             recording: false,
             recording_secs: 0,
             automation_recording: false,
+            io_generation: IoGeneration::default(),
             visualization: VisualizationState::default(),
         }
     }
@@ -96,6 +123,7 @@ impl AppState {
             recording: false,
             recording_secs: 0,
             automation_recording: false,
+            io_generation: IoGeneration::default(),
             visualization: VisualizationState::default(),
         }
     }

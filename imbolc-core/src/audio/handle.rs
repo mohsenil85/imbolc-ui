@@ -73,7 +73,7 @@ impl AudioHandle {
         }
     }
 
-    pub(crate) fn send_cmd(&self, cmd: AudioCmd) -> Result<(), String> {
+    pub fn send_cmd(&self, cmd: AudioCmd) -> Result<(), String> {
         self.cmd_tx
             .send(cmd)
             .map_err(|_| "Audio thread disconnected".to_string())

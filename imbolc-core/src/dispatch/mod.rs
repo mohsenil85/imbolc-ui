@@ -9,11 +9,12 @@ mod session;
 mod vst_param;
 
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::audio::AudioHandle;
 use crate::state::AppState;
-use crate::action::{Action, DispatchResult};
+use crate::action::{Action, DispatchResult, IoFeedback};
 
 pub use helpers::compute_waveform_peaks;
 
@@ -45,6 +46,7 @@ pub fn dispatch_action(
     action: &Action,
     state: &mut AppState,
     audio: &mut AudioHandle,
+    io_tx: &Sender<IoFeedback>,
 ) -> DispatchResult {
     let result = match action {
         Action::Quit => DispatchResult::with_quit(),
@@ -53,7 +55,7 @@ pub fn dispatch_action(
         Action::Mixer(a) => mixer::dispatch_mixer(a, state, audio),
         Action::PianoRoll(a) => piano_roll::dispatch_piano_roll(a, state, audio),
         Action::Server(a) => server::dispatch_server(a, state, audio),
-        Action::Session(a) => session::dispatch_session(a, state, audio),
+        Action::Session(a) => session::dispatch_session(a, state, audio, io_tx),
         Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio),
         Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio),
         Action::Automation(a) => automation::dispatch_automation(a, state, audio),

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -7,6 +8,7 @@ use std::time::Duration;
 
 use super::{AudioEngine, ServerStatus, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, GROUP_RECORD};
 use crate::audio::osc_client::{AudioMonitor, OscClient};
+use regex::Regex;
 
 impl AudioEngine {
     #[allow(dead_code)]
@@ -201,27 +203,39 @@ impl AudioEngine {
             Err(_) => return false,
         };
 
-        let mut found_any = false;
-        let entries = match fs::read_dir(dir) {
-            Ok(e) => e,
+        let content = match fs::read_to_string(scd_path) {
+            Ok(c) => c,
             Err(_) => return false,
         };
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map_or(false, |e| e == "scsyndef") {
-                found_any = true;
-                let def_mtime = match fs::metadata(&path).and_then(|m| m.modified()) {
-                    Ok(t) => t,
-                    Err(_) => return false,
-                };
-                if def_mtime <= scd_mtime {
-                    return false;
-                }
+        let name_re = match Regex::new(r#"SynthDef\s*\(\s*[\\"]([\w]+)"#) {
+            Ok(re) => re,
+            Err(_) => return false,
+        };
+
+        let mut names: HashSet<String> = HashSet::new();
+        for caps in name_re.captures_iter(&content) {
+            if let Some(name) = caps.get(1).map(|m| m.as_str().to_string()) {
+                names.insert(name);
             }
         }
 
-        found_any
+        if names.is_empty() {
+            return false;
+        }
+
+        for name in names {
+            let path = dir.join(format!("{name}.scsyndef"));
+            let def_mtime = match fs::metadata(&path).and_then(|m| m.modified()) {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            if def_mtime <= scd_mtime {
+                return false;
+            }
+        }
+
+        true
     }
 
     pub fn poll_compile_result(&mut self) -> Option<Result<String, String>> {

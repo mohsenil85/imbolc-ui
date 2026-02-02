@@ -214,13 +214,12 @@ pub(super) fn find_sclang() -> Option<PathBuf> {
     None
 }
 
-/// Compile a .scd file using sclang and load it into scsynth
-pub(super) fn compile_and_load_synthdef(
+/// Compile a .scd file using sclang
+pub fn compile_synthdef(
     scd_path: &std::path::Path,
     output_dir: &std::path::Path,
     synthdef_name: &str,
-    audio: &mut AudioHandle,
-) -> Result<(), String> {
+) -> Result<PathBuf, String> {
     // Find sclang
     let sclang = find_sclang().ok_or_else(|| {
         "sclang not found. Install SuperCollider or add sclang to PATH.".to_string()
@@ -295,16 +294,14 @@ pub(super) fn compile_and_load_synthdef(
     // Clean up temp file
     let _ = std::fs::remove_file(&temp_script);
 
-    // Load the .scsyndef into scsynth if connected
-    if audio.is_running() {
-        let scsyndef_path = output_dir.join(format!("{}.scsyndef", synthdef_name));
-        if scsyndef_path.exists() {
-            audio.load_synthdef_file(&scsyndef_path)?;
-        } else {
-            // Try loading all synthdefs from the directory as fallback
-            audio.load_synthdefs(output_dir)?;
-        }
+    let scsyndef_path = output_dir.join(format!("{}.scsyndef", synthdef_name));
+    if scsyndef_path.exists() {
+        Ok(scsyndef_path)
+    } else {
+        // Fallback: assume success if no errors, but return dir if specific file missing?
+        // Actually, if file is missing, something went wrong despite no error logs.
+        // But for backward compatibility with load_synthdefs logic which takes a dir:
+        Ok(output_dir.to_path_buf())
     }
-
-    Ok(())
 }
+

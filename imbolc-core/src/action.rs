@@ -3,6 +3,17 @@ use std::path::PathBuf;
 use crate::audio::ServerStatus;
 use crate::state::{EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
+use crate::state::custom_synthdef::CustomSynthDef;
+use crate::state::instrument_state::InstrumentState;
+use crate::state::session::SessionState;
+
+#[derive(Debug)]
+pub enum IoFeedback {
+    SaveComplete { id: u64, result: Result<String, String> },
+    LoadComplete { id: u64, result: Result<(SessionState, InstrumentState, String), String> },
+    ImportSynthDefComplete { id: u64, result: Result<(CustomSynthDef, String, PathBuf), String> },
+    ImportSynthDefLoaded { id: u64, result: Result<String, String> },
+}
 
 /// Data carried by InstrumentAction::Update to apply edits without dispatch reading pane state
 #[derive(Debug, Clone)]

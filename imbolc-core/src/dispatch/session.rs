@@ -1,83 +1,74 @@
+use std::sync::mpsc::Sender;
 use crate::audio::AudioHandle;
-use crate::audio::commands::AudioCmd;
 use crate::scd_parser;
-use crate::state::{AppState, CustomSynthDef, EffectType, ParamSpec, SourceType};
-use crate::action::{DispatchResult, NavIntent, SessionAction, VstTarget};
+use crate::state::{AppState, CustomSynthDef, ParamSpec};
+use crate::action::{DispatchResult, IoFeedback, NavIntent, SessionAction};
 
-use super::server::{compile_and_load_synthdef, config_synthdefs_dir};
+use super::server::{compile_synthdef, config_synthdefs_dir};
 use super::default_rack_path;
 
 pub(super) fn dispatch_session(
     action: &SessionAction,
     state: &mut AppState,
     audio: &mut AudioHandle,
+    io_tx: &Sender<IoFeedback>,
 ) -> DispatchResult {
     let mut result = DispatchResult::none();
 
     match action {
         SessionAction::Save => {
             let path = default_rack_path();
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            // Sync piano roll time_signature from session
+            // Sync piano roll time_signature from session before cloning
             state.session.piano_roll.time_signature = state.session.time_signature;
-            if let Err(e) = crate::state::persistence::save_project(&path, &state.session, &state.instruments) {
-                eprintln!("Failed to save: {}", e);
-            }
-            let name = path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("default")
-                .to_string();
-            result.project_name = Some(name);
+
+            let session = state.session.clone();
+            let instruments = state.instruments.clone();
+            let tx = io_tx.clone();
+            let save_id = state.io_generation.next_save();
+
+            std::thread::spawn(move || {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                
+                let res = crate::state::persistence::save_project(&path, &session, &instruments)
+                    .map(|_| {
+                        path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("default")
+                            .to_string()
+                    })
+                    .map_err(|e| e.to_string());
+                
+                let _ = tx.send(IoFeedback::SaveComplete { id: save_id, result: res });
+            });
+            
+            result.push_status(audio.status(), "Saving...");
         }
         SessionAction::Load => {
             let path = default_rack_path();
-            if path.exists() {
-                match crate::state::persistence::load_project(&path) {
-                    Ok((loaded_session, loaded_instruments)) => {
-                        state.session = loaded_session;
-                        state.instruments = loaded_instruments;
-                        let name = path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("default")
-                            .to_string();
-                        result.project_name = Some(name);
-                        if state.instruments.instruments.is_empty() {
-                            result.nav.push(NavIntent::SwitchTo("add"));
-                        }
-                        result.audio_dirty.instruments = true;
-                        result.audio_dirty.session = true;
-                        result.audio_dirty.piano_roll = true;
-                        result.audio_dirty.automation = true;
-                        result.audio_dirty.routing = true;
-                        result.audio_dirty.mixer_params = true;
+            let tx = io_tx.clone();
+            let load_id = state.io_generation.next_load();
 
-                        // Queue VST state restores after routing rebuild
-                        for inst in &state.instruments.instruments {
-                            if let (SourceType::Vst(_), Some(ref path)) = (&inst.source, &inst.vst_state_path) {
-                                let _ = audio.send_cmd(AudioCmd::LoadVstState {
-                                    instrument_id: inst.id,
-                                    target: VstTarget::Source,
-                                    path: path.clone(),
-                                });
-                            }
-                            for (idx, effect) in inst.effects.iter().enumerate() {
-                                if let (EffectType::Vst(_), Some(ref path)) = (&effect.effect_type, &effect.vst_state_path) {
-                                    let _ = audio.send_cmd(AudioCmd::LoadVstState {
-                                        instrument_id: inst.id,
-                                        target: VstTarget::Effect(idx),
-                                        path: path.clone(),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to load: {}", e);
-                    }
-                }
-            }
+            std::thread::spawn(move || {
+                let res = if path.exists() {
+                    crate::state::persistence::load_project(&path)
+                        .map(|(session, instruments)| {
+                            let name = path.file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("default")
+                                .to_string();
+                            (session, instruments, name)
+                        })
+                        .map_err(|e| e.to_string())
+                } else {
+                    Err("Project file not found".to_string())
+                };
+                
+                let _ = tx.send(IoFeedback::LoadComplete { id: load_id, result: res });
+            });
+            
+            result.push_status(audio.status(), "Loading...");
         }
         SessionAction::UpdateSession(ref settings) => {
             state.session.apply_musical_settings(settings);
@@ -98,76 +89,69 @@ pub(super) fn dispatch_session(
             result.push_nav(NavIntent::OpenFileBrowser(file_action.clone()));
         }
         SessionAction::ImportCustomSynthDef(ref path) => {
-            // Read and parse the .scd file
-            match std::fs::read_to_string(path) {
-                Ok(content) => {
-                    match scd_parser::parse_scd_file(&content) {
-                        Ok(parsed) => {
-                            // Create params with inferred ranges
-                            let params: Vec<ParamSpec> = parsed
-                                .params
-                                .iter()
-                                .map(|(name, default)| {
-                                    let (min, max) =
-                                        scd_parser::infer_param_range(name, *default);
-                                    ParamSpec {
-                                        name: name.clone(),
-                                        default: *default,
-                                        min,
-                                        max,
-                                    }
-                                })
-                                .collect();
+            let path = path.clone();
+            let tx = io_tx.clone();
+            let import_id = state.io_generation.next_import_synthdef();
+            
+            std::thread::spawn(move || {
+                // Read and parse the .scd file
+                let res = match std::fs::read_to_string(&path) {
+                    Ok(content) => {
+                        match scd_parser::parse_scd_file(&content) {
+                            Ok(parsed) => {
+                                // Create params with inferred ranges
+                                let params: Vec<ParamSpec> = parsed
+                                    .params
+                                    .iter()
+                                    .map(|(name, default)| {
+                                        let (min, max) =
+                                            scd_parser::infer_param_range(name, *default);
+                                        ParamSpec {
+                                            name: name.clone(),
+                                            default: *default,
+                                            min,
+                                            max,
+                                        }
+                                    })
+                                    .collect();
 
-                            // Create the custom synthdef entry
-                            let synthdef_name = parsed.name.clone();
-                            let custom = CustomSynthDef {
-                                id: 0, // Will be set by registry.add()
-                                name: parsed.name.clone(),
-                                synthdef_name: synthdef_name.clone(),
-                                source_path: path.clone(),
-                                params,
-                            };
+                                // Create the custom synthdef entry
+                                let synthdef_name = parsed.name.clone();
+                                let custom = CustomSynthDef {
+                                    id: 0, // Will be set by registry.add()
+                                    name: parsed.name.clone(),
+                                    synthdef_name: synthdef_name.clone(),
+                                    source_path: path.clone(),
+                                    params,
+                                };
 
-                            // Register it
-                            let _id = state.session.custom_synthdefs.add(custom);
-                            result.audio_dirty.session = true;
+                                // Copy the .scd file to the config synthdefs directory
+                                let config_dir = config_synthdefs_dir();
+                                let _ = std::fs::create_dir_all(&config_dir);
 
-                            // Copy the .scd file to the config synthdefs directory
-                            let config_dir = config_synthdefs_dir();
-                            let _ = std::fs::create_dir_all(&config_dir);
-
-                            // Copy .scd file
-                            if let Some(filename) = path.file_name() {
-                                let dest = config_dir.join(filename);
-                                let _ = std::fs::copy(path, &dest);
-                            }
-
-                            // Compile and load the synthdef
-                            match compile_and_load_synthdef(path, &config_dir, &synthdef_name, audio) {
-                                Ok(_) => {
-                                    result.push_status(audio.status(), &format!("Loaded custom synthdef: {}", synthdef_name));
+                                // Copy .scd file
+                                if let Some(filename) = path.file_name() {
+                                    let dest = config_dir.join(filename);
+                                    let _ = std::fs::copy(&path, &dest);
                                 }
-                                Err(e) => {
-                                    eprintln!("Failed to compile/load synthdef: {}", e);
-                                    result.push_status(audio.status(), &format!("Import error: {}", e));
+
+                                // Compile the synthdef
+                                match compile_synthdef(&path, &config_dir, &synthdef_name) {
+                                    Ok(scsyndef_path) => Ok((custom, synthdef_name, scsyndef_path)),
+                                    Err(e) => Err(format!("Failed to compile synthdef: {}", e)),
                                 }
                             }
-
-                            // Pop back to the pane that opened the file browser
-                            result.push_nav(NavIntent::Pop);
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to parse .scd file: {}", e);
-                            result.push_nav(NavIntent::Pop);
+                            Err(e) => Err(format!("Failed to parse .scd file: {}", e)),
                         }
                     }
-                }
-                Err(e) => {
-                    eprintln!("Failed to read .scd file: {}", e);
-                    result.push_nav(NavIntent::Pop);
-                }
-            }
+                    Err(e) => Err(format!("Failed to read .scd file: {}", e)),
+                };
+                
+                let _ = tx.send(IoFeedback::ImportSynthDefComplete { id: import_id, result: res });
+            });
+
+            result.push_status(audio.status(), "Importing SynthDef...");
+            result.push_nav(NavIntent::Pop);
         }
         SessionAction::AdjustHumanizeVelocity(delta) => {
             state.session.humanize_velocity = (state.session.humanize_velocity + delta).clamp(0.0, 1.0);
