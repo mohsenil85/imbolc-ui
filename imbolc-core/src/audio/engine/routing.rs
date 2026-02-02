@@ -1,6 +1,6 @@
 use super::AudioEngine;
 use super::{InstrumentNodes, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, VST_UGEN_INDEX};
-use crate::state::{CustomSynthDefRegistry, EffectType, FilterType, InstrumentId, InstrumentState, ParamValue, SessionState, SourceType};
+use crate::state::{CustomSynthDefRegistry, EffectType, FilterType, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState, SourceType};
 
 impl AudioEngine {
     pub(super) fn source_synth_def(source: SourceType, registry: &CustomSynthDefRegistry) -> String {
@@ -214,11 +214,16 @@ impl AudioEngine {
                 self.next_node_id += 1;
                 let filter_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "filter_out");
 
-                // Determine if LFO should modulate the filter cutoff
-                let cutoff_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == crate::state::LfoTarget::FilterCutoff {
+                // Determine if LFO should modulate filter cutoff or resonance
+                let cutoff_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::FilterCutoff {
                     lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
                 } else {
-                    -1.0 // No modulation
+                    -1.0
+                };
+                let res_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::FilterResonance {
+                    lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
+                } else {
+                    -1.0
                 };
 
                 let params = vec![
@@ -227,6 +232,7 @@ impl AudioEngine {
                     ("cutoff".to_string(), filter.cutoff.value),
                     ("resonance".to_string(), filter.resonance.value),
                     ("cutoff_mod_in".to_string(), cutoff_mod_bus),
+                    ("res_mod_in".to_string(), res_mod_bus),
                 ];
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
@@ -294,6 +300,27 @@ impl AudioEngine {
                     params.push((p.name.clone(), val));
                 }
 
+                // Inject LFO mod bus if targeting this effect type
+                if instrument.lfo.enabled {
+                    if let Some(lfo_bus) = lfo_control_bus {
+                        match (instrument.lfo.target, effect.effect_type) {
+                            (LfoTarget::DelayTime, EffectType::Delay) => {
+                                params.push(("time_mod_in".to_string(), lfo_bus as f32));
+                            }
+                            (LfoTarget::DelayFeedback, EffectType::Delay) => {
+                                params.push(("feedback_mod_in".to_string(), lfo_bus as f32));
+                            }
+                            (LfoTarget::ReverbMix, EffectType::Reverb) => {
+                                params.push(("mix_mod_in".to_string(), lfo_bus as f32));
+                            }
+                            (LfoTarget::GateRate, EffectType::Gate) => {
+                                params.push(("rate_mod_in".to_string(), lfo_bus as f32));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(
                     Self::effect_synth_def(effect.effect_type),
@@ -325,11 +352,19 @@ impl AudioEngine {
                 self.next_node_id += 1;
                 let any_solo = state.any_instrument_solo();
                 let mute = if any_solo { !instrument.solo } else { instrument.mute || session.master_mute };
+
+                let pan_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::Pan {
+                    lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
+                } else {
+                    -1.0
+                };
+
                 let params = vec![
                     ("in".to_string(), current_bus as f32),
                     ("level".to_string(), instrument.level * session.master_level),
                     ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
                     ("pan".to_string(), instrument.pan),
+                    ("pan_mod_in".to_string(), pan_mod_bus),
                 ];
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
@@ -361,6 +396,15 @@ impl AudioEngine {
             // Get the instrument's source_out bus (where voices sum into)
             let instrument_audio_bus = self.bus_allocator.get_audio_bus(instrument.id, "source_out").unwrap_or(16);
 
+            // Look up LFO bus for send level modulation
+            let send_lfo_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::SendLevel {
+                self.bus_allocator.get_control_bus(instrument.id, "lfo_out")
+                    .map(|b| b as f32)
+                    .unwrap_or(-1.0)
+            } else {
+                -1.0
+            };
+
             for send in &instrument.sends {
                 if !send.enabled || send.level <= 0.0 {
                     continue;
@@ -368,11 +412,14 @@ impl AudioEngine {
                 if let Some(&bus_audio) = self.bus_audio_buses.get(&send.bus_id) {
                     let node_id = self.next_node_id;
                     self.next_node_id += 1;
-                    let params = vec![
+                    let mut params = vec![
                         ("in".to_string(), instrument_audio_bus as f32),
                         ("out".to_string(), bus_audio as f32),
                         ("level".to_string(), send.level),
                     ];
+                    if send_lfo_bus >= 0.0 {
+                        params.push(("level_mod_in".to_string(), send_lfo_bus));
+                    }
                     if let Some(ref client) = self.client {
                         client
                             .create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)

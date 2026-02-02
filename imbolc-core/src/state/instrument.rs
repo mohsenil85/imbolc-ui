@@ -845,26 +845,9 @@ impl LfoShape {
     }
 }
 
-// TODO: Currently only FilterCutoff is wired up in the audio engine.
-// To implement each target, add a `*_mod_in` param to the relevant SynthDef,
-// then wire it up in AudioEngine::rebuild_instrument_routing.
-//
-// Implementation notes per target:
-//   FilterCutoff   - DONE (filter SynthDefs have cutoff_mod_in)
-//   FilterResonance- Add res_mod_in to filter SynthDefs
-//   Amplitude      - Add amp_mod_in to oscillator SynthDefs, multiply with amp
-//   Pitch          - Add freq_mod_in to oscillators, multiply freq by 2^(mod) for semitones
-//   Pan            - Add pan_mod_in to imbolc_output, add to pan and clip
-//   PulseWidth     - Add width_mod_in to imbolc_sqr only, add to pulse width
-//   SampleRate     - Add rate_mod_in to imbolc_sampler, multiply with rate
-//   DelayTime      - Add time_mod_in to imbolc_delay
-//   DelayFeedback  - Add feedback_mod_in to imbolc_delay
-//   ReverbMix      - Add mix_mod_in to imbolc_reverb
-//   GateRate       - Add rate_mod_in to imbolc_gate (meta-modulation!)
-//   SendLevel      - Add level_mod_in to imbolc_send
-//   Detune         - Add detune_mod_in to oscillators, slight pitch offset
-//   Attack         - Add attack_mod_in to oscillators (unusual but possible)
-//   Release        - Add release_mod_in to oscillators
+// All LFO targets are wired: each target has a corresponding *_mod_in param
+// in the relevant SynthDef, connected via routing.rs (routing-level targets)
+// or voices.rs (voice-level targets).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LfoTarget {
     FilterCutoff,

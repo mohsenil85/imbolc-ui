@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::{AudioEngine, VoiceChain, MAX_VOICES_PER_INSTRUMENT, GROUP_SOURCES};
-use crate::state::{BufferId, InstrumentId, InstrumentState, ParamValue, SessionState};
+use crate::state::{BufferId, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState};
 
 impl AudioEngine {
     /// Spawn a voice for an instrument
@@ -144,6 +144,39 @@ impl AudioEngine {
             // Output to source_out_bus
             args.push(rosc::OscType::String("out".to_string()));
             args.push(rosc::OscType::Float(source_out_bus as f32));
+
+            // Wire LFO mod inputs based on target
+            if instrument.lfo.enabled {
+                if let Some(lfo_bus) = self.bus_allocator.get_control_bus(instrument_id, "lfo_out") {
+                    match instrument.lfo.target {
+                        LfoTarget::Amplitude => {
+                            args.push(rosc::OscType::String("amp_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Pitch => {
+                            args.push(rosc::OscType::String("pitch_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Detune => {
+                            args.push(rosc::OscType::String("detune_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::PulseWidth => {
+                            args.push(rosc::OscType::String("width_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Attack => {
+                            args.push(rosc::OscType::String("attack_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Release => {
+                            args.push(rosc::OscType::String("release_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        _ => {} // Routing-level targets handled in routing.rs
+                    }
+                }
+            }
 
             messages.push(rosc::OscMessage {
                 addr: "/s_new".to_string(),
@@ -339,6 +372,31 @@ impl AudioEngine {
             // Output to source_out_bus
             args.push(rosc::OscType::String("out".to_string()));
             args.push(rosc::OscType::Float(source_out_bus as f32));
+
+            // Wire LFO mod inputs for sampler voice
+            if instrument.lfo.enabled {
+                if let Some(lfo_bus) = self.bus_allocator.get_control_bus(instrument_id, "lfo_out") {
+                    match instrument.lfo.target {
+                        LfoTarget::Amplitude => {
+                            args.push(rosc::OscType::String("amp_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::SampleRate => {
+                            args.push(rosc::OscType::String("srate_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Attack => {
+                            args.push(rosc::OscType::String("attack_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Release => {
+                            args.push(rosc::OscType::String("release_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        _ => {} // Routing-level targets handled in routing.rs
+                    }
+                }
+            }
 
             messages.push(rosc::OscMessage {
                 addr: "/s_new".to_string(),
