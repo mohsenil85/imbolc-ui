@@ -3,7 +3,6 @@ use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use crate::state::piano_roll::PianoRollState;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Color, Style};
@@ -146,7 +145,8 @@ impl PianoRollPane {
     }
 
     /// Render notes grid (buffer version)
-    pub(super) fn render_notes_buf(&self, buf: &mut Buffer, area: RatatuiRect, piano_roll: &PianoRollState) {
+    pub(super) fn render_notes_buf(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+        let piano_roll = &state.session.piano_roll;
         let rect = center_rect(area, 97, 29);
 
         // Layout constants
@@ -208,6 +208,19 @@ impl PianoRollPane {
                 loop_info,
                 ratatui::style::Style::from(Style::new().fg(Color::YELLOW)),
             ))).render(RatatuiRect::new(loop_x, header_y, rect.width.saturating_sub(loop_x - rect.x), 1), buf);
+        }
+
+        // Rendering indicator
+        if let Some(render) = &state.pending_render {
+            if let Some(track_inst_id) = state.session.piano_roll.track_order.get(self.current_track) {
+                if render.instrument_id == *track_inst_id {
+                    let label = " RENDERING ";
+                    let style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
+                    let x = rect.x + rect.width - label.len() as u16 - 2;
+                    Paragraph::new(Line::from(Span::styled(label, style)))
+                        .render(RatatuiRect::new(x, header_y, label.len() as u16, 1), buf);
+                }
+            }
         }
 
         // Piano keys column + grid rows

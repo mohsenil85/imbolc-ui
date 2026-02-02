@@ -145,6 +145,11 @@ pub enum AudioCmd {
     StopRecording {
         reply: Sender<Option<PathBuf>>,
     },
+    StartInstrumentRender {
+        instrument_id: InstrumentId,
+        path: PathBuf,
+        reply: Sender<Result<(), String>>,
+    },
 
     // ── Automation ────────────────────────────────────────────────
     ApplyAutomation {
@@ -200,6 +205,10 @@ pub enum AudioFeedback {
         elapsed_secs: u64,
     },
     RecordingStopped(PathBuf),
+    RenderComplete {
+        instrument_id: InstrumentId,
+        path: PathBuf,
+    },
     CompileResult(Result<String, String>),
     PendingBufferFreed,
     VstParamsDiscovered {

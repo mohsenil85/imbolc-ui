@@ -170,6 +170,45 @@ pub(super) fn dispatch_piano_roll(
             result.audio_dirty.piano_roll = true;
             return result;
         }
+        PianoRollAction::RenderToWav(instrument_id) => {
+            let instrument_id = *instrument_id;
+            if state.pending_render.is_some() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Running, "Already rendering");
+            }
+            if !audio.is_running() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Stopped, "Audio engine not running");
+            }
+
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let render_dir = std::path::Path::new(&home).join(".config/imbolc/renders");
+            let _ = std::fs::create_dir_all(&render_dir);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let path = render_dir.join(format!("render_{}_{}.wav", instrument_id, timestamp));
+
+            let pr = &mut state.session.piano_roll;
+            state.pending_render = Some(crate::state::PendingRender {
+                instrument_id,
+                path: path.clone(),
+                was_looping: pr.looping,
+            });
+
+            pr.playhead = pr.loop_start;
+            pr.playing = true;
+            pr.looping = false;
+
+            if let Err(e) = audio.start_instrument_render(instrument_id, &path) {
+                state.pending_render = None;
+                state.session.piano_roll.playing = false;
+                return DispatchResult::with_status(crate::audio::ServerStatus::Error, format!("Render failed: {}", e));
+            }
+
+            let mut result = DispatchResult::with_status(crate::audio::ServerStatus::Running, "Rendering...");
+            result.audio_dirty.piano_roll = true;
+            return result;
+        }
         PianoRollAction::MoveCursor(_, _)
         | PianoRollAction::SetBpm(_)
         | PianoRollAction::Zoom(_)

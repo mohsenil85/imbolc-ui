@@ -151,6 +151,7 @@ impl PianoRollPane {
             }
             "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
             "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode(self.current_track)),
+            "render_to_wav" => Action::PianoRoll(PianoRollAction::RenderToWav(self.current_instrument_id(state))),
             "toggle_automation" => {
                 self.automation_overlay_visible = !self.automation_overlay_visible;
                 Action::None

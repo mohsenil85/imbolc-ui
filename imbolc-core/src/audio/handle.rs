@@ -98,6 +98,7 @@ impl AudioHandle {
                 };
             }
             AudioFeedback::RecordingStopped(_) => {}
+            AudioFeedback::RenderComplete { .. } => {}
             AudioFeedback::CompileResult(_) => {}
             AudioFeedback::PendingBufferFreed => {}
             AudioFeedback::VstParamsDiscovered { .. } => {}
@@ -516,6 +517,25 @@ impl AudioHandle {
     }
 
     // ── Recording ─────────────────────────────────────────────────
+
+    pub fn start_instrument_render(&mut self, instrument_id: InstrumentId, path: &Path) -> Result<(), String> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.send_cmd(AudioCmd::StartInstrumentRender {
+            instrument_id,
+            path: path.to_path_buf(),
+            reply: reply_tx,
+        })?;
+        match reply_rx.recv() {
+            Ok(result) => {
+                if result.is_ok() {
+                    self.is_recording = true;
+                    self.recording_elapsed = Some(Duration::from_secs(0));
+                }
+                result
+            }
+            Err(_) => Err("Audio thread disconnected".to_string()),
+        }
+    }
 
     pub fn start_recording(&mut self, bus: i32, path: &Path) -> Result<(), String> {
         let (reply_tx, reply_rx) = mpsc::channel();

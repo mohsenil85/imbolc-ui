@@ -97,6 +97,8 @@ pub struct AudioEngine {
     send_node_map: HashMap<(usize, u8), i32>,
     /// Bus output synth nodes: bus_id -> node_id
     bus_node_map: HashMap<u8, i32>,
+    /// Instrument final buses: instrument_id -> SC audio bus index (post-effects, pre-mixer)
+    pub(crate) instrument_final_buses: HashMap<InstrumentId, i32>,
     /// Active poly voice chains (full signal chain per note)
     voice_chains: Vec<VoiceChain>,
     /// Next available voice bus (audio)
@@ -136,6 +138,7 @@ impl AudioEngine {
             bus_audio_buses: HashMap::new(),
             send_node_map: HashMap::new(),
             bus_node_map: HashMap::new(),
+            instrument_final_buses: HashMap::new(),
             voice_chains: Vec::new(),
             next_voice_audio_bus: 16,
             next_voice_control_bus: 0,

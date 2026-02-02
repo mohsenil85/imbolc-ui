@@ -49,6 +49,7 @@ impl AudioEngine {
         self.send_node_map.clear();
         self.bus_node_map.clear();
         self.bus_audio_buses.clear();
+        self.instrument_final_buses.clear();
         self.bus_allocator.reset();
 
         // Allocate audio buses for each mixer bus first (needed by BusIn instruments)
@@ -408,6 +409,8 @@ impl AudioEngine {
 
                 output_node_id = node_id;
             }
+
+            self.instrument_final_buses.insert(instrument.id, current_bus);
 
             self.node_map.insert(instrument.id, InstrumentNodes {
                 source: source_node,

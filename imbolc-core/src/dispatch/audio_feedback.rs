@@ -35,6 +35,35 @@ pub fn dispatch_audio_feedback(
         AudioFeedback::RecordingStopped(path) => {
             state.pending_recording_path = Some(path.clone());
         }
+        AudioFeedback::RenderComplete { instrument_id, path } => {
+            // Stop playback and restore looping
+            state.session.piano_roll.playing = false;
+            state.session.piano_roll.playhead = 0;
+            if let Some(render) = state.pending_render.take() {
+                state.session.piano_roll.looping = render.was_looping;
+            }
+            audio.set_playing(false);
+            audio.reset_playhead();
+
+            // Convert instrument to PitchedSampler
+            let buffer_id = state.instruments.next_sampler_buffer_id;
+            state.instruments.next_sampler_buffer_id += 1;
+            let _ = audio.load_sample(buffer_id, &path.to_string_lossy());
+
+            if let Some(inst) = state.instruments.instrument_mut(*instrument_id) {
+                use crate::state::{SourceType, ParamValue};
+                inst.source = SourceType::PitchedSampler;
+                inst.source_params = SourceType::PitchedSampler.default_params();
+                // Override buffer param with our rendered WAV
+                if let Some(p) = inst.source_params.iter_mut().find(|p| p.name == "buffer") {
+                    p.value = ParamValue::Int(buffer_id as i32);
+                }
+            }
+
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result.push_status(audio.status(), "Render complete");
+        }
         AudioFeedback::CompileResult(res) => {
             match res {
                 Ok(msg) => result.push_status(audio.status(), msg.clone()),

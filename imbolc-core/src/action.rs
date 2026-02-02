@@ -136,6 +136,7 @@ pub enum PianoRollAction {
     PlayNotes { pitches: Vec<u8>, velocity: u8, instrument_id: InstrumentId, track: usize },
     PlayStopRecord,
     AdjustSwing(f32),               // delta for swing amount
+    RenderToWav(InstrumentId),
 }
 
 /// Sample chopper actions

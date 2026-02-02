@@ -11,7 +11,13 @@ use super::ServerStatus;
 use crate::action::VstTarget;
 use crate::state::arpeggiator::ArpPlayState;
 use super::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
-use crate::state::{InstrumentState, SessionState};
+use crate::state::{InstrumentId, InstrumentState, SessionState};
+
+struct RenderState {
+    instrument_id: InstrumentId,
+    loop_end: u32,
+    tail_ticks: u32,
+}
 
 pub(crate) struct AudioThread {
     engine: AudioEngine,
@@ -30,6 +36,8 @@ pub(crate) struct AudioThread {
     rng_state: u64,
     /// Per-instrument arpeggiator runtime state
     arp_states: HashMap<u32, ArpPlayState>,
+    /// Active render-to-WAV state
+    render_state: Option<RenderState>,
 }
 
 fn config_synthdefs_dir() -> PathBuf {
@@ -64,6 +72,7 @@ impl AudioThread {
             last_recording_state: false,
             rng_state: 12345,
             arp_states: HashMap::new(),
+            render_state: None,
         }
     }
 
@@ -249,6 +258,21 @@ impl AudioThread {
                 let result = self.engine.load_sample(buffer_id, &path);
                 let _ = reply.send(result);
             }
+            AudioCmd::StartInstrumentRender { instrument_id, path, reply } => {
+                let result = if let Some(&bus) = self.engine.instrument_final_buses.get(&instrument_id) {
+                    self.engine.start_recording(bus, &path).map(|_| {
+                        let ticks_per_second = (self.piano_roll.bpm / 60.0) * self.piano_roll.ticks_per_beat as f32;
+                        self.render_state = Some(RenderState {
+                            instrument_id,
+                            loop_end: self.piano_roll.loop_end,
+                            tail_ticks: ticks_per_second as u32,
+                        });
+                    })
+                } else {
+                    Err(format!("No audio bus for instrument {}", instrument_id))
+                };
+                let _ = reply.send(result);
+            }
             AudioCmd::StartRecording { bus, path, reply } => {
                 let result = self.engine.start_recording(bus, &path);
                 let _ = reply.send(result);
@@ -427,6 +451,28 @@ impl AudioThread {
             &self.feedback_tx,
             elapsed,
         );
+
+        // Check if render-to-WAV should stop
+        let mut render_finished = false;
+        if let Some(render) = &self.render_state {
+            if self.piano_roll.playhead >= render.loop_end + render.tail_ticks {
+                render_finished = true;
+            }
+        }
+        if render_finished {
+            let path = self.engine.stop_recording();
+            self.piano_roll.playing = false;
+            self.engine.release_all_voices();
+            if let Some(render) = self.render_state.take() {
+                if let Some(wav_path) = path {
+                    let _ = self.feedback_tx.send(AudioFeedback::RenderComplete {
+                        instrument_id: render.instrument_id,
+                        path: wav_path,
+                    });
+                }
+            }
+        }
+
         super::drum_tick::tick_drum_sequencer(
             &mut self.instruments,
             &self.session,

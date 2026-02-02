@@ -166,7 +166,7 @@ impl Pane for PianoRollPane {
     }
 
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
-        self.render_notes_buf(buf, area, &state.session.piano_roll);
+        self.render_notes_buf(buf, area, state);
 
         // Automation overlay
         if self.automation_overlay_visible {

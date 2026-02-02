@@ -22,6 +22,16 @@ pub use sampler::BufferId;
 pub use session::{MixerSelection, MusicalSettings, SessionState, MAX_BUSES};
 pub use vst_plugin::{VstParamSpec, VstPlugin, VstPluginId, VstPluginKind, VstPluginRegistry};
 
+use std::path::PathBuf;
+
+/// State for a render-to-WAV operation in progress
+#[derive(Debug, Clone)]
+pub struct PendingRender {
+    pub instrument_id: InstrumentId,
+    pub path: PathBuf,
+    pub was_looping: bool,
+}
+
 /// Keyboard layout configuration for key translation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeyboardLayout {
@@ -89,6 +99,8 @@ pub struct AppState {
     pub instruments: InstrumentState,
     /// Path to a recently stopped recording, pending waveform load
     pub pending_recording_path: Option<std::path::PathBuf>,
+    /// Pending render-to-WAV operation
+    pub pending_render: Option<PendingRender>,
     pub keyboard_layout: KeyboardLayout,
     pub recording: bool,
     pub recording_secs: u64,
@@ -106,6 +118,7 @@ impl AppState {
             session: SessionState::new(),
             instruments: InstrumentState::new(),
             pending_recording_path: None,
+            pending_render: None,
             keyboard_layout: KeyboardLayout::default(),
             recording: false,
             recording_secs: 0,
@@ -121,6 +134,7 @@ impl AppState {
             session: SessionState::new_with_defaults(defaults),
             instruments: InstrumentState::new(),
             pending_recording_path: None,
+            pending_render: None,
             keyboard_layout: KeyboardLayout::default(),
             recording: false,
             recording_secs: 0,
