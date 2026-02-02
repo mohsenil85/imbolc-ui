@@ -181,6 +181,42 @@ pub(super) fn dispatch_mixer(
                 result.audio_dirty.automation = true;
             }
         }
+        MixerAction::AdjustPan(delta) => {
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
+            match state.session.mixer_selection {
+                MixerSelection::Instrument(idx) => {
+                    if let Some(instrument) = state.instruments.instruments.get_mut(idx) {
+                        instrument.pan = (instrument.pan + delta).clamp(-1.0, 1.0);
+                        result.audio_dirty.instruments = true;
+                        result.audio_dirty.mixer_params = true;
+                        if state.automation_recording && state.session.piano_roll.playing {
+                            record_target = Some((
+                                AutomationTarget::InstrumentPan(instrument.id),
+                                instrument.pan,
+                            ));
+                        }
+                    }
+                }
+                MixerSelection::Bus(id) => {
+                    if let Some(bus) = state.session.bus_mut(id) {
+                        bus.pan = (bus.pan + delta).clamp(-1.0, 1.0);
+                        result.audio_dirty.session = true;
+                        result.audio_dirty.mixer_params = true;
+                    }
+                    if let Some(bus) = state.session.bus(id) {
+                        let mute = state.session.effective_bus_mute(bus);
+                        if audio.is_running() {
+                            let _ = audio.set_bus_mixer_params(id, bus.level, mute, bus.pan);
+                        }
+                    }
+                }
+                MixerSelection::Master => {}
+            }
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
+            }
+        }
         MixerAction::ToggleSend(bus_id) => {
             let bus_id = *bus_id;
             if let MixerSelection::Instrument(idx) = state.session.mixer_selection {

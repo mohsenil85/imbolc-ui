@@ -187,13 +187,118 @@ pub(super) fn dispatch_instrument(
             result.audio_dirty.routing = true;
             result
         }
-        InstrumentAction::RemoveEffect(_, _)
-        | InstrumentAction::MoveEffect(_, _, _)
-        | InstrumentAction::SetFilter(_, _) => {
-            // Reserved for future direct dispatch (currently handled inside InstrumentEditPane)
+        InstrumentAction::RemoveEffect(id, idx) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if *idx < instrument.effects.len() {
+                    instrument.effects.remove(*idx);
+                }
+            }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
             result.audio_dirty.routing = true;
+            result
+        }
+        InstrumentAction::MoveEffect(id, idx, direction) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                let new_idx = (*idx as i8 + direction).max(0) as usize;
+                if *idx < instrument.effects.len() && new_idx < instrument.effects.len() {
+                    instrument.effects.swap(*idx, new_idx);
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
+        }
+        InstrumentAction::SetFilter(id, filter_type) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                instrument.filter = filter_type.map(crate::state::FilterConfig::new);
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
+        }
+        InstrumentAction::ToggleEffectBypass(id, idx) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if let Some(effect) = instrument.effects.get_mut(*idx) {
+                    effect.enabled = !effect.enabled;
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::ToggleFilter(id) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if instrument.filter.is_some() {
+                    instrument.filter = None;
+                } else {
+                    instrument.filter = Some(crate::state::FilterConfig::new(crate::state::FilterType::Lpf));
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
+        }
+        InstrumentAction::CycleFilterType(id) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if let Some(ref mut filter) = instrument.filter {
+                    filter.filter_type = match filter.filter_type {
+                        crate::state::FilterType::Lpf => crate::state::FilterType::Hpf,
+                        crate::state::FilterType::Hpf => crate::state::FilterType::Bpf,
+                        crate::state::FilterType::Bpf => crate::state::FilterType::Lpf,
+                    };
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::AdjustFilterCutoff(id, delta) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if let Some(ref mut filter) = instrument.filter {
+                    filter.cutoff.value = (filter.cutoff.value + delta * filter.cutoff.max * 0.02)
+                        .clamp(filter.cutoff.min, filter.cutoff.max);
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::AdjustFilterResonance(id, delta) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if let Some(ref mut filter) = instrument.filter {
+                    filter.resonance.value = (filter.resonance.value + delta * 0.05)
+                        .clamp(filter.resonance.min, filter.resonance.max);
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::AdjustEffectParam(id, effect_idx, param_idx, delta) => {
+            if let Some(instrument) = state.instruments.instrument_mut(*id) {
+                if let Some(effect) = instrument.effects.get_mut(*effect_idx) {
+                    if let Some(param) = effect.params.get_mut(*param_idx) {
+                        let range = param.max - param.min;
+                        match &mut param.value {
+                            crate::state::ParamValue::Float(v) => {
+                                *v = (*v + delta * range * 0.02).clamp(param.min, param.max);
+                            }
+                            crate::state::ParamValue::Int(v) => {
+                                *v = (*v + (delta * range * 0.02) as i32).clamp(param.min as i32, param.max as i32);
+                            }
+                            crate::state::ParamValue::Bool(b) => {
+                                *b = !*b;
+                            }
+                        }
+                    }
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
             result
         }
         InstrumentAction::ToggleArp(id) => {

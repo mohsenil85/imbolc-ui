@@ -5,9 +5,9 @@ use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use crate::state::{AppState, MixerSelection, OutputTarget};
+use crate::state::{AppState, InstrumentId, MixerSelection, OutputTarget};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, MixerAction, Pane, Style};
+use crate::ui::{Action, Color, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, MixerAction, NavAction, Pane, Style};
 
 const CHANNEL_WIDTH: u16 = 8;
 const METER_HEIGHT: u16 = 12;
@@ -17,9 +17,54 @@ const NUM_VISIBLE_BUSES: usize = 2;
 /// Block characters for vertical meter
 const BLOCK_CHARS: [char; 8] = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MixerSection {
+    Effects,
+    Sends,
+    Filter,
+    Lfo,
+    Output,
+}
+
+impl MixerSection {
+    fn next(self) -> Self {
+        match self {
+            Self::Effects => Self::Sends,
+            Self::Sends => Self::Filter,
+            Self::Filter => Self::Lfo,
+            Self::Lfo => Self::Output,
+            Self::Output => Self::Effects,
+        }
+    }
+
+    fn prev(self) -> Self {
+        match self {
+            Self::Effects => Self::Output,
+            Self::Sends => Self::Effects,
+            Self::Filter => Self::Sends,
+            Self::Lfo => Self::Filter,
+            Self::Output => Self::Lfo,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Effects => "EFFECTS",
+            Self::Sends => "SENDS",
+            Self::Filter => "FILTER",
+            Self::Lfo => "LFO",
+            Self::Output => "OUTPUT",
+        }
+    }
+}
+
 pub struct MixerPane {
     keymap: Keymap,
     send_target: Option<u8>,
+    detail_mode: Option<usize>,
+    detail_section: MixerSection,
+    detail_cursor: usize,
+    effect_scroll: usize,
 }
 
 impl MixerPane {
@@ -27,6 +72,10 @@ impl MixerPane {
         Self {
             keymap,
             send_target: None,
+            detail_mode: None,
+            detail_section: MixerSection::Effects,
+            detail_cursor: 0,
+            effect_scroll: 0,
         }
     }
 
@@ -127,12 +176,73 @@ impl Default for MixerPane {
     }
 }
 
+impl MixerPane {
+    /// Get the instrument index and ID for the current detail mode target
+    fn detail_instrument<'a>(&self, state: &'a AppState) -> Option<(usize, &'a crate::state::Instrument)> {
+        let idx = self.detail_mode?;
+        state.instruments.instruments.get(idx).map(|inst| (idx, inst))
+    }
+
+    fn detail_instrument_id(&self, state: &AppState) -> Option<InstrumentId> {
+        self.detail_instrument(state).map(|(_, inst)| inst.id)
+    }
+
+    /// Max cursor position for current section
+    fn max_cursor(&self, state: &AppState) -> usize {
+        let Some((_, inst)) = self.detail_instrument(state) else { return 0 };
+        match self.detail_section {
+            MixerSection::Effects => {
+                if inst.effects.is_empty() { 0 }
+                else {
+                    // cursor indexes: effect_idx * (1 + param_count) for effect header, then params
+                    let mut count = 0;
+                    for effect in &inst.effects {
+                        count += 1 + effect.params.len(); // header + params
+                    }
+                    count.saturating_sub(1)
+                }
+            }
+            MixerSection::Sends => inst.sends.len().saturating_sub(1),
+            MixerSection::Filter => {
+                if inst.filter.is_some() { 2 } else { 0 } // type, cutoff, resonance
+            }
+            MixerSection::Lfo => 2, // rate, depth, shape
+            MixerSection::Output => 2, // pan, level, output target
+        }
+    }
+
+    /// Decode effect cursor into (effect_index, param_index_within_effect) where None = header
+    fn decode_effect_cursor(&self, state: &AppState) -> Option<(usize, Option<usize>)> {
+        let (_, inst) = self.detail_instrument(state)?;
+        let mut pos = 0;
+        for (ei, effect) in inst.effects.iter().enumerate() {
+            if self.detail_cursor == pos {
+                return Some((ei, None)); // on effect header
+            }
+            pos += 1;
+            for pi in 0..effect.params.len() {
+                if self.detail_cursor == pos {
+                    return Some((ei, Some(pi)));
+                }
+                pos += 1;
+            }
+        }
+        None
+    }
+}
+
 impl Pane for MixerPane {
     fn id(&self) -> &'static str {
         "mixer"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+        // Detail mode handling
+        if self.detail_mode.is_some() {
+            return self.handle_detail_action(action, state);
+        }
+
+        // Overview mode handling
         match action {
             "prev" => { self.send_target = None; Action::Mixer(MixerAction::Move(-1)) }
             "next" => { self.send_target = None; Action::Mixer(MixerAction::Move(1)) }
@@ -194,7 +304,18 @@ impl Pane for MixerPane {
                     Action::None
                 }
             }
-            "clear_send" => { self.send_target = None; Action::None }
+            "clear_send" | "escape" => { self.send_target = None; Action::None }
+            "enter_detail" => {
+                if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
+                    if idx < state.instruments.instruments.len() {
+                        self.detail_mode = Some(idx);
+                        self.detail_section = MixerSection::Effects;
+                        self.detail_cursor = 0;
+                        self.effect_scroll = 0;
+                    }
+                }
+                Action::None
+            }
             _ => Action::None,
         }
     }
@@ -285,7 +406,11 @@ impl Pane for MixerPane {
     }
 
     fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
-        self.render_mixer_buf(buf, area, state);
+        if self.detail_mode.is_some() {
+            self.render_detail_buf(buf, area, state);
+        } else {
+            self.render_mixer_buf(buf, area, state);
+        }
     }
 
     fn keymap(&self) -> &Keymap {
@@ -298,6 +423,199 @@ impl Pane for MixerPane {
 }
 
 impl MixerPane {
+    fn handle_detail_action(&mut self, action: &str, state: &AppState) -> Action {
+        let Some(inst_id) = self.detail_instrument_id(state) else {
+            self.detail_mode = None;
+            return Action::None;
+        };
+
+        match action {
+            "escape" | "clear_send" => {
+                self.detail_mode = None;
+                self.send_target = None;
+                Action::None
+            }
+            "section" => {
+                self.detail_section = self.detail_section.next();
+                self.detail_cursor = 0;
+                Action::None
+            }
+            "section_prev" => {
+                self.detail_section = self.detail_section.prev();
+                self.detail_cursor = 0;
+                Action::None
+            }
+            "level_up" | "prev" => {
+                // Navigate up within section
+                if self.detail_cursor > 0 {
+                    self.detail_cursor -= 1;
+                }
+                Action::None
+            }
+            "level_down" | "next" => {
+                // Navigate down within section
+                let max = self.max_cursor(state);
+                if self.detail_cursor < max {
+                    self.detail_cursor += 1;
+                }
+                Action::None
+            }
+            "level_up_big" | "first" => {
+                // Adjust current param up (coarse)
+                self.adjust_detail_param(state, inst_id, 5.0)
+            }
+            "level_down_big" | "last" => {
+                // Adjust current param down (coarse)
+                self.adjust_detail_param(state, inst_id, -5.0)
+            }
+            "increase" | "fine_right" => {
+                // Adjust current param right (fine)
+                self.adjust_detail_param(state, inst_id, 1.0)
+            }
+            "decrease" | "fine_left" => {
+                // Adjust current param left (fine)
+                self.adjust_detail_param(state, inst_id, -1.0)
+            }
+            "mute" => Action::Mixer(MixerAction::ToggleMute),
+            "solo" => Action::Mixer(MixerAction::ToggleSolo),
+            "output" => Action::Mixer(MixerAction::CycleOutput),
+            "output_rev" => Action::Mixer(MixerAction::CycleOutputReverse),
+            "add_effect" => {
+                Action::Nav(NavAction::PushPane("add_effect"))
+            }
+            "remove_effect" => {
+                if self.detail_section == MixerSection::Effects {
+                    if let Some((ei, _)) = self.decode_effect_cursor(state) {
+                        // Adjust cursor if removing last effect
+                        let max_after = self.max_cursor(state).saturating_sub(1);
+                        if self.detail_cursor > max_after {
+                            self.detail_cursor = max_after;
+                        }
+                        return Action::Instrument(InstrumentAction::RemoveEffect(inst_id, ei));
+                    }
+                }
+                Action::None
+            }
+            "toggle_effect" => {
+                if self.detail_section == MixerSection::Effects {
+                    if let Some((ei, _)) = self.decode_effect_cursor(state) {
+                        return Action::Instrument(InstrumentAction::ToggleEffectBypass(inst_id, ei));
+                    }
+                }
+                Action::None
+            }
+            "toggle_filter" => {
+                Action::Instrument(InstrumentAction::ToggleFilter(inst_id))
+            }
+            "cycle_filter_type" => {
+                Action::Instrument(InstrumentAction::CycleFilterType(inst_id))
+            }
+            "move_up" => {
+                if self.detail_section == MixerSection::Effects {
+                    if let Some((ei, _)) = self.decode_effect_cursor(state) {
+                        if ei > 0 {
+                            return Action::Instrument(InstrumentAction::MoveEffect(inst_id, ei, -1));
+                        }
+                    }
+                }
+                Action::None
+            }
+            "move_down" => {
+                if self.detail_section == MixerSection::Effects {
+                    if let Some((ei, _)) = self.decode_effect_cursor(state) {
+                        return Action::Instrument(InstrumentAction::MoveEffect(inst_id, ei, 1));
+                    }
+                }
+                Action::None
+            }
+            "pan_left" => Action::Mixer(MixerAction::AdjustPan(-0.05)),
+            "pan_right" => Action::Mixer(MixerAction::AdjustPan(0.05)),
+            "enter_detail" => {
+                // In detail mode, Enter on EQ section opens EQ pane, etc.
+                match self.detail_section {
+                    MixerSection::Effects => {
+                        // Could open VST params if it's a VST effect
+                        Action::None
+                    }
+                    _ => Action::None,
+                }
+            }
+            "send_next" => {
+                if self.detail_section == MixerSection::Sends {
+                    let max = self.max_cursor(state);
+                    if self.detail_cursor < max {
+                        self.detail_cursor += 1;
+                    }
+                }
+                Action::None
+            }
+            "send_prev" => {
+                if self.detail_section == MixerSection::Sends {
+                    if self.detail_cursor > 0 {
+                        self.detail_cursor -= 1;
+                    }
+                }
+                Action::None
+            }
+            "send_toggle" => {
+                if self.detail_section == MixerSection::Sends {
+                    if let Some((_, inst)) = self.detail_instrument(state) {
+                        if let Some(send) = inst.sends.get(self.detail_cursor) {
+                            return Action::Mixer(MixerAction::ToggleSend(send.bus_id));
+                        }
+                    }
+                }
+                Action::None
+            }
+            _ => Action::None,
+        }
+    }
+
+    fn adjust_detail_param(&self, state: &AppState, inst_id: InstrumentId, delta: f32) -> Action {
+        match self.detail_section {
+            MixerSection::Effects => {
+                if let Some((ei, Some(pi))) = self.decode_effect_cursor(state) {
+                    return Action::Instrument(InstrumentAction::AdjustEffectParam(inst_id, ei, pi, delta));
+                }
+                Action::None
+            }
+            MixerSection::Sends => {
+                if let Some((_, inst)) = self.detail_instrument(state) {
+                    if let Some(send) = inst.sends.get(self.detail_cursor) {
+                        return Action::Mixer(MixerAction::AdjustSend(send.bus_id, delta * 0.01));
+                    }
+                }
+                Action::None
+            }
+            MixerSection::Filter => {
+                match self.detail_cursor {
+                    0 => Action::Instrument(InstrumentAction::CycleFilterType(inst_id)),
+                    1 => Action::Instrument(InstrumentAction::AdjustFilterCutoff(inst_id, delta)),
+                    2 => Action::Instrument(InstrumentAction::AdjustFilterResonance(inst_id, delta)),
+                    _ => Action::None,
+                }
+            }
+            MixerSection::Lfo => {
+                // LFO adjustments could be added later
+                Action::None
+            }
+            MixerSection::Output => {
+                match self.detail_cursor {
+                    0 => Action::Mixer(MixerAction::AdjustPan(delta * 0.01)),
+                    1 => Action::Mixer(MixerAction::AdjustLevel(delta * 0.01)),
+                    2 => {
+                        if delta > 0.0 {
+                            Action::Mixer(MixerAction::CycleOutput)
+                        } else {
+                            Action::Mixer(MixerAction::CycleOutputReverse)
+                        }
+                    }
+                    _ => Action::None,
+                }
+            }
+        }
+    }
+
     fn calc_scroll_offset(selected: usize, total: usize, visible: usize) -> usize {
         if selected >= visible {
             (selected - visible + 1).min(total.saturating_sub(visible))
@@ -436,6 +754,309 @@ impl MixerPane {
             "[\u{2190}/\u{2192}] Select  [\u{2191}/\u{2193}] Level  [M]ute [S]olo [o]ut  [t/T] Send  [g] Toggle",
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
         ))).render(RatatuiRect::new(base_x, help_y, rect.width.saturating_sub(4), 1), buf);
+    }
+
+    fn render_detail_buf(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+        let Some((_, inst)) = self.detail_instrument(state) else {
+            return;
+        };
+
+        let source_label = format!("{:?}", inst.source).chars().take(12).collect::<String>();
+        let title = format!(" MIXER --- I{}: {} [{}] ", inst.id, inst.name, source_label);
+
+        let box_width = area.width.min(90);
+        let box_height = area.height.min(28);
+        let rect = center_rect(area, box_width, box_height);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title.as_str())
+            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
+            .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
+        block.render(rect, buf);
+
+        let inner_x = rect.x + 2;
+        let inner_y = rect.y + 1;
+        let inner_w = rect.width.saturating_sub(4);
+        let inner_h = rect.height.saturating_sub(3);
+
+        // 3-column layout
+        let col1_w = inner_w * 40 / 100; // Effects
+        let col2_w = inner_w * 28 / 100; // Sends + Filter
+        let _col3_w = inner_w.saturating_sub(col1_w + col2_w + 2); // Output + LFO
+
+        let col1_x = inner_x;
+        let col2_x = col1_x + col1_w + 1;
+        let col3_x = col2_x + col2_w + 1;
+
+        let dim = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let normal = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
+        let header_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold());
+        let active_section = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bold());
+        let selected_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
+
+        // Column separators
+        for y in inner_y..(inner_y + inner_h) {
+            if let Some(cell) = buf.cell_mut((col2_x - 1, y)) {
+                cell.set_char('│').set_style(dim);
+            }
+            if let Some(cell) = buf.cell_mut((col3_x - 1, y)) {
+                cell.set_char('│').set_style(dim);
+            }
+        }
+
+        // ── Column 1: Effects Chain ──
+        let effects_header = if self.detail_section == MixerSection::Effects {
+            active_section
+        } else {
+            header_style
+        };
+        Self::write_str(buf, col1_x, inner_y, "EFFECTS CHAIN", effects_header);
+
+        let mut ey = inner_y + 1;
+        let mut cursor_pos = 0;
+        for (ei, effect) in inst.effects.iter().enumerate() {
+            if ey >= inner_y + inner_h { break; }
+
+            let bypass_char = if effect.enabled { '\u{25CF}' } else { '\u{25CB}' }; // ● or ○
+            let effect_label = format!("{} [{}] {:?}", ei + 1, bypass_char, effect.effect_type);
+            let style = if self.detail_section == MixerSection::Effects && self.detail_cursor == cursor_pos {
+                selected_style
+            } else {
+                normal
+            };
+            Self::write_str(buf, col1_x, ey, &effect_label, style);
+            ey += 1;
+            cursor_pos += 1;
+
+            // Show up to 4 key params
+            for (pi, param) in effect.params.iter().take(4).enumerate() {
+                if ey >= inner_y + inner_h { break; }
+                let val_str = match &param.value {
+                    crate::state::ParamValue::Float(v) => format!("{:.2}", v),
+                    crate::state::ParamValue::Int(v) => format!("{}", v),
+                    crate::state::ParamValue::Bool(b) => if *b { "ON".to_string() } else { "OFF".to_string() },
+                };
+                let param_text = format!("  {} {}", param.name, val_str);
+                let pstyle = if self.detail_section == MixerSection::Effects && self.detail_cursor == cursor_pos {
+                    selected_style
+                } else {
+                    dim
+                };
+                Self::write_str(buf, col1_x + 1, ey, &param_text, pstyle);
+                ey += 1;
+                cursor_pos += 1;
+                let _ = pi; // used in enumerate
+            }
+        }
+        if inst.effects.is_empty() {
+            Self::write_str(buf, col1_x, ey, "(no effects)", dim);
+        }
+
+        // ── Column 2 top: Sends ──
+        let sends_header = if self.detail_section == MixerSection::Sends {
+            active_section
+        } else {
+            header_style
+        };
+        Self::write_str(buf, col2_x, inner_y, "SENDS", sends_header);
+
+        let mut sy = inner_y + 1;
+        for (si, send) in inst.sends.iter().enumerate() {
+            if sy >= inner_y + inner_h / 2 { break; }
+            let bar_len = (send.level * 5.0) as usize;
+            let bar: String = "\u{2588}".repeat(bar_len) + &"\u{2591}".repeat(5 - bar_len);
+            let status = if send.enabled {
+                format!("{:.0}%", send.level * 100.0)
+            } else {
+                "OFF".to_string()
+            };
+            let send_text = format!("\u{2192}B{} {} {}", send.bus_id, bar, status);
+            let sstyle = if self.detail_section == MixerSection::Sends && self.detail_cursor == si {
+                selected_style
+            } else if send.enabled {
+                normal
+            } else {
+                dim
+            };
+            Self::write_str(buf, col2_x, sy, &send_text, sstyle);
+            sy += 1;
+        }
+
+        // ── Column 2 bottom: Filter ──
+        let filter_y = inner_y + inner_h / 2;
+        let filter_header = if self.detail_section == MixerSection::Filter {
+            active_section
+        } else {
+            header_style
+        };
+        Self::write_str(buf, col2_x, filter_y, "FILTER", filter_header);
+
+        let mut fy = filter_y + 1;
+        if let Some(ref filter) = inst.filter {
+            let type_text = format!("{:?}", filter.filter_type);
+            let type_style = if self.detail_section == MixerSection::Filter && self.detail_cursor == 0 {
+                selected_style
+            } else {
+                normal
+            };
+            Self::write_str(buf, col2_x, fy, &type_text, type_style);
+            fy += 1;
+
+            let cut_text = format!("Cut: {:.0} Hz", filter.cutoff.value);
+            let cut_style = if self.detail_section == MixerSection::Filter && self.detail_cursor == 1 {
+                selected_style
+            } else {
+                dim
+            };
+            Self::write_str(buf, col2_x, fy, &cut_text, cut_style);
+            fy += 1;
+
+            let res_text = format!("Res: {:.2}", filter.resonance.value);
+            let res_style = if self.detail_section == MixerSection::Filter && self.detail_cursor == 2 {
+                selected_style
+            } else {
+                dim
+            };
+            Self::write_str(buf, col2_x, fy, &res_text, res_style);
+        } else {
+            Self::write_str(buf, col2_x, fy, "(off)", dim);
+        }
+
+        // ── Column 3 top: Output ──
+        let output_header = if self.detail_section == MixerSection::Output {
+            active_section
+        } else {
+            header_style
+        };
+        Self::write_str(buf, col3_x, inner_y, "OUTPUT", output_header);
+
+        let mut oy = inner_y + 1;
+
+        // Pan
+        let pan_text = format!("Pan: {:+.2}", inst.pan);
+        let pan_style = if self.detail_section == MixerSection::Output && self.detail_cursor == 0 {
+            selected_style
+        } else {
+            normal
+        };
+        Self::write_str(buf, col3_x, oy, &pan_text, pan_style);
+        oy += 1;
+
+        // Level with mini meter
+        let db_str = Self::level_to_db(inst.level);
+        let meter_len = (inst.level * 10.0) as usize;
+        let meter_bar: String = "\u{258E}".repeat(meter_len) + &"\u{2591}".repeat(10usize.saturating_sub(meter_len));
+        let level_text = format!("{} {}", meter_bar, db_str);
+        let level_style = if self.detail_section == MixerSection::Output && self.detail_cursor == 1 {
+            selected_style
+        } else {
+            normal
+        };
+        Self::write_str(buf, col3_x, oy, &level_text, level_style);
+        oy += 1;
+
+        // Output target
+        let out_text = format!("\u{25B8} {}", match inst.output_target {
+            OutputTarget::Master => "Master".to_string(),
+            OutputTarget::Bus(id) => format!("Bus {}", id),
+        });
+        let out_style = if self.detail_section == MixerSection::Output && self.detail_cursor == 2 {
+            selected_style
+        } else {
+            dim
+        };
+        Self::write_str(buf, col3_x, oy, &out_text, out_style);
+        oy += 1;
+
+        // Mute/Solo indicators
+        let mute_str = if inst.mute { "[M]" } else { " M " };
+        let solo_str = if inst.solo { "[S]" } else { " S " };
+        let mute_style = if inst.mute {
+            ratatui::style::Style::from(Style::new().fg(Color::MUTE_COLOR).bold())
+        } else {
+            dim
+        };
+        let solo_style = if inst.solo {
+            ratatui::style::Style::from(Style::new().fg(Color::SOLO_COLOR).bold())
+        } else {
+            dim
+        };
+        Self::write_str(buf, col3_x, oy, mute_str, mute_style);
+        Self::write_str(buf, col3_x + 4, oy, solo_str, solo_style);
+
+        // ── Column 3 bottom: LFO ──
+        let lfo_y = inner_y + inner_h / 2;
+        let lfo_header = if self.detail_section == MixerSection::Lfo {
+            active_section
+        } else {
+            header_style
+        };
+        Self::write_str(buf, col3_x, lfo_y, "LFO", lfo_header);
+
+        let mut ly = lfo_y + 1;
+        let lfo = &inst.lfo;
+        if lfo.enabled {
+            let shape_text = format!("{:?} {:.1}Hz", lfo.shape, lfo.rate);
+            let shape_style = if self.detail_section == MixerSection::Lfo && self.detail_cursor == 0 {
+                selected_style
+            } else {
+                normal
+            };
+            Self::write_str(buf, col3_x, ly, &shape_text, shape_style);
+            ly += 1;
+
+            let depth_text = format!("Depth: {:.2}", lfo.depth);
+            let depth_style = if self.detail_section == MixerSection::Lfo && self.detail_cursor == 1 {
+                selected_style
+            } else {
+                dim
+            };
+            Self::write_str(buf, col3_x, ly, &depth_text, depth_style);
+            ly += 1;
+
+            let target_text = format!("Tgt: {:?}", lfo.target);
+            let target_style = if self.detail_section == MixerSection::Lfo && self.detail_cursor == 2 {
+                selected_style
+            } else {
+                dim
+            };
+            Self::write_str(buf, col3_x, ly, &target_text, target_style);
+        } else {
+            Self::write_str(buf, col3_x, ly, "(off)", dim);
+        }
+
+        // ── Help bar ──
+        let help_y = rect.y + rect.height - 2;
+        let help_text = "Tab: Section  \u{2191}/\u{2193}: Nav  PageUp/Dn: Adjust  [a]dd [d]el [e] Bypass  [f]ilter  [p/P] Pan  Esc: Back";
+        Paragraph::new(Line::from(Span::styled(
+            help_text,
+            ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
+        ))).render(RatatuiRect::new(inner_x, help_y, inner_w, 1), buf);
+
+        // Section indicator bar (just below title)
+        let section_bar_y = rect.y;
+        let sections = [MixerSection::Effects, MixerSection::Sends, MixerSection::Filter, MixerSection::Lfo, MixerSection::Output];
+        let mut sx = rect.x + (title.len() as u16) + 1;
+        for &section in &sections {
+            if sx + section.label().len() as u16 + 2 >= rect.x + rect.width { break; }
+            let sstyle = if section == self.detail_section {
+                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold())
+            } else {
+                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+            };
+            let label = format!(" {} ", section.label());
+            Self::write_str(buf, sx, section_bar_y, &label, sstyle);
+            sx += label.len() as u16 + 1;
+        }
+    }
+
+    fn write_str(buf: &mut Buffer, x: u16, y: u16, text: &str, style: ratatui::style::Style) {
+        for (i, ch) in text.chars().enumerate() {
+            if let Some(cell) = buf.cell_mut((x + i as u16, y)) {
+                cell.set_char(ch).set_style(style);
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

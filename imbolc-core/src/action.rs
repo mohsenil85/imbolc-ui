@@ -89,12 +89,15 @@ pub enum InstrumentAction {
     #[allow(dead_code)]
     SetParam(InstrumentId, String, f32),
     AddEffect(InstrumentId, EffectType),
-    #[allow(dead_code)]
     RemoveEffect(InstrumentId, usize),
-    #[allow(dead_code)]
     MoveEffect(InstrumentId, usize, i8),
-    #[allow(dead_code)]
     SetFilter(InstrumentId, Option<FilterType>),
+    ToggleEffectBypass(InstrumentId, usize),
+    ToggleFilter(InstrumentId),
+    CycleFilterType(InstrumentId),
+    AdjustFilterCutoff(InstrumentId, f32),
+    AdjustFilterResonance(InstrumentId, f32),
+    AdjustEffectParam(InstrumentId, usize, usize, f32),
     PlayNote(u8, u8),
     PlayNotes(Vec<u8>, u8),
     Select(usize),
@@ -131,6 +134,7 @@ pub enum MixerAction {
     CycleOutputReverse,
     AdjustSend(u8, f32),
     ToggleSend(u8),
+    AdjustPan(f32),
 }
 
 /// Piano roll actions — all variants carry the data they need
