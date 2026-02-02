@@ -1,4 +1,5 @@
 use super::automation::AutomationState;
+use super::arrangement::ArrangementState;
 use super::custom_synthdef::CustomSynthDefRegistry;
 use super::midi_recording::MidiRecordingState;
 use super::music::{Key, Scale};
@@ -59,6 +60,7 @@ pub struct SessionState {
 
     // Project state (hoisted from InstrumentState)
     pub piano_roll: PianoRollState,
+    pub arrangement: ArrangementState,
     pub automation: AutomationState,
     pub midi_recording: MidiRecordingState,
     pub custom_synthdefs: CustomSynthDefRegistry,
@@ -88,6 +90,7 @@ impl SessionState {
             snap: defaults.snap,
             time_signature: defaults.time_signature,
             piano_roll: PianoRollState::new(),
+            arrangement: ArrangementState::new(),
             automation: AutomationState::new(),
             midi_recording: MidiRecordingState::new(),
             custom_synthdefs: CustomSynthDefRegistry::new(),

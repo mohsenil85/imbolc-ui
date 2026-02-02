@@ -139,6 +139,15 @@ pub fn is_undoable(action: &Action) -> bool {
             | crate::action::AutomationAction::ToggleRecording => false,
             _ => true,
         },
+        Action::Arrangement(a) => match a {
+            crate::action::ArrangementAction::TogglePlayMode
+            | crate::action::ArrangementAction::SelectPlacement(_)
+            | crate::action::ArrangementAction::SelectLane(_)
+            | crate::action::ArrangementAction::MoveCursor(_)
+            | crate::action::ArrangementAction::ScrollView(_)
+            | crate::action::ArrangementAction::PlayStop => false,
+            _ => true,
+        },
         Action::VstParam(a) => match a {
             crate::action::VstParamAction::SetParam(_, _, _, _)
             | crate::action::VstParamAction::AdjustParam(_, _, _, _)

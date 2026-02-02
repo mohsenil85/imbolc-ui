@@ -314,6 +314,43 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 PRIMARY KEY (instrument_id, slice_id)
             );
 
+            CREATE TABLE IF NOT EXISTS arrangement_clips (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                instrument_id INTEGER NOT NULL,
+                length_ticks INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS arrangement_clip_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                clip_id INTEGER NOT NULL,
+                tick INTEGER NOT NULL,
+                duration INTEGER NOT NULL,
+                pitch INTEGER NOT NULL,
+                velocity INTEGER NOT NULL,
+                probability REAL NOT NULL DEFAULT 1.0,
+                FOREIGN KEY (clip_id) REFERENCES arrangement_clips(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS arrangement_placements (
+                id INTEGER PRIMARY KEY,
+                clip_id INTEGER NOT NULL,
+                instrument_id INTEGER NOT NULL,
+                start_tick INTEGER NOT NULL,
+                length_override INTEGER,
+                FOREIGN KEY (clip_id) REFERENCES arrangement_clips(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS arrangement_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                play_mode TEXT NOT NULL DEFAULT 'pattern',
+                view_start_tick INTEGER NOT NULL DEFAULT 0,
+                ticks_per_col INTEGER NOT NULL DEFAULT 120,
+                cursor_tick INTEGER NOT NULL DEFAULT 0,
+                selected_lane INTEGER NOT NULL DEFAULT 0,
+                selected_placement INTEGER
+            );
+
             CREATE TABLE IF NOT EXISTS midi_recording_settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 live_input_instrument INTEGER,
@@ -345,6 +382,10 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             );
 
             -- Clear existing data
+            DELETE FROM arrangement_clip_notes;
+            DELETE FROM arrangement_placements;
+            DELETE FROM arrangement_settings;
+            DELETE FROM arrangement_clips;
             DELETE FROM midi_pitch_bend_configs;
             DELETE FROM midi_cc_mappings;
             DELETE FROM midi_recording_settings;
@@ -381,7 +422,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (6, datetime('now'))",
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (7, datetime('now'))",
         [],
     )?;
 

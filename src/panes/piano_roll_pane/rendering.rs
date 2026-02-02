@@ -159,7 +159,11 @@ impl PianoRollPane {
         let grid_height = rect.height.saturating_sub(header_height + footer_height + 1);
 
         // Border
-        let track_label = if let Some(track) = piano_roll.track_at(self.current_track) {
+        let track_label = if let Some(ref ctx) = state.session.arrangement.editing_clip {
+            let clip_name = state.session.arrangement.clip(ctx.clip_id)
+                .map(|c| c.name.as_str()).unwrap_or("?");
+            format!(" Piano Roll - Editing: {} ", clip_name)
+        } else if let Some(track) = piano_roll.track_at(self.current_track) {
             let mode = if track.polyphonic { "POLY" } else { "MONO" };
             format!(
                 " Piano Roll: midi-{} [{}/{}] {} ",

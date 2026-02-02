@@ -207,6 +207,18 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             // Sync pane layer after navigation
             if matches!(&pane_action, Action::Nav(_)) {
                 sync_pane_layer(&mut panes, &mut layer_stack);
+
+                // Auto-exit clip edit when navigating away from piano roll
+                if state.session.arrangement.editing_clip.is_some()
+                    && panes.active().id() != "piano_roll"
+                {
+                    let exit_result = dispatch::dispatch_action(
+                        &Action::Arrangement(action::ArrangementAction::ExitClipEdit),
+                        &mut state, &mut audio, &io_tx,
+                    );
+                    pending_audio_dirty.merge(exit_result.audio_dirty);
+                    apply_dispatch_result(exit_result, &mut state, &mut panes, &mut app_frame);
+                }
             }
 
             if is_undoable(&pane_action) {

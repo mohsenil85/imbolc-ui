@@ -13,6 +13,7 @@ use super::osc_client::AudioMonitor;
 use super::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use super::ServerStatus;
 use crate::action::AudioDirty;
+use crate::state::arrangement::PlayMode;
 use crate::state::automation::AutomationTarget;
 use crate::state::{AppState, BufferId, InstrumentId, InstrumentState, SessionState};
 
@@ -122,7 +123,23 @@ impl AudioHandle {
             self.update_state(&state.instruments, &state.session);
         }
         if dirty.piano_roll {
-            self.update_piano_roll_data(&state.session.piano_roll);
+            if state.session.arrangement.play_mode == PlayMode::Song
+                && state.session.arrangement.editing_clip.is_none()
+            {
+                let mut flat_pr = state.session.piano_roll.clone();
+                let flattened = state.session.arrangement.flatten_to_notes();
+                for (&instrument_id, track) in &mut flat_pr.tracks {
+                    track.notes = flattened.get(&instrument_id).cloned().unwrap_or_default();
+                }
+                let arr_len = state.session.arrangement.arrangement_length();
+                if arr_len > 0 {
+                    flat_pr.loop_end = arr_len;
+                    flat_pr.looping = false;
+                }
+                self.update_piano_roll_data(&flat_pr);
+            } else {
+                self.update_piano_roll_data(&state.session.piano_roll);
+            }
         }
         if dirty.automation {
             self.update_automation_lanes(&state.session.automation.lanes);
