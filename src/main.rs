@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use audio::AudioHandle;
 use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
-use panes::{AddEffectPane, AddPane, AutomationPane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult,
@@ -73,6 +73,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(ConfirmPane::new(pane_keymap(&mut keymaps, "confirm"))));
     panes.add_pane(Box::new(ProjectBrowserPane::new(pane_keymap(&mut keymaps, "project_browser"))));
     panes.add_pane(Box::new(SaveAsPane::new(pane_keymap(&mut keymaps, "save_as"))));
+    panes.add_pane(Box::new(CommandPalettePane::new(pane_keymap(&mut keymaps, "command_palette"))));
 
     // Create layer stack
     let mut layer_stack = LayerStack::new(layers);
@@ -247,6 +248,33 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     pending_audio_dirty.merge(exit_result.audio_dirty);
                     apply_dispatch_result(exit_result, &mut state, &mut panes, &mut app_frame);
                 }
+            }
+
+            // Auto-pop command_palette layer and re-dispatch confirmed command
+            if layer_stack.has_layer("command_palette") && panes.active().id() != "command_palette" {
+                layer_stack.pop("command_palette");
+                if let Some(palette) = panes.get_pane_mut::<CommandPalettePane>("command_palette") {
+                    if let Some(cmd) = palette.take_command() {
+                        let global_result = handle_global_action(
+                            &cmd, &mut state, &mut panes, &mut audio, &mut app_frame,
+                            &mut select_mode, &mut pending_audio_dirty, &mut layer_stack, &io_tx,
+                        );
+                        if matches!(global_result, GlobalResult::Quit) { break; }
+                        if matches!(global_result, GlobalResult::NotHandled) {
+                            let dummy_event = ui::InputEvent::new(KeyCode::Enter, ui::Modifiers::none());
+                            let re_action = panes.active_mut().handle_action(&cmd, &dummy_event, &state);
+                            panes.process_nav(&re_action, &state);
+                            if matches!(&re_action, Action::Nav(_)) {
+                                sync_pane_layer(&mut panes, &mut layer_stack);
+                            }
+                            let r = dispatch::dispatch_action(&re_action, &mut state, &mut audio, &io_tx);
+                            if r.quit { break; }
+                            pending_audio_dirty.merge(r.audio_dirty);
+                            apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame);
+                        }
+                    }
+                }
+                sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
             let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);

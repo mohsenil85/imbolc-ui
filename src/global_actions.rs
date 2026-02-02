@@ -7,8 +7,8 @@ use crate::state::MixerSelection;
 use crate::dispatch;
 use crate::state::{AppState, ClipboardContents};
 use crate::panes::{
-    InstrumentEditPane, PianoRollPane, SequencerPane, AutomationPane,
-    ServerPane, HelpPane, FileBrowserPane, VstParamPane,
+    CommandPalettePane, InstrumentEditPane, PianoRollPane, SequencerPane,
+    AutomationPane, ServerPane, HelpPane, FileBrowserPane, VstParamPane,
     ConfirmPane, SaveAsPane, PendingAction,
 };
 use crate::ui::{
@@ -451,6 +451,14 @@ pub(crate) fn handle_global_action(
                 // Re-sync edit pane after deletion
                 sync_instrument_edit(state, panes);
             }
+        }
+        "command_palette" => {
+            let commands = layer_stack.collect_commands();
+            if let Some(palette) = panes.get_pane_mut::<CommandPalettePane>("command_palette") {
+                palette.open(commands);
+            }
+            panes.push_to("command_palette", &*state);
+            layer_stack.push("command_palette");
         }
         "escape" => {
             // Global escape — falls through to pane when no mode layer handles it

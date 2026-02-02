@@ -91,4 +91,22 @@ impl LayerStack {
     pub fn has_layer(&self, name: &str) -> bool {
         self.active.iter().any(|n| *n == name)
     }
+
+    /// Collect all commands from active layers for the command palette.
+    /// Walks top-to-bottom (matching resolution priority), deduplicates by action name.
+    pub fn collect_commands(&self) -> Vec<(&'static str, &'static str, String)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut commands = Vec::new();
+        for name in self.active.iter().rev() {
+            if let Some(layer) = self.layers.get(name) {
+                for binding in layer.keymap.bindings() {
+                    if seen.insert(binding.action) {
+                        commands.push((binding.action, binding.description, binding.pattern.display()));
+                    }
+                }
+            }
+        }
+        commands.sort_by(|a, b| a.0.cmp(&b.0));
+        commands
+    }
 }

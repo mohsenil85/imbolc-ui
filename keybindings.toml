@@ -44,6 +44,7 @@ bindings = [
   { key = "Ctrl+x", action = "cut", description = "Cut" },
   { key = "Ctrl+v", action = "paste", description = "Paste" },
   { key = "Ctrl+a", action = "select_all", description = "Select all" },
+  { key = ":", action = "command_palette", description = "Command palette" },
 ]
 
 [layers.instrument]
@@ -520,6 +521,13 @@ bindings = [
   { key = "Down", action = "down", description = "Next project" },
   { key = "k", action = "up", description = "Previous project" },
   { key = "j", action = "down", description = "Next project" },
+]
+
+[layers.command_palette]
+transparent = false
+bindings = [
+  { key = "Enter", action = "palette:confirm", description = "Execute command" },
+  { key = "Escape", action = "palette:cancel", description = "Cancel" },
 ]
 
 [layers.save_as]

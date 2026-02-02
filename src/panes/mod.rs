@@ -1,6 +1,7 @@
 mod add_effect_pane;
 mod add_pane;
 mod automation_pane;
+mod command_palette_pane;
 mod confirm_pane;
 mod eq_pane;
 mod file_browser_pane;
@@ -24,6 +25,7 @@ mod waveform_pane;
 pub use add_effect_pane::AddEffectPane;
 pub use add_pane::AddPane;
 pub use automation_pane::AutomationPane;
+pub use command_palette_pane::CommandPalettePane;
 pub use confirm_pane::{ConfirmPane, PendingAction};
 pub use eq_pane::EqPane;
 pub use file_browser_pane::FileBrowserPane;

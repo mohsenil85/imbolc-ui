@@ -103,7 +103,7 @@ fn parse_named_key(s: &str) -> KeyCode {
 const DEFAULT_KEYBINDINGS: &str = include_str!("../../keybindings.toml");
 
 /// Mode layer names that are not pane layers
-const MODE_LAYERS: &[&str] = &["global", "piano_mode", "pad_mode", "text_edit"];
+const MODE_LAYERS: &[&str] = &["global", "piano_mode", "pad_mode", "text_edit", "command_palette"];
 
 /// Load keybindings: embedded default, optionally merged with user override.
 /// Returns (Vec<Layer> for LayerStack, pane keymaps for pane construction).
