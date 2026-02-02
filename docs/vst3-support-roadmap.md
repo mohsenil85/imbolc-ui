@@ -11,37 +11,45 @@ file reflects the current Rust codebase and the intended direction.
 Implemented in the Rust codebase and SC engine:
 
 - VSTPlugin wrapper SynthDefs exist: `synthdefs/compile_vst.scd` generates
-  `imbolc_vst_instrument` and `imbolc_vst_effect`.
+  `imbolc_vst_instrument` and `imbolc_vst_effect` (requires the VSTPlugin extension).
+  These wrappers are not compiled by default; run `sclang synthdefs/compile_vst.scd`
+  and load synthdefs from the Server pane.
 - VST registry data model exists (`imbolc-core/src/state/vst_plugin.rs`) and is persisted in
-  SQLite (`vst_plugins`, `vst_plugin_params`).
-- Add pane can import a `.vst` / `.vst3` bundle as a VST instrument. The file
-  browser treats bundle directories as selectable.
+  SQLite (`vst_plugins`, `vst_plugin_params`, `instrument_vst_params`).
+- Add pane can import a `.vst` / `.vst3` bundle as a VST instrument; Add Effect can import VST effects.
+  The file browser treats bundle directories as selectable.
 - Audio engine opens a VST plugin in SuperCollider by sending a `/u_cmd` to the
   VSTPlugin UGen when routing is rebuilt.
 - VST instruments receive note-on/off via `/u_cmd` MIDI messages from the
   sequencer.
+- VST parameter pane exists (search/list/adjust/reset, add automation lane).
+- Automation target for VST parameters is wired in the audio engine (`/set`).
 
 What is missing or stubbed:
 
 - No plugin scanning or cataloging; only manual import by file path.
-- No parameter discovery, UI, or editing.
-- No automation lanes for VST parameters.
-- No plugin state save/restore (chunk state), only registry metadata.
+- Parameter discovery replies are not wired yet: `QueryVstParams` sends `/param_count`,
+  but OSC reply handling to populate the registry is still TODO.
+- No parameter UI for VST effects (only VST instruments have a param pane today).
+- VST state save/restore is not surfaced in the UI yet (SaveState exists in dispatch, but no bindings).
 - No preset/program handling.
 - No param groups, MIDI learn, or latency reporting/compensation.
-- VST effects are not wired into the UI flow yet (only wrapper + type exist).
 
-## Parameter browser (idea)
+## Parameter browser (current UI + gaps)
 
 Because we cannot open native plugin GUIs in a TUI, a generic parameter browser
 is the core user-facing surface for VST3 support.
 
-Minimum viable shape:
+Current shape (implemented in `src/panes/vst_param_pane`):
 
-- A searchable list of parameters (name, current value, default value).
-- A detail panel showing range, unit, and a live control widget (slider/knob).
-- Actions: set value, reset to default, favorite, and "add automation lane".
-- Optional compact/favorites view to keep large plugins usable.
+- Searchable list of parameters with value display.
+- Adjust/reset actions and "add automation lane".
+
+Gaps:
+
+- Parameter discovery replies from VSTPlugin (no list population yet).
+- Range/unit display and richer widgets.
+- Favorites/compact views.
 
 Example layout (sketch):
 

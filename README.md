@@ -2,138 +2,102 @@
 
 ![imbolc](imbolc.png)
 
-imbolc is a terminal-based digital audio workstation (DAW) built in Rust. The UI is a TUI (ratatui) and the audio engine runs on SuperCollider (scsynth) via OSC. It is optimized for keyboard-first instrument editing, sequencing, and mixing inside the terminal.
+imbolc is a terminal-based digital audio workstation (DAW) written in Rust. The UI is a TUI (ratatui) and the audio engine runs on SuperCollider (scsynth) via OSC. It is optimized for keyboard-first instrument editing, sequencing, and mixing inside the terminal.
 
-## Highlights
+## Quick start
 
-- Instruments with a source, filter, FX chain, and output routing.
-- Built-in sources: classic waves plus noise, pulse, supersaw, FM, phase mod, pluck, formant, gendy, chaos, additive, wavetable; Audio In, Bus In, Pitched Sampler, Kit (12-pad drum machine), custom SynthDefs, and VST instruments.
-- Filters: low-pass, high-pass, band-pass. Effects: delay, reverb, gate, tape comp, sidechain comp.
-- Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat, plus a step sequencer for kits and a sample chopper for slicing/assigning pads.
-- Mixer with level/pan/mute/solo, 8 buses, sends, and master control.
-- Performance modes: computer keyboard piano/pad, two-digit instrument select, fully keybound UI.
-- Audio backend: dedicated audio thread with ~1ms tick resolution, decoupled from UI. scsynth DSP with OSC bundles and NTP timetags for sample-accurate note timing.
-- Recording: toggle master recording to WAV and view audio input or recorded waveform.
-- Persistence: project model stored in SQLite; the audio graph is rebuilt on load.
+- Install Rust (edition 2021) and SuperCollider (scsynth on PATH; sclang needed for synthdef compilation).
+- Run: `cargo run --release`
+- Use `F5` for server controls, `F1`-`F7` to switch panes, and `?` for context help.
 
-## Requirements
-
-- Rust toolchain (edition 2021; tested with 1.70+).
-- SuperCollider: `scsynth` on PATH. For custom SynthDefs, `sclang` should also be available.
-- macOS device selection uses `system_profiler`. Other platforms may need extra work for device enumeration.
-
-## Build and run
+Developer mode (UI only):
 
 ```bash
-cargo run --release
+IMBOLC_NO_AUDIO=1 cargo run
 ```
 
-imbolc will attempt to auto-start scsynth. Use the Server pane (F5) to manage devices, compile/load synthdefs, or restart the server.
+## Features
 
-## Low-latency timing
+- Instrument model: source + filter + FX chain + LFO + envelope + mixer routing.
+- Sources: classic waves + noise, sync, FM/phase mod, pluck, formant, gendy, chaos, additive, wavetable; audio in/bus in; pitched sampler; kit; custom SynthDefs; VST instruments (experimental).
+- Filters: low-pass, high-pass, band-pass.
+- Effects: delay, reverb, gate, tape comp, sidechain comp. (More effects are defined in `synthdefs/compile.scd`; run the server "Compile SynthDefs" action to regenerate `.scsyndef` files.)
+- Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat; kit step sequencer; sample chopper.
+- Mixer: channel/bus levels, pan, mute/solo, 8 buses, sends, master control.
+- Automation lanes (including VST params when discovered).
+- Recording: master/input to WAV with waveform view.
+- Low-latency playback: dedicated audio thread (~1ms tick) with OSC bundles and NTP timetags for sample-accurate scheduling.
 
-- Dedicated audio thread ticks at ~1ms and never waits on UI render/input.
-- The sequencer converts tick offsets to seconds and sends OSC bundles with NTP timetags, so scsynth schedules notes sample-accurately ahead of time.
-- Jitter in the UI thread does not affect playback timing; the audio thread advances based on elapsed time and schedules notes accordingly.
-- Input polling runs at 2 ms and rendering at ~60 fps, but audio scheduling is not gated on either.
+## UI tour (defaults)
 
-## UI tour
+- `F1` Instruments: list/manage instruments, `Enter` to edit.
+- `F2` Piano Roll / Sequencer / Waveform (context-driven).
+- `F3` Track: timeline overview (WIP).
+- `F4` Mixer: levels, pan, mute/solo, sends.
+- `F5` Server: scsynth status, device selection, synthdef build/load, recording.
+- `F6` Logo.
+- `F7` Automation: lanes and point editing.
+- `Ctrl+f` Frame Edit: BPM, time signature, tuning, key/scale, snap.
+- `?` Context help for the active pane.
+- `/` Toggle performance mode (piano/pad keyboard depending on instrument).
+- `Ctrl+s` / `Ctrl+l` Save/load default project.
 
-- F1 - Instruments: list and manage instruments, press Enter to edit.
-- F2 - Piano Roll / Sequencer / Waveform (context-driven):
-  - Kit instruments open the step sequencer.
-  - Audio In / Bus In instruments open the waveform view.
-  - Other instruments open the piano roll.
-- F3 - Track: timeline overview (early/WIP).
-- F4 - Mixer: instrument and bus levels, sends, mute/solo.
-- F5 - Server: scsynth status, device selection, synthdef build/load, master recording.
-- F6 - Logo.
-- F7 - Automation: lanes and point editing.
-- Ctrl+f - Frame Edit: BPM, time signature, tuning, key/scale, snap.
-- ? - Context help for the active pane.
-- Ctrl+s / Ctrl+l - Save/load the default project.
-- / - Toggle performance mode (piano or pad keyboard depending on instrument).
+The canonical keybinding list lives in `keybindings.toml` and is surfaced in-app via `?`.
 
-## Keybindings and config
+## VST support (experimental)
 
-- Default bindings live in `keybindings.toml` and are embedded at build time.
-- Override bindings in `~/.config/imbolc/keybindings.toml`.
-- Default musical settings can be overridden in `~/.config/imbolc/config.toml`.
+VST support is routed through SuperCollider's VSTPlugin UGen and is still evolving.
 
-## Project files
+What works today:
+- Manual import of `.vst` / `.vst3` bundles for instruments and effects (no scanning/catalog yet).
+- VST instruments are hosted as persistent nodes; note-on/off is sent via `/u_cmd` MIDI messages.
+- VST effects can be inserted in instrument FX chains.
+- A VST parameter pane exists (search, adjust, reset, add automation lane).
 
-- Default project file: `~/.config/imbolc/default.sqlite`
-- Custom synthdefs: `~/.config/imbolc/synthdefs/`
-- Audio device preferences: `~/.config/imbolc/audio_devices.json`
-- Recordings: `master_<timestamp>.wav` in the current working directory
+Current gaps:
+- Parameter discovery replies from VSTPlugin are not wired yet (the UI is present, but `discover` does not currently populate params).
+- No parameter UI for VST effects (only VST instruments have a param pane today).
+- No preset/program browser; VST state save/restore is not surfaced in the UI yet.
+- No param groups, MIDI learn, or latency reporting/compensation.
+
+Setup notes:
+- Install the VSTPlugin extension in SuperCollider.
+- Generate the wrapper synthdefs by running `sclang synthdefs/compile_vst.scd`, then load synthdefs from the Server pane.
+
+## Configuration & files
+
+- Defaults: `config.toml` and `keybindings.toml` (embedded at build time).
+- Overrides: `~/.config/imbolc/config.toml`, `~/.config/imbolc/keybindings.toml`.
+- Project file: `~/.config/imbolc/default.sqlite`.
+- Custom synthdefs: `~/.config/imbolc/synthdefs/`.
+- Audio device prefs: `~/.config/imbolc/audio_devices.json`.
+- scsynth log: `~/.config/imbolc/scsynth.log`.
+- Recordings: `master_<timestamp>.wav` in the current working directory.
+
+macOS device enumeration uses `system_profiler`; other platforms may need extra work for device selection.
+
+## Repo map
+
+- `src/` - TUI app, panes, input layers, render loop.
+- `imbolc-core/` - state model, dispatch, audio engine, persistence.
+- `synthdefs/` - SuperCollider synth definitions (compiled `.scsyndef`).
+- `docs/` - architecture, audio routing, persistence, and roadmaps.
 
 ## Docs
 
-- `docs/architecture.md` — state ownership and pane/dispatch flow
-- `docs/sc-engine-architecture.md` — SuperCollider engine details
-- `docs/vst3-support-roadmap.md` — current VST3 plan and UI targets
-- `docs/vst-integration.md` — legacy notes (superseded)
+- `docs/architecture.md` - state ownership, panes, dispatch flow.
+- `docs/audio-routing.md` - buses, sends, and mixer routing.
+- `docs/sc-engine-architecture.md` - SC engine modules and design notes.
+- `docs/sqlite-persistence.md` - DB schema and persistence model.
+- `docs/vst3-support-roadmap.md` - VST plan and current status.
+- `docs/ai-coding-affordances.md` - AI-friendly patterns and gotchas.
 
-## Architecture (from TECHDEETS)
-
-imbolc uses an MVU-inspired architecture adapted for a TUI with a dedicated audio engine.
-
-### Core components
-
-- AppState: single source of truth (SessionState, InstrumentState, and UI-related state).
-- Panes: stateless views that render from AppState and emit Action enums.
-- dispatch module (`imbolc-core/src/dispatch`): central event handler; mutates AppState and drives AudioHandle (command interface to the audio thread).
-- AudioEngine: manages scsynth and mirrors InstrumentState into a concrete DSP graph. Runs on a dedicated audio thread, communicated via MPSC commands.
-
-### Data flow
-
-User input -> Pane::handle_action / Pane::handle_raw_input -> Action -> dispatch -> mutate state / AudioHandle -> [MPSC channel] -> AudioThread -> send OSC -> render
-
-## Audio engine details
-
-- Scheduling runs on a dedicated audio thread at ~1ms tick resolution, fully decoupled from the UI. The main loop polls input every 2 ms and renders at ~60 fps. Note events are sent as OSC bundles with future NTP timetags for sample-accurate playback. UI jank cannot affect playback timing.
-- BusAllocator deterministically assigns audio/control buses and resets on project load or engine restart.
-- SynthDefs live in `synthdefs/` and are loaded into scsynth at startup. Execution order is enforced via groups:
-  - 100: Sources
-  - 200: Processing
-  - 300: Output
-  - 400: Record
-
-### Signal flow and routing
-
-Each instrument is realized as a chain of SuperCollider nodes:
-
-Source -> Filter -> FX Chain -> Output (Master or Bus)
-
-- Polyphonic sources spawn per-voice groups and sum into a shared source bus.
-- Audio In and Bus In are monophonic sources with persistent synths.
-- Mixer sends and bus targets are handled in the output stage.
-
-### Polyphony and voice chaining
-
-- Each note spawns a voice group with an `imbolc_midi` control synth feeding a source synth.
-- Voices for an instrument feed a single shared filter/FX chain (paraphonic-ish).
-- Voice stealing is FIFO at 16 voices per instrument.
-
-### Modulation
-
-- SynthDefs expose *_mod_in inputs; LFOs write to control buses and are selected via `Select.kr` inside SynthDefs.
-- The audio engine currently wires LFOs to filter cutoff; additional targets are outlined in `imbolc-core/src/state/instrument.rs`.
-
-## Persistence
-
-Projects are stored as SQLite databases. The database captures the project model (instruments, effects, mixer buses, notes, automation, drum pads, and settings). The audio graph is reconstructed from this model on load.
-
-## Known limitations
-
-- UI and input are on the main thread; input polling (2 ms) is decoupled from rendering (~60 fps). Audio scheduling runs on a separate thread at ~1ms resolution, so UI load does not affect playback timing.
-- Voice stealing is FIFO; smarter strategies are not implemented.
-- Parameter smoothing is limited; rapid changes can cause zippering.
-- LFO target wiring beyond filter cutoff is still in progress.
-
-## Testing
+## Build & test
 
 ```bash
+cargo ck         # fast typecheck (alias)
+cargo build
+cargo test --bin imbolc
 cargo test
 # tmux-based E2E tests are ignored by default
 cargo test -- --ignored
@@ -141,4 +105,4 @@ cargo test -- --ignored
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
+This project is licensed under the GNU GPL v3.0. See [LICENSE](LICENSE) for details.

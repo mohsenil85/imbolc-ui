@@ -132,7 +132,9 @@ is called only when the layer stack resolves a key to an action string; otherwis
 | `waveform` | `WaveformPane` | `F2` (context) | Recorded/input waveform view |
 | `home` | `HomePane` | — | Welcome screen |
 | `add` | `AddPane` | — | Instrument creation menu |
+| `add_effect` | `AddEffectPane` | — | Add an effect (including VST effects) to the current instrument |
 | `instrument_edit` | `InstrumentEditPane` | — | Edit instrument params/effects/filter |
+| `vst_params` | `VstParamPane` | — | VST parameter browser (search/adjust/automation) |
 | `frame_edit` | `FrameEditPane` | `Ctrl+f` | Session settings (BPM, key, etc.) |
 | `file_browser` | `FileBrowserPane` | — | File selection for imports |
 | `sample_chopper` | `SampleChopperPane` | — | Slice audio and assign pads |
