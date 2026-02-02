@@ -1,11 +1,17 @@
 use crate::audio::AudioHandle;
-use crate::action::{AudioDirty, IoFeedback};
+use crate::action::{
+    AudioDirty, IoFeedback, PianoRollAction, SequencerAction,
+    AutomationAction, Action
+};
 use crate::dispatch;
-use crate::state::{self, AppState};
+use crate::state::{self, AppState, ClipboardContents, ClipboardNote};
 use crate::state::undo::UndoHistory;
-use crate::panes::{InstrumentEditPane, PianoRollPane, ServerPane, HelpPane, FileBrowserPane, VstParamPane};
+use crate::panes::{
+    InstrumentEditPane, PianoRollPane, SequencerPane, AutomationPane,
+    ServerPane, HelpPane, FileBrowserPane, VstParamPane
+};
 use crate::ui::{
-    self, Action, DispatchResult, Frame, LayerStack, NavIntent, PaneManager,
+    self, DispatchResult, Frame, LayerStack, NavIntent, PaneManager,
     SessionAction, StatusEvent, ToggleResult, ViewState
 };
 
@@ -197,6 +203,30 @@ pub(crate) fn handle_global_action(
             let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, state, panes, app_frame);
+        }
+        "copy" => {
+            copy_from_active_pane(state, panes);
+        }
+        "cut" => {
+            undo_history.push(&state.session, &state.instruments);
+            let action = cut_from_active_pane(state, panes);
+            if let Some(action) = action {
+                let r = dispatch::dispatch_action(&action, state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame);
+            }
+        }
+        "paste" => {
+            undo_history.push(&state.session, &state.instruments);
+            let action = paste_to_active_pane(state, panes);
+            if let Some(action) = action {
+                let r = dispatch::dispatch_action(&action, state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame);
+            }
+        }
+        "select_all" => {
+            select_all_in_active_pane(state, panes);
         }
         "switch:instrument" => {
             switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack);
@@ -420,5 +450,296 @@ pub(crate) fn apply_dispatch_result(
     // Process project name
     if let Some(ref name) = result.project_name {
         app_frame.set_project_name(name.to_string());
+    }
+}
+
+fn copy_from_active_pane(state: &mut AppState, panes: &mut PaneManager) {
+    let pane_id = panes.active().id();
+    match pane_id {
+        "piano_roll" => {
+            if let Some(pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                let track_idx = pane.current_track;
+                // Determine selection range
+                let (tick_start, tick_end, pitch_start, pitch_end) = if let Some((anchor_tick, anchor_pitch)) = pane.selection_anchor {
+                    let (t0, t1) = if anchor_tick <= pane.cursor_tick {
+                        (anchor_tick, pane.cursor_tick + pane.ticks_per_cell())
+                    } else {
+                        (pane.cursor_tick, anchor_tick + pane.ticks_per_cell())
+                    };
+                    let (p0, p1) = if anchor_pitch <= pane.cursor_pitch {
+                        (anchor_pitch, pane.cursor_pitch)
+                    } else {
+                        (pane.cursor_pitch, anchor_pitch)
+                    };
+                    (t0, t1, p0, p1)
+                } else {
+                    // No selection: try to copy note at cursor
+                    (pane.cursor_tick, pane.cursor_tick + 1, pane.cursor_pitch, pane.cursor_pitch)
+                };
+
+                if let Some(track) = state.session.piano_roll.track_at(track_idx) {
+                    let mut notes = Vec::new();
+                    for note in &track.notes {
+                        // Check if note overlaps with selection rect
+                        // Logic for "overlaps": note.tick < end && note.tick + duration > start
+                        // But for strict copy we might want "contained in" or "starts in"?
+                        // Plan says: "Collect all notes within rectangle".
+                        // Let's assume "starts within tick range and pitch is in range"
+                        if note.tick >= tick_start && note.tick < tick_end &&
+                           note.pitch >= pitch_start && note.pitch <= pitch_end {
+                            notes.push(ClipboardNote {
+                                tick_offset: note.tick - tick_start,
+                                pitch_offset: note.pitch as i16 - pitch_start as i16,
+                                duration: note.duration,
+                                velocity: note.velocity,
+                                probability: note.probability,
+                            });
+                        }
+                    }
+                    if !notes.is_empty() {
+                        state.clipboard.contents = Some(ClipboardContents::PianoRollNotes(notes));
+                    }
+                }
+            }
+        }
+        "sequencer" => {
+            if let Some(pane) = panes.get_pane_mut::<SequencerPane>("sequencer") {
+                 if let Some(seq) = state.instruments.selected_drum_sequencer() {
+                     let (pad_start, pad_end, step_start, step_end) = if let Some((anchor_pad, anchor_step)) = pane.selection_anchor {
+                        let (p0, p1) = if anchor_pad <= pane.cursor_pad {
+                            (anchor_pad, pane.cursor_pad)
+                        } else {
+                            (pane.cursor_pad, anchor_pad)
+                        };
+                        let (s0, s1) = if anchor_step <= pane.cursor_step {
+                            (anchor_step, pane.cursor_step)
+                        } else {
+                            (pane.cursor_step, anchor_step)
+                        };
+                        (p0, p1, s0, s1)
+                     } else {
+                         // No selection: copy single step? Plan didn't specify single step copy behavior explicitly for sequencer,
+                         // but "copy single note at cursor" was for piano roll. Let's assume single step copy too.
+                         (pane.cursor_pad, pane.cursor_pad, pane.cursor_step, pane.cursor_step)
+                     };
+
+                     let pattern = seq.pattern();
+                     let mut steps = Vec::new();
+                     for pad_idx in pad_start..=pad_end {
+                         for step_idx in step_start..=step_end {
+                             if pad_idx < pattern.steps.len() && step_idx < pattern.steps[pad_idx].len() {
+                                 let step = &pattern.steps[pad_idx][step_idx];
+                                 if step.active {
+                                     steps.push((pad_idx - pad_start, step_idx - step_start, step.clone()));
+                                 }
+                             }
+                         }
+                     }
+                     if !steps.is_empty() {
+                         state.clipboard.contents = Some(ClipboardContents::DrumSteps { steps });
+                     }
+                 }
+            }
+        }
+        "automation" => {
+             if let Some(pane) = panes.get_pane_mut::<AutomationPane>("automation") {
+                 let lane_id = pane.selected_lane_id(state);
+                 if let Some(lane_id) = lane_id {
+                     if let Some(lane) = state.session.automation.lane(lane_id) {
+                         let (tick_start, tick_end) = if let Some(anchor_tick) = pane.selection_anchor_tick {
+                             if anchor_tick <= pane.cursor_tick {
+                                 (anchor_tick, pane.cursor_tick)
+                             } else {
+                                 (pane.cursor_tick, anchor_tick)
+                             }
+                         } else {
+                             // Single point? Automation points are continuous-ish. Maybe just range?
+                             // Plan says: "Region is anchor_tick..cursor_tick".
+                             // If no anchor, maybe nothing?
+                             // Let's assume no copy without selection for now or single point at cursor?
+                             // Actually "AutomationPoints: return AutomationAction::PastePoints".
+                             // Let's copy points in range if selection exists.
+                             (0, 0)
+                         };
+
+                         if tick_start < tick_end {
+                             let mut points = Vec::new();
+                             for point in &lane.points {
+                                 if point.tick >= tick_start && point.tick <= tick_end {
+                                     points.push((point.tick - tick_start, point.value));
+                                 }
+                             }
+                             if !points.is_empty() {
+                                 state.clipboard.contents = Some(ClipboardContents::AutomationPoints { points });
+                             }
+                         }
+                     }
+                 }
+             }
+        }
+        _ => {}
+    }
+}
+
+fn cut_from_active_pane(state: &mut AppState, panes: &mut PaneManager) -> Option<Action> {
+    // Copy first
+    copy_from_active_pane(state, panes);
+
+    // Then return delete action
+    let pane_id = panes.active().id();
+    match pane_id {
+        "piano_roll" => {
+            if let Some(pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                 if let Some((anchor_tick, anchor_pitch)) = pane.selection_anchor {
+                     let (tick_start, tick_end) = if anchor_tick <= pane.cursor_tick {
+                         (anchor_tick, pane.cursor_tick + pane.ticks_per_cell())
+                     } else {
+                         (pane.cursor_tick, anchor_tick + pane.ticks_per_cell())
+                     };
+                     let (pitch_start, pitch_end) = if anchor_pitch <= pane.cursor_pitch {
+                         (anchor_pitch, pane.cursor_pitch)
+                     } else {
+                         (pane.cursor_pitch, anchor_pitch)
+                     };
+
+                     // Clear selection after cut
+                     pane.selection_anchor = None;
+
+                     return Some(Action::PianoRoll(PianoRollAction::DeleteNotesInRegion {
+                         track: pane.current_track,
+                         start_tick: tick_start,
+                         end_tick: tick_end,
+                         start_pitch: pitch_start,
+                         end_pitch: pitch_end,
+                     }));
+                 }
+            }
+        }
+        "sequencer" => {
+            if let Some(pane) = panes.get_pane_mut::<SequencerPane>("sequencer") {
+                 if let Some((anchor_pad, anchor_step)) = pane.selection_anchor {
+                     let (pad_start, pad_end) = if anchor_pad <= pane.cursor_pad {
+                         (anchor_pad, pane.cursor_pad)
+                     } else {
+                         (pane.cursor_pad, anchor_pad)
+                     };
+                     let (step_start, step_end) = if anchor_step <= pane.cursor_step {
+                         (anchor_step, pane.cursor_step)
+                     } else {
+                         (pane.cursor_step, anchor_step)
+                     };
+                     pane.selection_anchor = None;
+
+                     return Some(Action::Sequencer(SequencerAction::DeleteStepsInRegion {
+                         start_pad: pad_start,
+                         end_pad: pad_end,
+                         start_step: step_start,
+                         end_step: step_end,
+                     }));
+                 }
+            }
+        }
+        "automation" => {
+            if let Some(pane) = panes.get_pane_mut::<AutomationPane>("automation") {
+                if let Some(anchor_tick) = pane.selection_anchor_tick {
+                     let (tick_start, tick_end) = if anchor_tick <= pane.cursor_tick {
+                         (anchor_tick, pane.cursor_tick)
+                     } else {
+                         (pane.cursor_tick, anchor_tick)
+                     };
+                     if let Some(lane_id) = pane.selected_lane_id(state) {
+                         pane.selection_anchor_tick = None;
+                         return Some(Action::Automation(AutomationAction::DeletePointsInRange(lane_id, tick_start, tick_end)));
+                     }
+                }
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn paste_to_active_pane(state: &mut AppState, panes: &mut PaneManager) -> Option<Action> {
+    if let Some(contents) = &state.clipboard.contents {
+        match contents {
+            ClipboardContents::PianoRollNotes(notes) => {
+                if panes.active().id() == "piano_roll" {
+                    if let Some(pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                        // anchor is cursor position
+                        let action = Action::PianoRoll(PianoRollAction::PasteNotes {
+                            track: pane.current_track,
+                            anchor_tick: pane.cursor_tick,
+                            anchor_pitch: pane.cursor_pitch,
+                            notes: notes.clone(),
+                        });
+                        // Clear selection if any (optional, but good UX)
+                        pane.selection_anchor = None;
+                        return Some(action);
+                    }
+                }
+            }
+            ClipboardContents::DrumSteps { steps } => {
+                if panes.active().id() == "sequencer" {
+                    if let Some(pane) = panes.get_pane_mut::<SequencerPane>("sequencer") {
+                        let action = Action::Sequencer(SequencerAction::PasteSteps {
+                            anchor_pad: pane.cursor_pad,
+                            anchor_step: pane.cursor_step,
+                            steps: steps.clone(),
+                        });
+                        pane.selection_anchor = None;
+                        return Some(action);
+                    }
+                }
+            }
+            ClipboardContents::AutomationPoints { points } => {
+                if panes.active().id() == "automation" {
+                    if let Some(pane) = panes.get_pane_mut::<AutomationPane>("automation") {
+                        if let Some(lane_id) = pane.selected_lane_id(state) {
+                            let action = Action::Automation(AutomationAction::PastePoints(
+                                lane_id,
+                                pane.cursor_tick,
+                                points.clone(),
+                            ));
+                            pane.selection_anchor_tick = None;
+                            return Some(action);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn select_all_in_active_pane(state: &mut AppState, panes: &mut PaneManager) {
+    let pane_id = panes.active().id();
+    match pane_id {
+        "piano_roll" => {
+            if let Some(pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
+                if let Some(track) = state.session.piano_roll.track_at(pane.current_track) {
+                    if let Some(min_tick) = track.notes.iter().map(|n| n.tick).min() {
+                        let max_tick = track.notes.iter().map(|n| n.tick + n.duration).max().unwrap_or(min_tick);
+                        let min_pitch = track.notes.iter().map(|n| n.pitch).min().unwrap_or(0);
+                        let max_pitch = track.notes.iter().map(|n| n.pitch).max().unwrap_or(127);
+                        
+                        pane.selection_anchor = Some((min_tick, min_pitch));
+                        pane.cursor_tick = max_tick;
+                        pane.cursor_pitch = max_pitch;
+                        pane.scroll_to_cursor();
+                    }
+                }
+            }
+        }
+        "sequencer" => {
+            if let Some(pane) = panes.get_pane_mut::<SequencerPane>("sequencer") {
+                if let Some(seq) = state.instruments.selected_drum_sequencer() {
+                    let pattern = seq.pattern();
+                    pane.selection_anchor = Some((0, 0));
+                    pane.cursor_pad = crate::state::drum_sequencer::NUM_PADS - 1;
+                    pane.cursor_step = pattern.length - 1;
+                }
+            }
+        }
+        _ => {}
     }
 }

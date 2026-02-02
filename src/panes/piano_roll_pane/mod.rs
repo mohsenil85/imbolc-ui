@@ -13,10 +13,10 @@ use crate::ui::{Action, InputEvent, Keymap, MouseEvent, Pane, PianoKeyboard, Tog
 pub struct PianoRollPane {
     keymap: Keymap,
     // Cursor state
-    pub(super) cursor_pitch: u8,   // MIDI note 0-127
-    pub(super) cursor_tick: u32,   // Position in ticks
+    pub(crate) cursor_pitch: u8,   // MIDI note 0-127
+    pub(crate) cursor_tick: u32,   // Position in ticks
     // View state
-    pub(super) current_track: usize,
+    pub(crate) current_track: usize,
     pub(super) view_bottom_pitch: u8,  // Lowest visible pitch
     pub(super) view_start_tick: u32,   // Leftmost visible tick
     pub(super) zoom_level: u8,         // 1=finest, higher=wider beats. Ticks per cell.
@@ -29,6 +29,8 @@ pub struct PianoRollPane {
     // Automation overlay
     pub(super) automation_overlay_visible: bool,
     pub(super) automation_overlay_lane_idx: Option<usize>, // index into automation.lanes for overlay display
+    /// Selection anchor — set when Shift+Arrow begins. None = no active selection.
+    pub(crate) selection_anchor: Option<(u32, u8)>,  // (tick, pitch)
 }
 
 impl PianoRollPane {
@@ -47,6 +49,7 @@ impl PianoRollPane {
             recording: false,
             automation_overlay_visible: false,
             automation_overlay_lane_idx: None,
+            selection_anchor: None,
         }
     }
 
@@ -101,7 +104,7 @@ impl PianoRollPane {
     }
 
     /// Ensure cursor is visible by adjusting view
-    fn scroll_to_cursor(&mut self) {
+    pub(crate) fn scroll_to_cursor(&mut self) {
         // Vertical: keep cursor within visible range
         let visible_rows = 24u8;
         if self.cursor_pitch < self.view_bottom_pitch {
@@ -145,6 +148,7 @@ impl Pane for PianoRollPane {
     }
 
     fn on_enter(&mut self, state: &AppState) {
+        self.selection_anchor = None;
         // Sync current_track to the globally selected instrument
         if let Some(selected_idx) = state.instruments.selected {
             if let Some(inst) = state.instruments.instruments.get(selected_idx) {

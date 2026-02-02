@@ -109,7 +109,9 @@ pub fn is_undoable(action: &Action) -> bool {
             | crate::action::PianoRollAction::SetBpm(_)
             | crate::action::PianoRollAction::CycleTimeSig
             | crate::action::PianoRollAction::TogglePolyMode(_)
-            | crate::action::PianoRollAction::AdjustSwing(_) => true,
+            | crate::action::PianoRollAction::AdjustSwing(_)
+            | crate::action::PianoRollAction::DeleteNotesInRegion { .. }
+            | crate::action::PianoRollAction::PasteNotes { .. } => true,
             _ => false,
         },
         Action::Session(a) => match a {

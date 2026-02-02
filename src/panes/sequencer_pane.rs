@@ -12,9 +12,11 @@ use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, M
 
 pub struct SequencerPane {
     keymap: Keymap,
-    cursor_pad: usize,
-    cursor_step: usize,
+    pub(crate) cursor_pad: usize,
+    pub(crate) cursor_step: usize,
     view_start_step: usize,
+    /// Selection anchor (pad, step). None = no selection.
+    pub(crate) selection_anchor: Option<(usize, usize)>,
 }
 
 impl SequencerPane {
@@ -24,6 +26,7 @@ impl SequencerPane {
             cursor_pad: 0,
             cursor_step: 0,
             view_start_step: 0,
+            selection_anchor: None,
         }
     }
 
@@ -81,18 +84,50 @@ impl Pane for SequencerPane {
                 ));
             }
             "up" => {
+                self.selection_anchor = None;
                 self.cursor_pad = self.cursor_pad.saturating_sub(1);
                 Action::None
             }
             "down" => {
+                self.selection_anchor = None;
                 self.cursor_pad = (self.cursor_pad + 1).min(NUM_PADS - 1);
                 Action::None
             }
             "left" => {
+                self.selection_anchor = None;
                 self.cursor_step = self.cursor_step.saturating_sub(1);
                 Action::None
             }
             "right" => {
+                self.selection_anchor = None;
+                self.cursor_step = (self.cursor_step + 1).min(pattern_length - 1);
+                Action::None
+            }
+            "select_up" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_pad, self.cursor_step));
+                }
+                self.cursor_pad = self.cursor_pad.saturating_sub(1);
+                Action::None
+            }
+            "select_down" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_pad, self.cursor_step));
+                }
+                self.cursor_pad = (self.cursor_pad + 1).min(NUM_PADS - 1);
+                Action::None
+            }
+            "select_left" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_pad, self.cursor_step));
+                }
+                self.cursor_step = self.cursor_step.saturating_sub(1);
+                Action::None
+            }
+            "select_right" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_pad, self.cursor_step));
+                }
                 self.cursor_step = (self.cursor_step + 1).min(pattern_length - 1);
                 Action::None
             }
@@ -254,8 +289,24 @@ impl Pane for SequencerPane {
                 let step = &pattern.steps[pad_idx][step_idx];
                 let is_beat = step_idx % 4 == 0;
 
+                let in_selection = self.selection_anchor.map_or(false, |(anchor_pad, anchor_step)| {
+                    let (p0, p1) = if anchor_pad <= self.cursor_pad {
+                        (anchor_pad, self.cursor_pad)
+                    } else {
+                        (self.cursor_pad, anchor_pad)
+                    };
+                    let (s0, s1) = if anchor_step <= self.cursor_step {
+                        (anchor_step, self.cursor_step)
+                    } else {
+                        (self.cursor_step, anchor_step)
+                    };
+                    pad_idx >= p0 && pad_idx <= p1 && step_idx >= s0 && step_idx <= s1
+                });
+
                 let (fg, bg) = if is_cursor {
                     if step.active { (Color::BLACK, Color::WHITE) } else { (Color::WHITE, Color::SELECTION_BG) }
+                } else if in_selection {
+                    if step.active { (Color::BLACK, Color::new(60, 30, 80)) } else { (Color::WHITE, Color::new(60, 30, 80)) }
                 } else if is_playhead {
                     if step.active { (Color::BLACK, Color::GREEN) } else { (Color::GREEN, Color::new(20, 50, 20)) }
                 } else if step.active {
@@ -280,24 +331,34 @@ impl Pane for SequencerPane {
         // Pad detail line
         let detail_y = grid_y + NUM_PADS as u16 + 1;
         let pad = &seq.pads[self.cursor_pad];
-
-        let pad_label = format!("Pad {:>2}", self.cursor_pad + 1);
-        Paragraph::new(Line::from(Span::styled(
-            pad_label,
-            ratatui::style::Style::from(Style::new().fg(Color::ORANGE).bold()),
-        ))).render(RatatuiRect::new(cx, detail_y, 8, 1), buf);
-
-        let name_display = if pad.name.is_empty() {
-            "(no sample)"
-        } else if pad.name.len() > 20 {
-            &pad.name[..20]
+        
+        if let Some((anchor_pad, anchor_step)) = self.selection_anchor {
+            let pads = (self.cursor_pad as i32 - anchor_pad as i32).abs() + 1;
+            let steps = (self.cursor_step as i32 - anchor_step as i32).abs() + 1;
+            let sel_str = format!("Sel: {} pads x {} steps", pads, steps);
+            Paragraph::new(Line::from(Span::styled(
+                sel_str,
+                ratatui::style::Style::from(Style::new().fg(Color::ORANGE).bold()),
+            ))).render(RatatuiRect::new(cx, detail_y, 30, 1), buf);
         } else {
-            &pad.name
-        };
-        Paragraph::new(Line::from(Span::styled(
-            name_display,
-            ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
-        ))).render(RatatuiRect::new(cx + 8, detail_y, 22, 1), buf);
+            let pad_label = format!("Pad {:>2}", self.cursor_pad + 1);
+            Paragraph::new(Line::from(Span::styled(
+                pad_label,
+                ratatui::style::Style::from(Style::new().fg(Color::ORANGE).bold()),
+            ))).render(RatatuiRect::new(cx, detail_y, 8, 1), buf);
+
+            let name_display = if pad.name.is_empty() {
+                "(no sample)"
+            } else if pad.name.len() > 20 {
+                &pad.name[..20]
+            } else {
+                &pad.name
+            };
+            Paragraph::new(Line::from(Span::styled(
+                name_display,
+                ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
+            ))).render(RatatuiRect::new(cx + 8, detail_y, 22, 1), buf);
+        }
 
         // Level bar
         let level_x = cx + 32;

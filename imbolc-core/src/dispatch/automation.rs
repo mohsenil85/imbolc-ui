@@ -88,6 +88,21 @@ pub(super) fn dispatch_automation(
                 let _ = audio.apply_automation(target, actual_value, &state.instruments, &state.session);
             }
         }
+        AutomationAction::DeletePointsInRange(lane_id, start_tick, end_tick) => {
+            if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
+                lane.points.retain(|p| p.tick < *start_tick || p.tick >= *end_tick);
+                result.audio_dirty.automation = true;
+            }
+        }
+        AutomationAction::PastePoints(lane_id, anchor_tick, points) => {
+            if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
+                for (tick_offset, value) in points {
+                    let tick = *anchor_tick + tick_offset;
+                    lane.add_point(tick, *value);
+                }
+                result.audio_dirty.automation = true;
+            }
+        }
     }
 
     result

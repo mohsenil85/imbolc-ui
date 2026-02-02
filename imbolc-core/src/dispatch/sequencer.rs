@@ -1,5 +1,5 @@
 use crate::audio::AudioHandle;
-use crate::state::drum_sequencer::{DrumPattern, euclidean_rhythm};
+use crate::state::drum_sequencer::{DrumPattern, DrumStep, euclidean_rhythm};
 use crate::state::sampler::Slice;
 use crate::state::AppState;
 use crate::action::{ChopperAction, DispatchResult, NavIntent, SequencerAction};
@@ -269,6 +269,36 @@ pub(super) fn dispatch_sequencer(
                     .and_then(|s| s.get_mut(*step_idx))
                 {
                     step.pitch_offset = (step.pitch_offset as i16 + *delta as i16).clamp(-24, 24) as i8;
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::DeleteStepsInRegion { start_pad, end_pad, start_step, end_step } => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                let pattern = &mut seq.patterns[seq.current_pattern];
+                for pad in *start_pad..=*end_pad {
+                    for step in *start_step..=*end_step {
+                        if pad < pattern.steps.len() && step < pattern.steps[pad].len() {
+                            pattern.steps[pad][step] = DrumStep::default();
+                        }
+                    }
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::PasteSteps { anchor_pad, anchor_step, steps } => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                let pattern = &mut seq.patterns[seq.current_pattern];
+                for (pad_offset, step_offset, step_data) in steps {
+                    let pad = anchor_pad + pad_offset;
+                    let step = anchor_step + step_offset;
+                    if pad < pattern.steps.len() && step < pattern.steps[pad].len() {
+                        pattern.steps[pad][step] = step_data.clone();
+                    }
                 }
             }
             let mut result = DispatchResult::none();

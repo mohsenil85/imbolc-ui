@@ -63,6 +63,7 @@ impl PianoRollPane {
             }
             // Normal grid navigation
             "up" => {
+                self.selection_anchor = None;
                 if self.cursor_pitch < 127 {
                     self.cursor_pitch += 1;
                     self.scroll_to_cursor();
@@ -70,6 +71,7 @@ impl PianoRollPane {
                 Action::None
             }
             "down" => {
+                self.selection_anchor = None;
                 if self.cursor_pitch > 0 {
                     self.cursor_pitch -= 1;
                     self.scroll_to_cursor();
@@ -77,11 +79,50 @@ impl PianoRollPane {
                 Action::None
             }
             "right" => {
+                self.selection_anchor = None;
                 self.cursor_tick += self.ticks_per_cell();
                 self.scroll_to_cursor();
                 Action::None
             }
             "left" => {
+                self.selection_anchor = None;
+                let step = self.ticks_per_cell();
+                self.cursor_tick = self.cursor_tick.saturating_sub(step);
+                self.scroll_to_cursor();
+                Action::None
+            }
+            "select_up" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
+                }
+                if self.cursor_pitch < 127 {
+                    self.cursor_pitch += 1;
+                    self.scroll_to_cursor();
+                }
+                Action::None
+            }
+            "select_down" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
+                }
+                if self.cursor_pitch > 0 {
+                    self.cursor_pitch -= 1;
+                    self.scroll_to_cursor();
+                }
+                Action::None
+            }
+            "select_right" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
+                }
+                self.cursor_tick += self.ticks_per_cell();
+                self.scroll_to_cursor();
+                Action::None
+            }
+            "select_left" => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
+                }
                 let step = self.ticks_per_cell();
                 self.cursor_tick = self.cursor_tick.saturating_sub(step);
                 self.scroll_to_cursor();
@@ -115,21 +156,25 @@ impl PianoRollPane {
             "loop_start" => Action::PianoRoll(PianoRollAction::SetLoopStart(self.cursor_tick)),
             "loop_end" => Action::PianoRoll(PianoRollAction::SetLoopEnd(self.cursor_tick)),
             "octave_up" => {
+                self.selection_anchor = None;
                 self.cursor_pitch = (self.cursor_pitch as i16 + 12).min(127) as u8;
                 self.scroll_to_cursor();
                 Action::None
             }
             "octave_down" => {
+                self.selection_anchor = None;
                 self.cursor_pitch = (self.cursor_pitch as i16 - 12).max(0) as u8;
                 self.scroll_to_cursor();
                 Action::None
             }
             "home" => {
+                self.selection_anchor = None;
                 self.cursor_tick = 0;
                 self.view_start_tick = 0;
                 Action::None
             }
             "end" => {
+                self.selection_anchor = None;
                 self.jump_to_end();
                 Action::None
             }
@@ -197,6 +242,7 @@ impl PianoRollPane {
 
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                self.selection_anchor = None;
                 // Click on the grid area
                 if col >= grid_x && col < grid_x + grid_width
                     && row >= grid_y && row < grid_y + grid_height

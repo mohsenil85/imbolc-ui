@@ -1,5 +1,6 @@
 use crate::audio::AudioHandle;
 use crate::state::AppState;
+use crate::state::piano_roll::Note;
 use crate::action::{DispatchResult, PianoRollAction};
 
 pub(super) fn dispatch_piano_roll(
@@ -206,6 +207,41 @@ pub(super) fn dispatch_piano_roll(
             }
 
             let mut result = DispatchResult::with_status(crate::audio::ServerStatus::Running, "Rendering...");
+            result.audio_dirty.piano_roll = true;
+            return result;
+        }
+        PianoRollAction::DeleteNotesInRegion { track, start_tick, end_tick, start_pitch, end_pitch } => {
+            if let Some(t) = state.session.piano_roll.track_at_mut(*track) {
+                t.notes.retain(|n| {
+                    !(n.pitch >= *start_pitch && n.pitch <= *end_pitch
+                      && n.tick >= *start_tick && n.tick < *end_tick)
+                });
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.piano_roll = true;
+            return result;
+        }
+        PianoRollAction::PasteNotes { track, anchor_tick, anchor_pitch, notes } => {
+            if let Some(t) = state.session.piano_roll.track_at_mut(*track) {
+                for cn in notes {
+                    let tick = *anchor_tick + cn.tick_offset;
+                    let pitch_i16 = *anchor_pitch as i16 + cn.pitch_offset;
+                    if pitch_i16 < 0 || pitch_i16 > 127 { continue; }
+                    let pitch = pitch_i16 as u8;
+                    // Avoid duplicates at same (pitch, tick)
+                    if !t.notes.iter().any(|n| n.pitch == pitch && n.tick == tick) {
+                        let pos = t.notes.partition_point(|n| n.tick < tick);
+                        t.notes.insert(pos, Note {
+                            tick,
+                            duration: cn.duration,
+                            pitch,
+                            velocity: cn.velocity,
+                            probability: cn.probability,
+                        });
+                    }
+                }
+            }
+            let mut result = DispatchResult::none();
             result.audio_dirty.piano_roll = true;
             return result;
         }

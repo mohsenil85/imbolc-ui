@@ -18,7 +18,7 @@ pub struct ChopperState {
     pub duration_secs: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DrumStep {
     pub active: bool,
     pub velocity: u8, // 1-127, default 100

@@ -1,5 +1,6 @@
 pub mod arpeggiator;
 pub mod automation;
+pub mod clipboard;
 pub mod custom_synthdef;
 pub mod drum_sequencer;
 pub mod instrument;
@@ -15,6 +16,7 @@ pub mod undo;
 pub mod vst_plugin;
 
 pub use automation::AutomationTarget;
+pub use clipboard::{Clipboard, ClipboardContents, ClipboardNote};
 pub use custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
 pub use instrument::*;
 pub use instrument_state::InstrumentState;
@@ -98,6 +100,7 @@ impl IoGeneration {
 pub struct AppState {
     pub session: SessionState,
     pub instruments: InstrumentState,
+    pub clipboard: Clipboard,
     /// Path to a recently stopped recording, pending waveform load
     pub pending_recording_path: Option<std::path::PathBuf>,
     /// Pending render-to-WAV operation
@@ -118,6 +121,7 @@ impl AppState {
         Self {
             session: SessionState::new(),
             instruments: InstrumentState::new(),
+            clipboard: Clipboard::default(),
             pending_recording_path: None,
             pending_render: None,
             keyboard_layout: KeyboardLayout::default(),
@@ -134,6 +138,7 @@ impl AppState {
         Self {
             session: SessionState::new_with_defaults(defaults),
             instruments: InstrumentState::new(),
+            clipboard: Clipboard::default(),
             pending_recording_path: None,
             pending_render: None,
             keyboard_layout: KeyboardLayout::default(),

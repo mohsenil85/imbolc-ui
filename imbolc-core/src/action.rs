@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use crate::audio::ServerStatus;
 use crate::state::{EqConfig, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
+use crate::state::ClipboardNote;
+use crate::state::drum_sequencer::DrumStep;
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
 use crate::state::custom_synthdef::CustomSynthDef;
 use crate::state::instrument_state::InstrumentState;
@@ -53,6 +55,19 @@ pub enum SequencerAction {
     ToggleReverse(usize),              // pad_idx
     AdjustPadPitch(usize, i8),         // (pad_idx, delta semitones)
     AdjustStepPitch(usize, usize, i8), // (pad_idx, step_idx, delta)
+    /// Delete steps in region (used by Cut)
+    DeleteStepsInRegion {
+        start_pad: usize,
+        end_pad: usize,
+        start_step: usize,
+        end_step: usize,
+    },
+    /// Paste drum steps at cursor
+    PasteSteps {
+        anchor_pad: usize,
+        anchor_step: usize,
+        steps: Vec<(usize, usize, DrumStep)>,
+    },
 }
 
 /// Navigation actions (pane switching, modal stack)
@@ -140,6 +155,21 @@ pub enum PianoRollAction {
     PlayStopRecord,
     AdjustSwing(f32),               // delta for swing amount
     RenderToWav(InstrumentId),
+    /// Delete all notes in the given region (used by Cut)
+    DeleteNotesInRegion {
+        track: usize,
+        start_tick: u32,
+        end_tick: u32,
+        start_pitch: u8,
+        end_pitch: u8,
+    },
+    /// Paste notes at a position from clipboard
+    PasteNotes {
+        track: usize,
+        anchor_tick: u32,
+        anchor_pitch: u8,
+        notes: Vec<ClipboardNote>,
+    },
 }
 
 /// Sample chopper actions
@@ -204,6 +234,10 @@ pub enum AutomationAction {
     ClearLane(AutomationLaneId),
     ToggleRecording,
     RecordValue(AutomationTarget, f32),
+    /// Delete automation points in tick range on a lane
+    DeletePointsInRange(AutomationLaneId, u32, u32),
+    /// Paste automation points at offset
+    PastePoints(AutomationLaneId, u32, Vec<(u32, f32)>),
 }
 
 /// Session/file actions

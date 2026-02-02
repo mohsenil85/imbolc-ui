@@ -279,12 +279,32 @@ impl PianoRollPane {
                 let is_bar_line = tick % tpbar == 0;
                 let is_beat_line = tick % tpb == 0;
 
+                let in_selection = self.selection_anchor.map_or(false, |(anchor_tick, anchor_pitch)| {
+                    let (t0, t1) = if anchor_tick <= self.cursor_tick {
+                        (anchor_tick, self.cursor_tick + self.ticks_per_cell())
+                    } else {
+                        (self.cursor_tick, anchor_tick + self.ticks_per_cell())
+                    };
+                    let (p0, p1) = if anchor_pitch <= self.cursor_pitch {
+                        (anchor_pitch, self.cursor_pitch)
+                    } else {
+                        (self.cursor_pitch, anchor_pitch)
+                    };
+                    tick >= t0 && tick < t1 && pitch >= p0 && pitch <= p1
+                });
+
                 let (ch, style) = if is_cursor {
                     if has_note {
                         ('█', ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::WHITE)))
                     } else {
                         ('▒', ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)))
                     }
+                } else if in_selection && has_note {
+                    // Selected note
+                    ('█', ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::new(60, 30, 80))))
+                } else if in_selection {
+                    // Selection region background
+                    ('░', ratatui::style::Style::from(Style::new().fg(Color::new(60, 30, 80))))
                 } else if has_note {
                     if is_note_start {
                         ('█', ratatui::style::Style::from(Style::new().fg(Color::PINK)))
@@ -336,13 +356,19 @@ impl PianoRollPane {
 
         // Status line
         let status_y = footer_y + 1;
-        let vel_str = format!(
-            "Note:{} Tick:{} Vel:{} Dur:{}",
-            note_name(self.cursor_pitch),
-            self.cursor_tick,
-            self.default_velocity,
-            self.default_duration,
-        );
+        let vel_str = if let Some((anchor_tick, anchor_pitch)) = self.selection_anchor {
+            let t_diff = (self.cursor_tick as i64 - anchor_tick as i64).abs() as u32 + self.ticks_per_cell();
+            let p_diff = (self.cursor_pitch as i16 - anchor_pitch as i16).abs() + 1;
+            format!("Sel: {:.1} beats x {} pitches", t_diff as f32 / piano_roll.ticks_per_beat as f32, p_diff)
+        } else {
+            format!(
+                "Note:{} Tick:{} Vel:{} Dur:{}",
+                note_name(self.cursor_pitch),
+                self.cursor_tick,
+                self.default_velocity,
+                self.default_duration,
+            )
+        };
         Paragraph::new(Line::from(Span::styled(
             vel_str,
             ratatui::style::Style::from(Style::new().fg(Color::GRAY)),

@@ -151,8 +151,10 @@ fn test_escape_from_add_returns() {
 
     let harness = start_with_instrument("esc-add");
 
-    // Ctrl+a reopens the Add Instrument dialog
-    harness.send_key("C-a").expect("send C-a");
+    // Ctrl+g to instrument list, then 'a' to add
+    harness.send_key("C-g").expect("send C-g");
+    wait_render();
+    harness.send_key("a").expect("send a");
     wait_render();
     harness
         .assert_screen_contains("Add Instrument")
@@ -324,12 +326,14 @@ fn test_add_second_instrument() {
 
     let harness = start_with_instrument("add-second");
 
-    // Ctrl+a to open Add dialog again
-    harness.send_key("C-a").expect("send C-a");
+    // Ctrl+g to instrument list, then 'a' to add
+    harness.send_key("C-g").expect("send C-g");
+    wait_render();
+    harness.send_key("a").expect("send a");
     wait_render();
     harness
         .assert_screen_contains("Add Instrument")
-        .expect("Ctrl+a should open Add Instrument");
+        .expect("Ctrl+g then a should open Add Instrument");
 
     // Add another instrument
     harness.send_key("Enter").expect("send Enter");

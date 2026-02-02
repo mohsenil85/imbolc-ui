@@ -30,7 +30,7 @@ pub struct AutomationPane {
     keymap: Keymap,
     focus: AutomationFocus,
     // Timeline cursor
-    cursor_tick: u32,
+    pub(crate) cursor_tick: u32,
     cursor_value: f32,
     // Timeline viewport
     view_start_tick: u32,
@@ -38,6 +38,7 @@ pub struct AutomationPane {
     snap_to_grid: bool,
     // Target picker sub-mode
     target_picker: TargetPickerState,
+    pub(crate) selection_anchor_tick: Option<u32>,
 }
 
 impl AutomationPane {
@@ -51,6 +52,7 @@ impl AutomationPane {
             zoom_level: 3,
             snap_to_grid: true,
             target_picker: TargetPickerState::Inactive,
+            selection_anchor_tick: None,
         }
     }
 
@@ -75,7 +77,7 @@ impl AutomationPane {
     }
 
     /// Get the currently selected lane id
-    fn selected_lane_id(&self, state: &AppState) -> Option<AutomationLaneId> {
+    pub(crate) fn selected_lane_id(&self, state: &AppState) -> Option<AutomationLaneId> {
         state.session.automation.selected().map(|l| l.id)
     }
 }
