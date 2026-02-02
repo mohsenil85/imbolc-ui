@@ -110,6 +110,13 @@ impl Pane for SequencerPane {
             "prev_pattern" => Action::Sequencer(SequencerAction::PrevPattern),
             "next_pattern" => Action::Sequencer(SequencerAction::NextPattern),
             "cycle_length" => Action::Sequencer(SequencerAction::CyclePatternLength),
+            "toggle_reverse" => Action::Sequencer(SequencerAction::ToggleReverse(self.cursor_pad)),
+            "pitch_up" => Action::Sequencer(SequencerAction::AdjustPadPitch(self.cursor_pad, 1)),
+            "pitch_down" => Action::Sequencer(SequencerAction::AdjustPadPitch(self.cursor_pad, -1)),
+            "pitch_up_octave" => Action::Sequencer(SequencerAction::AdjustPadPitch(self.cursor_pad, 12)),
+            "pitch_down_octave" => Action::Sequencer(SequencerAction::AdjustPadPitch(self.cursor_pad, -12)),
+            "step_pitch_up" => Action::Sequencer(SequencerAction::AdjustStepPitch(self.cursor_pad, self.cursor_step, 1)),
+            "step_pitch_down" => Action::Sequencer(SequencerAction::AdjustStepPitch(self.cursor_pad, self.cursor_step, -1)),
             _ => Action::None,
         }
     }
@@ -314,11 +321,28 @@ impl Pane for SequencerPane {
             }
         }
 
+        // Reverse + Pitch indicators
+        let info_x = bar_x + bar_width as u16 + 2;
+        let mut info_parts: Vec<String> = Vec::new();
+        if pad.reverse { info_parts.push("REV".to_string()); }
+        if pad.pitch != 0 { info_parts.push(format!("{:+}st", pad.pitch)); }
+        let info_str = info_parts.join(" ");
+        for (j, ch) in info_str.chars().enumerate() {
+            if let Some(cell) = buf.cell_mut((info_x + j as u16, detail_y)) {
+                cell.set_char(ch).set_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
+            }
+        }
+        let info_offset = if info_str.is_empty() { 0 } else { info_str.len() as u16 + 1 };
+
         // Velocity
         let step = &pattern.steps[self.cursor_pad][self.cursor_step];
-        let vel_str = format!("Vel: {}", step.velocity);
+        let vel_str = if step.pitch_offset != 0 {
+            format!("Vel: {}  P:{:+}", step.velocity, step.pitch_offset)
+        } else {
+            format!("Vel: {}", step.velocity)
+        };
         for (j, ch) in vel_str.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((bar_x + bar_width as u16 + 2 + j as u16, detail_y)) {
+            if let Some(cell) = buf.cell_mut((info_x + info_offset + j as u16, detail_y)) {
                 cell.set_char(ch).set_style(dark_gray);
             }
         }
@@ -337,7 +361,7 @@ impl Pane for SequencerPane {
         // Help line
         let help_y = rect.y + rect.height - 2;
         Paragraph::new(Line::from(Span::styled(
-            "Enter:toggle  Space:play/stop  s:sample  c:chopper  x:clear  []:pattern  {:length",
+            "Enter:toggle  Space:play  s:sample  c:chop  r:rev  -/=:pitch  C-Up/Dn:step pitch",
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
         ))).render(RatatuiRect::new(cx, help_y, rect.width.saturating_sub(4), 1), buf);
     }

@@ -140,10 +140,12 @@ pub(super) fn dispatch_instrument(
                     if let Some(pad) = seq.pads.get(*pad_idx) {
                         if let (Some(buffer_id), instrument_id) = (pad.buffer_id, instrument.id) {
                             let amp = pad.level;
+                            let pitch_rate = 2.0_f32.powf(pad.pitch as f32 / 12.0);
+                            let rate = if pad.reverse { -pitch_rate } else { pitch_rate };
                             if audio.is_running() {
                                 let _ = audio.play_drum_hit_to_instrument(
                                     buffer_id, amp, instrument_id,
-                                    pad.slice_start, pad.slice_end,
+                                    pad.slice_start, pad.slice_end, rate,
                                 );
                             }
                         }

@@ -486,6 +486,7 @@ impl AudioEngine {
         instrument_id: InstrumentId,
         slice_start: f32,
         slice_end: f32,
+        rate: f32,
     ) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
         let bufnum = *self.buffer_map.get(&buffer_id).ok_or("Buffer not loaded")?;
@@ -513,6 +514,8 @@ impl AudioEngine {
                     rosc::OscType::Float(slice_start),
                     rosc::OscType::String("sliceEnd".to_string()),
                     rosc::OscType::Float(slice_end),
+                    rosc::OscType::String("rate".to_string()),
+                    rosc::OscType::Float(rate),
                     rosc::OscType::String("out".to_string()),
                     rosc::OscType::Int(out_bus), // Route to instrument's source bus
                 ],

@@ -23,6 +23,7 @@ pub struct DrumStep {
     pub active: bool,
     pub velocity: u8, // 1-127, default 100
     pub probability: f32, // 0.0-1.0, default 1.0 (always play)
+    pub pitch_offset: i8, // semitone offset per step, default 0
 }
 
 impl Default for DrumStep {
@@ -31,6 +32,7 @@ impl Default for DrumStep {
             active: false,
             velocity: 100,
             probability: 1.0,
+            pitch_offset: 0,
         }
     }
 }
@@ -43,6 +45,8 @@ pub struct DrumPad {
     pub level: f32, // 0.0-1.0, default 0.8
     pub slice_start: f32, // 0.0-1.0, default 0.0
     pub slice_end: f32,   // 0.0-1.0, default 1.0
+    pub reverse: bool,    // play sample backwards
+    pub pitch: i8,        // semitone offset, -24 to +24
 }
 
 impl Default for DrumPad {
@@ -54,6 +58,8 @@ impl Default for DrumPad {
             level: 0.8,
             slice_start: 0.0,
             slice_end: 1.0,
+            reverse: false,
+            pitch: 0,
         }
     }
 }

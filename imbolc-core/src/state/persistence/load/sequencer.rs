@@ -5,18 +5,30 @@ use crate::state::instrument::*;
 pub(crate) fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     use crate::state::drum_sequencer::DrumPattern;
 
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT instrument_id, pad_index, buffer_id, path, name, level FROM drum_pads",
-    ) {
+    let has_pad_reverse = conn
+        .prepare("SELECT reverse FROM drum_pads LIMIT 0")
+        .is_ok();
+    let has_pad_pitch = conn
+        .prepare("SELECT pitch FROM drum_pads LIMIT 0")
+        .is_ok();
+    let pads_query = match (has_pad_reverse, has_pad_pitch) {
+        (true, true) => "SELECT instrument_id, pad_index, buffer_id, path, name, level, reverse, pitch FROM drum_pads",
+        (true, false) => "SELECT instrument_id, pad_index, buffer_id, path, name, level, reverse FROM drum_pads",
+        _ => "SELECT instrument_id, pad_index, buffer_id, path, name, level FROM drum_pads",
+    };
+    if let Ok(mut stmt) = conn.prepare(pads_query) {
         if let Ok(rows) = stmt.query_map([], |row| {
+            let reverse = if has_pad_reverse { row.get::<_, i32>(6).unwrap_or(0) != 0 } else { false };
+            let pitch = if has_pad_pitch { row.get::<_, i32>(7).unwrap_or(0) as i8 } else { 0 };
             Ok((
                 row.get::<_, InstrumentId>(0)?, row.get::<_, usize>(1)?,
                 row.get::<_, Option<u32>>(2)?, row.get::<_, Option<String>>(3)?,
                 row.get::<_, String>(4)?, row.get::<_, f64>(5)?,
+                reverse, pitch,
             ))
         }) {
             for row in rows {
-                if let Ok((instrument_id, idx, buffer_id, path, name, level)) = row {
+                if let Ok((instrument_id, idx, buffer_id, path, name, level, reverse, pitch)) = row {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(seq) = &mut inst.drum_sequencer {
                             if let Some(pad) = seq.pads.get_mut(idx) {
@@ -24,6 +36,8 @@ pub(crate) fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Inst
                                 pad.path = path;
                                 pad.name = name;
                                 pad.level = level as f32;
+                                pad.reverse = reverse;
+                                pad.pitch = pitch;
                             }
                         }
                     }
@@ -81,22 +95,26 @@ pub(crate) fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Inst
     let has_step_probability = conn
         .prepare("SELECT probability FROM drum_steps LIMIT 0")
         .is_ok();
-    let steps_query = if has_step_probability {
-        "SELECT instrument_id, pattern_index, pad_index, step_index, velocity, probability FROM drum_steps"
-    } else {
-        "SELECT instrument_id, pattern_index, pad_index, step_index, velocity FROM drum_steps"
+    let has_step_pitch_offset = conn
+        .prepare("SELECT pitch_offset FROM drum_steps LIMIT 0")
+        .is_ok();
+    let steps_query = match (has_step_probability, has_step_pitch_offset) {
+        (true, true) => "SELECT instrument_id, pattern_index, pad_index, step_index, velocity, probability, pitch_offset FROM drum_steps",
+        (true, false) => "SELECT instrument_id, pattern_index, pad_index, step_index, velocity, probability FROM drum_steps",
+        _ => "SELECT instrument_id, pattern_index, pad_index, step_index, velocity FROM drum_steps",
     };
     if let Ok(mut stmt) = conn.prepare(steps_query) {
         if let Ok(rows) = stmt.query_map([], |row| {
             let probability = if has_step_probability { row.get::<_, f32>(5).unwrap_or(1.0) } else { 1.0 };
+            let pitch_offset = if has_step_pitch_offset { row.get::<_, i32>(6).unwrap_or(0) as i8 } else { 0 };
             Ok((
                 row.get::<_, InstrumentId>(0)?, row.get::<_, usize>(1)?,
                 row.get::<_, usize>(2)?, row.get::<_, usize>(3)?,
-                row.get::<_, u8>(4)?, probability,
+                row.get::<_, u8>(4)?, probability, pitch_offset,
             ))
         }) {
             for row in rows {
-                if let Ok((instrument_id, pi, pad_idx, step_idx, velocity, probability)) = row {
+                if let Ok((instrument_id, pi, pad_idx, step_idx, velocity, probability, pitch_offset)) = row {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         if let Some(seq) = &mut inst.drum_sequencer {
                             if let Some(pattern) = seq.patterns.get_mut(pi) {
@@ -104,6 +122,7 @@ pub(crate) fn load_drum_sequencers(conn: &SqlConnection, instruments: &mut [Inst
                                     step.active = true;
                                     step.velocity = velocity;
                                     step.probability = probability;
+                                    step.pitch_offset = pitch_offset;
                                 }
                             }
                         }

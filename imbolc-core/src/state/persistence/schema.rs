@@ -261,6 +261,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 path TEXT,
                 name TEXT NOT NULL DEFAULT '',
                 level REAL NOT NULL DEFAULT 0.8,
+                reverse INTEGER NOT NULL DEFAULT 0,
+                pitch INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (instrument_id, pad_index)
             );
 
@@ -280,6 +282,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 step_index INTEGER NOT NULL,
                 velocity INTEGER NOT NULL DEFAULT 100,
                 probability REAL NOT NULL DEFAULT 1.0,
+                pitch_offset INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (instrument_id, pattern_index, pad_index, step_index)
             );
 

@@ -506,6 +506,7 @@ impl AudioHandle {
         instrument_id: InstrumentId,
         slice_start: f32,
         slice_end: f32,
+        rate: f32,
     ) -> Result<(), String> {
         self.send_cmd(AudioCmd::PlayDrumHit {
             buffer_id,
@@ -513,6 +514,7 @@ impl AudioHandle {
             instrument_id,
             slice_start,
             slice_end,
+            rate,
         })
     }
 

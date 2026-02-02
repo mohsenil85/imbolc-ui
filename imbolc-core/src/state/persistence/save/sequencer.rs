@@ -3,8 +3,8 @@ use crate::state::instrument_state::InstrumentState;
 
 pub(crate) fn save_drum_sequencers(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut pad_stmt = conn.prepare(
-        "INSERT INTO drum_pads (instrument_id, pad_index, buffer_id, path, name, level)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO drum_pads (instrument_id, pad_index, buffer_id, path, name, level, reverse, pitch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
     let mut pattern_stmt = conn.prepare(
         "INSERT INTO drum_patterns (instrument_id, pattern_index, length, swing_amount, chain_enabled) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -13,8 +13,8 @@ pub(crate) fn save_drum_sequencers(conn: &SqlConnection, instruments: &Instrumen
         "INSERT INTO drum_sequencer_chain (instrument_id, position, pattern_index) VALUES (?1, ?2, ?3)",
     )?;
     let mut step_stmt = conn.prepare(
-        "INSERT INTO drum_steps (instrument_id, pattern_index, pad_index, step_index, velocity, probability)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO drum_steps (instrument_id, pattern_index, pad_index, step_index, velocity, probability, pitch_offset)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
 
     for inst in &instruments.instruments {
@@ -29,6 +29,8 @@ pub(crate) fn save_drum_sequencers(conn: &SqlConnection, instruments: &Instrumen
                     pad.path,
                     pad.name,
                     pad.level as f64,
+                    pad.reverse as i32,
+                    pad.pitch as i32,
                 ])?;
             }
 
@@ -39,7 +41,7 @@ pub(crate) fn save_drum_sequencers(conn: &SqlConnection, instruments: &Instrumen
                     for (step_idx, step) in pad_steps.iter().enumerate() {
                         if step.active {
                             step_stmt.execute(rusqlite::params![
-                                instrument_id, pi, pad_idx, step_idx, step.velocity as i32, step.probability as f64
+                                instrument_id, pi, pad_idx, step_idx, step.velocity as i32, step.probability as f64, step.pitch_offset as i32
                             ])?;
                         }
                     }

@@ -249,9 +249,9 @@ impl AudioThread {
             AudioCmd::ReleaseAllVoices => {
                 self.engine.release_all_voices();
             }
-            AudioCmd::PlayDrumHit { buffer_id, amp, instrument_id, slice_start, slice_end } => {
+            AudioCmd::PlayDrumHit { buffer_id, amp, instrument_id, slice_start, slice_end, rate } => {
                 let _ = self.engine.play_drum_hit_to_instrument(
-                    buffer_id, amp, instrument_id, slice_start, slice_end,
+                    buffer_id, amp, instrument_id, slice_start, slice_end, rate,
                 );
             }
             AudioCmd::LoadSample { buffer_id, path, reply } => {

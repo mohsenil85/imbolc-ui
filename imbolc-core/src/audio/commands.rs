@@ -127,6 +127,7 @@ pub enum AudioCmd {
         instrument_id: InstrumentId,
         slice_start: f32,
         slice_end: f32,
+        rate: f32,
     },
 
     // ── Samples ───────────────────────────────────────────────────

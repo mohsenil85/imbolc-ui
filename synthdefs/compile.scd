@@ -415,12 +415,16 @@ SynthDef(\imbolc_sampler, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=1,
     var numFrames = BufFrames.kr(bufnum);
     var startFrame = sliceStart * numFrames;
     var endFrame = sliceEnd * numFrames;
+    var isReverse = finalRate < 0;
+    var phasorStart = Select.kr(isReverse, [startFrame, endFrame]);
+    var phasorEnd = Select.kr(isReverse, [endFrame, startFrame]);
+    var phasorReset = Select.kr(isReverse, [startFrame, endFrame]);
     var phasor = Phasor.ar(
         trig: 0,
         rate: BufRateScale.kr(bufnum) * finalRate,
-        start: startFrame,
-        end: endFrame,
-        resetPos: startFrame
+        start: phasorStart,
+        end: phasorEnd,
+        resetPos: phasorReset
     );
     var sig = BufRd.ar(2, bufnum, phasor, loop: loop);
     var env = EnvGen.kr(Env.adsr(finalAttack, decay, sustain, finalRelease), gateSig, doneAction: 2);
@@ -439,7 +443,10 @@ SynthDef(\imbolc_sampler_oneshot, { |out=1024, bufnum=0, sliceStart=0, sliceEnd=
     var duration = (endFrame - startFrame).abs / bufRate;
     
     // Line.ar drives the pointer from start to end over duration
-    var phasor = Line.ar(startFrame, endFrame, duration, doneAction: 2);
+    var isReverse = rate < 0;
+    var lineStart = Select.kr(isReverse, [startFrame, endFrame]);
+    var lineEnd = Select.kr(isReverse, [endFrame, startFrame]);
+    var phasor = Line.ar(lineStart, lineEnd, duration, doneAction: 2);
     
     var sig = BufRd.ar(2, bufnum, phasor, loop: 0);
     

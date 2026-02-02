@@ -86,9 +86,12 @@ pub fn tick_drum_sequencer(
                                     let jitter = (r - 0.5) * 2.0 * session.humanize_velocity * (30.0 / 127.0);
                                     amp = (amp + jitter).clamp(0.01, 1.0);
                                 }
+                                let total_pitch = pad.pitch as i16 + step.pitch_offset as i16;
+                                let pitch_rate = 2.0_f32.powf(total_pitch as f32 / 12.0);
+                                let rate = if pad.reverse { -pitch_rate } else { pitch_rate };
                                 let _ = engine.play_drum_hit_to_instrument(
                                     buffer_id, amp, instrument.id,
-                                    pad.slice_start, pad.slice_end,
+                                    pad.slice_start, pad.slice_end, rate,
                                 );
                             }
                         }

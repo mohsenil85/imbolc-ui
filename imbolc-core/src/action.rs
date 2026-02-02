@@ -50,6 +50,9 @@ pub enum SequencerAction {
     AddChainStep(usize),            // pattern_index
     RemoveChainStep(usize),         // position in chain
     MoveChainStep(usize, usize),    // from_position, to_position
+    ToggleReverse(usize),              // pad_idx
+    AdjustPadPitch(usize, i8),         // (pad_idx, delta semitones)
+    AdjustStepPitch(usize, usize, i8), // (pad_idx, step_idx, delta)
 }
 
 /// Navigation actions (pane switching, modal stack)

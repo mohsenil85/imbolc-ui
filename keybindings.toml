@@ -128,6 +128,13 @@ bindings = [
   { key = "Shift+Down", action = "vel_down", description = "Decrease step velocity" },
   { key = "Shift+Left", action = "pad_level_down", description = "Decrease pad level" },
   { key = "Shift+Right", action = "pad_level_up", description = "Increase pad level" },
+  { key = "r", action = "toggle_reverse", description = "Toggle pad reverse" },
+  { key = "=", action = "pitch_up", description = "Pad pitch up 1 semitone" },
+  { key = "-", action = "pitch_down", description = "Pad pitch down 1 semitone" },
+  { key = "+", action = "pitch_up_octave", description = "Pad pitch up 1 octave" },
+  { key = "_", action = "pitch_down_octave", description = "Pad pitch down 1 octave" },
+  { key = "Ctrl+Up", action = "step_pitch_up", description = "Step pitch offset up" },
+  { key = "Ctrl+Down", action = "step_pitch_down", description = "Step pitch offset down" },
 ]
 
 [layers.instrument_edit]

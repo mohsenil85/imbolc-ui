@@ -240,6 +240,41 @@ pub(super) fn dispatch_sequencer(
             result.audio_dirty.instruments = true;
             return result;
         }
+        SequencerAction::ToggleReverse(pad_idx) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                if let Some(pad) = seq.pads.get_mut(*pad_idx) {
+                    pad.reverse = !pad.reverse;
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::AdjustPadPitch(pad_idx, delta) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                if let Some(pad) = seq.pads.get_mut(*pad_idx) {
+                    pad.pitch = (pad.pitch as i16 + *delta as i16).clamp(-24, 24) as i8;
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
+        SequencerAction::AdjustStepPitch(pad_idx, step_idx, delta) => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
+                if let Some(step) = seq
+                    .pattern_mut()
+                    .steps
+                    .get_mut(*pad_idx)
+                    .and_then(|s| s.get_mut(*step_idx))
+                {
+                    step.pitch_offset = (step.pitch_offset as i16 + *delta as i16).clamp(-24, 24) as i8;
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            return result;
+        }
     }
 
 }
@@ -381,7 +416,7 @@ pub(super) fn dispatch_chopper(
                                 if audio.is_running() {
                                     let _ = audio.play_drum_hit_to_instrument(
                                         buffer_id, 0.8, instrument.id,
-                                        slice.start, slice.end,
+                                        slice.start, slice.end, 1.0,
                                     );
                                 }
                             }
