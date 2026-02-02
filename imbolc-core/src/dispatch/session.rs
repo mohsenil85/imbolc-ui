@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use crate::audio::AudioHandle;
 use crate::scd_parser;
@@ -6,6 +7,72 @@ use crate::action::{DispatchResult, IoFeedback, NavIntent, SessionAction};
 
 use super::server::{compile_synthdef, config_synthdefs_dir};
 use super::default_rack_path;
+
+fn dispatch_save(
+    path: PathBuf,
+    state: &mut AppState,
+    audio: &AudioHandle,
+    io_tx: &Sender<IoFeedback>,
+    result: &mut DispatchResult,
+) {
+    // Sync piano roll time_signature from session before cloning
+    state.session.piano_roll.time_signature = state.session.time_signature;
+
+    let session = state.session.clone();
+    let instruments = state.instruments.clone();
+    let tx = io_tx.clone();
+    let save_id = state.io_generation.next_save();
+
+    std::thread::spawn(move || {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let res = crate::state::persistence::save_project(&path, &session, &instruments)
+            .map(|_| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("default")
+                    .to_string()
+            })
+            .map_err(|e| e.to_string());
+
+        let _ = tx.send(IoFeedback::SaveComplete { id: save_id, path, result: res });
+    });
+
+    result.push_status(audio.status(), "Saving...");
+}
+
+fn dispatch_load(
+    path: PathBuf,
+    state: &mut AppState,
+    audio: &AudioHandle,
+    io_tx: &Sender<IoFeedback>,
+    result: &mut DispatchResult,
+) {
+    let tx = io_tx.clone();
+    let load_id = state.io_generation.next_load();
+
+    std::thread::spawn(move || {
+        let res = if path.exists() {
+            crate::state::persistence::load_project(&path)
+                .map(|(session, instruments)| {
+                    let name = path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("default")
+                        .to_string();
+                    (session, instruments, name)
+                })
+                .map_err(|e| e.to_string())
+        } else {
+            Err("Project file not found".to_string())
+        };
+
+        let _ = tx.send(IoFeedback::LoadComplete { id: load_id, path, result: res });
+    });
+
+    result.push_status(audio.status(), "Loading...");
+}
 
 pub(super) fn dispatch_session(
     action: &SessionAction,
@@ -17,58 +84,32 @@ pub(super) fn dispatch_session(
 
     match action {
         SessionAction::Save => {
-            let path = default_rack_path();
-            // Sync piano roll time_signature from session before cloning
-            state.session.piano_roll.time_signature = state.session.time_signature;
-
-            let session = state.session.clone();
-            let instruments = state.instruments.clone();
-            let tx = io_tx.clone();
-            let save_id = state.io_generation.next_save();
-
-            std::thread::spawn(move || {
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                
-                let res = crate::state::persistence::save_project(&path, &session, &instruments)
-                    .map(|_| {
-                        path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("default")
-                            .to_string()
-                    })
-                    .map_err(|e| e.to_string());
-                
-                let _ = tx.send(IoFeedback::SaveComplete { id: save_id, result: res });
-            });
-            
-            result.push_status(audio.status(), "Saving...");
+            let path = state.project_path.clone().unwrap_or_else(default_rack_path);
+            dispatch_save(path, state, audio, io_tx, &mut result);
+        }
+        SessionAction::SaveAs(ref path) => {
+            let path = path.clone();
+            dispatch_save(path, state, audio, io_tx, &mut result);
+            result.push_nav(NavIntent::ConditionalPop("save_as"));
         }
         SessionAction::Load => {
-            let path = default_rack_path();
-            let tx = io_tx.clone();
-            let load_id = state.io_generation.next_load();
-
-            std::thread::spawn(move || {
-                let res = if path.exists() {
-                    crate::state::persistence::load_project(&path)
-                        .map(|(session, instruments)| {
-                            let name = path.file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("default")
-                                .to_string();
-                            (session, instruments, name)
-                        })
-                        .map_err(|e| e.to_string())
-                } else {
-                    Err("Project file not found".to_string())
-                };
-                
-                let _ = tx.send(IoFeedback::LoadComplete { id: load_id, result: res });
-            });
-            
-            result.push_status(audio.status(), "Loading...");
+            let path = state.project_path.clone().unwrap_or_else(default_rack_path);
+            dispatch_load(path, state, audio, io_tx, &mut result);
+            result.push_nav(NavIntent::ConditionalPop("confirm"));
+            result.push_nav(NavIntent::ConditionalPop("project_browser"));
+        }
+        SessionAction::LoadFrom(ref path) => {
+            let path = path.clone();
+            dispatch_load(path, state, audio, io_tx, &mut result);
+            result.push_nav(NavIntent::ConditionalPop("confirm"));
+            result.push_nav(NavIntent::ConditionalPop("project_browser"));
+        }
+        SessionAction::NewProject => {
+            // Signal main loop to handle the full reset (undo history, audio sync, etc.)
+            // We set a flag via DispatchResult; main loop does the actual reset.
+            result.new_project = true;
+            result.push_nav(NavIntent::ConditionalPop("confirm"));
+            result.push_nav(NavIntent::ConditionalPop("project_browser"));
         }
         SessionAction::UpdateSession(ref settings) => {
             state.session.apply_musical_settings(settings);

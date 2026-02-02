@@ -116,7 +116,10 @@ pub fn is_undoable(action: &Action) -> bool {
         },
         Action::Session(a) => match a {
             crate::action::SessionAction::Save
+            | crate::action::SessionAction::SaveAs(_)
             | crate::action::SessionAction::Load
+            | crate::action::SessionAction::LoadFrom(_)
+            | crate::action::SessionAction::NewProject
             | crate::action::SessionAction::OpenFileBrowser(_) => false,
             _ => true,
         },

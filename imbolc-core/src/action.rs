@@ -12,8 +12,8 @@ use crate::state::session::SessionState;
 
 #[derive(Debug)]
 pub enum IoFeedback {
-    SaveComplete { id: u64, result: Result<String, String> },
-    LoadComplete { id: u64, result: Result<(SessionState, InstrumentState, String), String> },
+    SaveComplete { id: u64, path: PathBuf, result: Result<String, String> },
+    LoadComplete { id: u64, path: PathBuf, result: Result<(SessionState, InstrumentState, String), String> },
     ImportSynthDefComplete { id: u64, result: Result<(CustomSynthDef, String, PathBuf), String> },
     ImportSynthDefLoaded { id: u64, result: Result<String, String> },
 }
@@ -276,7 +276,10 @@ pub enum AutomationAction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionAction {
     Save,
+    SaveAs(PathBuf),
     Load,
+    LoadFrom(PathBuf),
+    NewProject,
     UpdateSession(MusicalSettings),
     UpdateSessionLive(MusicalSettings),
     OpenFileBrowser(FileSelectAction),
@@ -372,6 +375,8 @@ pub struct DispatchResult {
     pub status: Vec<StatusEvent>,
     pub project_name: Option<String>,
     pub audio_dirty: AudioDirty,
+    /// Signal main loop to reset to a blank project
+    pub new_project: bool,
 }
 
 impl Default for DispatchResult {
@@ -382,6 +387,7 @@ impl Default for DispatchResult {
             status: Vec::new(),
             project_name: None,
             audio_dirty: AudioDirty::default(),
+            new_project: false,
         }
     }
 }

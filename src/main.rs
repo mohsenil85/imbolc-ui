@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use audio::AudioHandle;
 use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
-use panes::{AddEffectPane, AddPane, AutomationPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use state::undo::{UndoHistory, is_undoable};
 use ui::{
@@ -71,6 +71,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(AutomationPane::new(pane_keymap(&mut keymaps, "automation"))));
     panes.add_pane(Box::new(EqPane::new(pane_keymap(&mut keymaps, "eq"))));
     panes.add_pane(Box::new(VstParamPane::new(pane_keymap(&mut keymaps, "vst_params"))));
+    panes.add_pane(Box::new(ConfirmPane::new(pane_keymap(&mut keymaps, "confirm"))));
+    panes.add_pane(Box::new(ProjectBrowserPane::new(pane_keymap(&mut keymaps, "project_browser"))));
+    panes.add_pane(Box::new(SaveAsPane::new(pane_keymap(&mut keymaps, "save_as"))));
 
     // Create layer stack
     let mut layer_stack = LayerStack::new(layers);
@@ -84,9 +87,37 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     audio.sync_state(&state);
     let mut app_frame = Frame::new();
     let mut undo_history = UndoHistory::new(500);
+    let mut recent_projects = state::recent_projects::RecentProjects::load();
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
     let mut pending_audio_dirty = AudioDirty::default();
+
+    // Auto-load most recent project on startup
+    if let Some(entry) = recent_projects.entries.first() {
+        let load_path = entry.path.clone();
+        if load_path.exists() {
+            if let Ok((session, instruments)) = state::persistence::load_project(&load_path) {
+                let name = load_path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("default")
+                    .to_string();
+                state.session = session;
+                state.instruments = instruments;
+                state.project_path = Some(load_path);
+                state.dirty = false;
+                app_frame.set_project_name(name);
+                pending_audio_dirty.merge(AudioDirty::all());
+
+                // Re-evaluate which pane to show
+                if state.instruments.instruments.is_empty() {
+                    panes.switch_to("add", &state);
+                } else {
+                    panes.switch_to("instrument_edit", &state);
+                }
+                layer_stack.set_pane_layer(panes.active().id());
+            }
+        }
+    }
 
     // Auto-start SuperCollider and apply status events
     {
@@ -223,10 +254,23 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
             if is_undoable(&pane_action) {
                 undo_history.push(&state.session, &state.instruments);
+                state.dirty = true;
             }
             let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
             if dispatch_result.quit {
                 break;
+            }
+            if dispatch_result.new_project {
+                let defaults = config.defaults();
+                state.session = state::SessionState::new_with_defaults(defaults);
+                state.instruments = state::InstrumentState::new();
+                state.project_path = None;
+                state.dirty = false;
+                undo_history.clear();
+                pending_audio_dirty.merge(action::AudioDirty::all());
+                app_frame.set_project_name("untitled".to_string());
+                panes.switch_to("add", &state);
+                sync_pane_layer(&mut panes, &mut layer_stack);
             }
             pending_audio_dirty.merge(dispatch_result.audio_dirty);
             apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame);
@@ -240,12 +284,16 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         // Drain I/O feedback
         while let Ok(feedback) = io_rx.try_recv() {
             match feedback {
-                IoFeedback::SaveComplete { id, result } => {
+                IoFeedback::SaveComplete { id, path, result } => {
                     if id != state.io_generation.save {
                         continue;
                     }
                     let status = match result {
                         Ok(name) => {
+                            state.project_path = Some(path.clone());
+                            state.dirty = false;
+                            recent_projects.add(&path, &name);
+                            recent_projects.save();
                             app_frame.set_project_name(name);
                             "Saved project".to_string()
                         }
@@ -255,7 +303,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         server.set_status(audio.status(), &status);
                     }
                 }
-                IoFeedback::LoadComplete { id, result } => {
+                IoFeedback::LoadComplete { id, path, result } => {
                     if id != state.io_generation.load {
                         continue;
                     }
@@ -264,6 +312,10 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                              undo_history.clear();
                              state.session = new_session;
                              state.instruments = new_instruments;
+                             state.project_path = Some(path.clone());
+                             state.dirty = false;
+                             recent_projects.add(&path, &name);
+                             recent_projects.save();
                              app_frame.set_project_name(name);
                              
                              if state.instruments.instruments.is_empty() {

@@ -8,7 +8,8 @@ use crate::state::{self, AppState, ClipboardContents, ClipboardNote};
 use crate::state::undo::UndoHistory;
 use crate::panes::{
     InstrumentEditPane, PianoRollPane, SequencerPane, AutomationPane,
-    ServerPane, HelpPane, FileBrowserPane, VstParamPane
+    ServerPane, HelpPane, FileBrowserPane, VstParamPane,
+    ConfirmPane, SaveAsPane, PendingAction,
 };
 use crate::ui::{
     self, DispatchResult, Frame, LayerStack, NavIntent, PaneManager,
@@ -163,11 +164,22 @@ pub(crate) fn handle_global_action(
     };
 
     match action {
-        "quit" => return GlobalResult::Quit,
+        "quit" => {
+            if state.dirty {
+                if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
+                    confirm.set_confirm("Unsaved changes will be lost. Quit anyway?", PendingAction::Quit);
+                }
+                panes.push_to("confirm", &*state);
+                sync_pane_layer(panes, layer_stack);
+                return GlobalResult::Handled;
+            }
+            return GlobalResult::Quit;
+        }
         "undo" => {
             if let Some(snapshot) = undo_history.undo(&state.session, &state.instruments) {
                 state.session = snapshot.session;
                 state.instruments = snapshot.instruments;
+                state.dirty = true;
                 pending_audio_dirty.merge(AudioDirty::all());
                 sync_piano_roll_to_selection(state, panes);
                 sync_instrument_edit(state, panes);
@@ -177,6 +189,7 @@ pub(crate) fn handle_global_action(
             if let Some(snapshot) = undo_history.redo(&state.session, &state.instruments) {
                 state.session = snapshot.session;
                 state.instruments = snapshot.instruments;
+                state.dirty = true;
                 pending_audio_dirty.merge(AudioDirty::all());
                 sync_piano_roll_to_selection(state, panes);
                 sync_instrument_edit(state, panes);
@@ -188,12 +201,37 @@ pub(crate) fn handle_global_action(
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "load" => {
-            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio, io_tx);
-            pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame);
+            if state.dirty {
+                if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
+                    confirm.set_confirm("Discard unsaved changes and reload?", PendingAction::LoadDefault);
+                }
+                panes.push_to("confirm", &*state);
+                sync_pane_layer(panes, layer_stack);
+            } else {
+                let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame);
+            }
+        }
+        "save_as" => {
+            let default_name = state.project_path.as_ref()
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+                .unwrap_or("untitled")
+                .to_string();
+            if let Some(sa) = panes.get_pane_mut::<SaveAsPane>("save_as") {
+                sa.reset(&default_name);
+            }
+            panes.push_to("save_as", &*state);
+            sync_pane_layer(panes, layer_stack);
+        }
+        "open_project_browser" => {
+            panes.push_to("project_browser", &*state);
+            sync_pane_layer(panes, layer_stack);
         }
         "master_mute" => {
             undo_history.push(&state.session, &state.instruments);
+            state.dirty = true;
             let r = dispatch::dispatch_action(
                 &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
@@ -209,6 +247,7 @@ pub(crate) fn handle_global_action(
         }
         "cut" => {
             undo_history.push(&state.session, &state.instruments);
+            state.dirty = true;
             let action = cut_from_active_pane(state, panes);
             if let Some(action) = action {
                 let r = dispatch::dispatch_action(&action, state, audio, io_tx);
@@ -218,6 +257,7 @@ pub(crate) fn handle_global_action(
         }
         "paste" => {
             undo_history.push(&state.session, &state.instruments);
+            state.dirty = true;
             let action = paste_to_active_pane(state, panes);
             if let Some(action) = action {
                 let r = dispatch::dispatch_action(&action, state, audio, io_tx);
@@ -388,6 +428,7 @@ pub(crate) fn handle_global_action(
         "delete_instrument" => {
             if let Some(instrument) = state.instruments.selected_instrument() {
                 undo_history.push(&state.session, &state.instruments);
+                state.dirty = true;
                 let id = instrument.id;
                 let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);

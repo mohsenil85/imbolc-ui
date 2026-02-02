@@ -11,6 +11,7 @@ pub mod music;
 pub mod param;
 pub mod persistence;
 pub mod piano_roll;
+pub mod recent_projects;
 pub mod sampler;
 pub mod session;
 pub mod undo;
@@ -127,6 +128,10 @@ pub struct AppState {
     /// Real-time visualization data from audio analysis
     pub visualization: VisualizationState,
     pub recorded_waveform_peaks: Option<Vec<f32>>,
+    /// Current project file path (None = untitled/new project)
+    pub project_path: Option<PathBuf>,
+    /// Whether state has changed since last save/load
+    pub dirty: bool,
 }
 
 impl AppState {
@@ -147,6 +152,8 @@ impl AppState {
             io_generation: IoGeneration::default(),
             visualization: VisualizationState::default(),
             recorded_waveform_peaks: None,
+            project_path: None,
+            dirty: false,
         }
     }
 
@@ -166,6 +173,8 @@ impl AppState {
             io_generation: IoGeneration::default(),
             visualization: VisualizationState::default(),
             recorded_waveform_peaks: None,
+            project_path: None,
+            dirty: false,
         }
     }
 

@@ -16,6 +16,8 @@ bindings = [
   { key = "F6", action = "switch:logo", description = "Logo" },
   { key = "F7", action = "switch:automation", description = "Automation" },
   { key = "F8", action = "switch:eq", description = "Parametric EQ" },
+  { key = "Ctrl+o", action = "open_project_browser", description = "Project browser" },
+  { key = "Ctrl+S", action = "save_as", description = "Save project as..." },
   { key = "Ctrl+f", action = "switch:frame_edit", description = "Frame edit" },
   { key = "`", action = "nav_back", description = "Back / Forward" },
   { key = "~", action = "nav_forward", description = "Forward" },
@@ -500,6 +502,29 @@ bindings = [
   { key = "y", action = "pad:key", description = "Pad key" },
   { key = "z", action = "pad:key", description = "Pad key" },
 ]
+
+[layers.confirm]
+bindings = [
+  { key = "Enter", action = "confirm", description = "Confirm selection" },
+  { key = "Escape", action = "cancel", description = "Cancel" },
+  { key = "Left", action = "left", description = "Select No" },
+  { key = "Right", action = "right", description = "Select Yes" },
+  { key = "Tab", action = "toggle", description = "Toggle selection" },
+]
+
+[layers.project_browser]
+bindings = [
+  { key = "Enter", action = "select", description = "Open project" },
+  { key = "Escape", action = "close", description = "Close browser" },
+  { key = "Up", action = "up", description = "Previous project" },
+  { key = "Down", action = "down", description = "Next project" },
+  { key = "k", action = "up", description = "Previous project" },
+  { key = "j", action = "down", description = "Next project" },
+]
+
+[layers.save_as]
+transparent = false
+bindings = []
 
 [layers.text_edit]
 transparent = false
