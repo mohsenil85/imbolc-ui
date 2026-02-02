@@ -120,6 +120,8 @@ pub enum InstrumentAction {
     OpenVstEffectParams(InstrumentId, usize), // instrument_id, effect_index
     SetEqParam(InstrumentId, usize, String, f32), // instrument_id, band_index, param_name, value
     ToggleEq(InstrumentId),
+    LinkLayer(InstrumentId, InstrumentId),
+    UnlinkLayer(InstrumentId),
 }
 
 /// Mixer actions

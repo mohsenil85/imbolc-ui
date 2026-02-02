@@ -225,7 +225,7 @@ impl Pane for FrameEditPane {
         Action::None
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let rect = center_rect(area, 50, 13);
 
         let block = Block::default()

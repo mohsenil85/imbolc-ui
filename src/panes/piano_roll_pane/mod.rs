@@ -190,7 +190,7 @@ impl Pane for PianoRollPane {
         self.handle_mouse_impl(event, area, state)
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         self.render_notes_buf(buf, area, state);
 
         // Automation overlay

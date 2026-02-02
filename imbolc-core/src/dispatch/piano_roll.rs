@@ -104,27 +104,37 @@ pub(super) fn dispatch_piano_roll(
             let instrument_id = *instrument_id;
             let track = *track;
 
-            // Expand to chord if instrument has a chord shape
-            let chord_shape = state.instruments.instrument(instrument_id)
-                .and_then(|inst| inst.chord_shape);
-            let pitches: Vec<u8> = match chord_shape {
-                Some(shape) => shape.expand(pitch),
-                None => vec![pitch],
-            };
+            // Fan-out to layer group members
+            let targets = state.instruments.layer_group_members(instrument_id);
 
             if audio.is_running() {
                 let vel_f = velocity as f32 / 127.0;
-                for &p in &pitches {
-                    let _ = audio.spawn_voice(instrument_id, p, vel_f, 0.0, &state.instruments, &state.session);
-                    audio.push_active_note(instrument_id, p, 240);
+                for &target_id in &targets {
+                    if let Some(inst) = state.instruments.instrument(target_id) {
+                        if state.effective_instrument_mute(inst) { continue; }
+                        let expanded: Vec<u8> = match inst.chord_shape {
+                            Some(shape) => shape.expand(pitch),
+                            None => vec![pitch],
+                        };
+                        for &p in &expanded {
+                            let _ = audio.spawn_voice(target_id, p, vel_f, 0.0, &state.instruments, &state.session);
+                            audio.push_active_note(target_id, p, 240);
+                        }
+                    }
                 }
             }
 
-            // Record note if recording
+            // Record note only on the original track (not siblings)
             if state.session.piano_roll.recording {
+                let chord_shape = state.instruments.instrument(instrument_id)
+                    .and_then(|inst| inst.chord_shape);
+                let record_pitches: Vec<u8> = match chord_shape {
+                    Some(shape) => shape.expand(pitch),
+                    None => vec![pitch],
+                };
                 let playhead = state.session.piano_roll.playhead;
                 let duration = 480; // One beat for live recording
-                for &p in &pitches {
+                for &p in &record_pitches {
                     state.session.piano_roll.toggle_note(track, p, playhead, duration, velocity);
                 }
                 let mut result = DispatchResult::none();
@@ -138,26 +148,38 @@ pub(super) fn dispatch_piano_roll(
             let instrument_id = *instrument_id;
             let track = *track;
 
-            // Expand each pitch to chord if instrument has a chord shape
-            let chord_shape = state.instruments.instrument(instrument_id)
-                .and_then(|inst| inst.chord_shape);
-            let all_pitches: Vec<u8> = pitches.iter().flat_map(|&pitch| {
-                match chord_shape {
-                    Some(shape) => shape.expand(pitch),
-                    None => vec![pitch],
-                }
-            }).collect();
+            // Fan-out to layer group members
+            let targets = state.instruments.layer_group_members(instrument_id);
 
             if audio.is_running() {
                 let vel_f = velocity as f32 / 127.0;
-                for &p in &all_pitches {
-                    let _ = audio.spawn_voice(instrument_id, p, vel_f, 0.0, &state.instruments, &state.session);
-                    audio.push_active_note(instrument_id, p, 240);
+                for &target_id in &targets {
+                    if let Some(inst) = state.instruments.instrument(target_id) {
+                        if state.effective_instrument_mute(inst) { continue; }
+                        for &pitch in pitches {
+                            let expanded: Vec<u8> = match inst.chord_shape {
+                                Some(shape) => shape.expand(pitch),
+                                None => vec![pitch],
+                            };
+                            for &p in &expanded {
+                                let _ = audio.spawn_voice(target_id, p, vel_f, 0.0, &state.instruments, &state.session);
+                                audio.push_active_note(target_id, p, 240);
+                            }
+                        }
+                    }
                 }
             }
 
-            // Record chord notes if recording
+            // Record chord notes only on the original track (not siblings)
             if state.session.piano_roll.recording {
+                let chord_shape = state.instruments.instrument(instrument_id)
+                    .and_then(|inst| inst.chord_shape);
+                let all_pitches: Vec<u8> = pitches.iter().flat_map(|&pitch| {
+                    match chord_shape {
+                        Some(shape) => shape.expand(pitch),
+                        None => vec![pitch],
+                    }
+                }).collect();
                 let playhead = state.session.piano_roll.playhead;
                 let duration = 480; // One beat for live recording
                 for &p in &all_pitches {

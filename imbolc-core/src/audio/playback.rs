@@ -52,22 +52,33 @@ pub fn tick_playback(
             let secs_per_tick = 60.0 / (piano_roll.bpm as f64 * piano_roll.ticks_per_beat as f64);
 
             let mut note_ons: Vec<(u32, u8, u8, u32, u32, f32)> = Vec::new();
+            let any_solo = instruments.any_instrument_solo();
             for &instrument_id in &piano_roll.track_order {
                 if let Some(track) = piano_roll.tracks.get(&instrument_id) {
                     // Binary search for efficiency (Phase 3B)
                     // Notes are expected to be sorted by tick
                     let start_idx = track.notes.partition_point(|n| n.tick < scan_start);
                     let end_idx = track.notes.partition_point(|n| n.tick < scan_end);
-                    
+
+                    // Expand layer group: collect all target IDs for this instrument
+                    let targets = instruments.layer_group_members(instrument_id);
+
                     for note in &track.notes[start_idx..end_idx] {
-                        note_ons.push((
-                            instrument_id,
-                            note.pitch,
-                            note.velocity,
-                            note.duration,
-                            note.tick,
-                            note.probability,
-                        ));
+                        for &target_id in &targets {
+                            // Skip muted/inactive siblings
+                            let skip = instruments.instrument(target_id).map_or(true, |inst| {
+                                !inst.active || if any_solo { !inst.solo } else { inst.mute }
+                            });
+                            if skip { continue; }
+                            note_ons.push((
+                                target_id,
+                                note.pitch,
+                                note.velocity,
+                                note.duration,
+                                note.tick,
+                                note.probability,
+                            ));
+                        }
                     }
                 }
             }

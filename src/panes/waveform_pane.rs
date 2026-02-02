@@ -447,7 +447,7 @@ impl Pane for WaveformPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         match self.mode {
             WaveformMode::Waveform => self.render_waveform(area, buf, state),
             WaveformMode::Spectrum => self.render_spectrum(area, buf, state),

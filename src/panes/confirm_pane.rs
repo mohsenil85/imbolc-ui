@@ -99,7 +99,7 @@ impl Pane for ConfirmPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let width = (self.message.len() as u16 + 6).max(30).min(area.width.saturating_sub(4));
         let rect = center_rect(area, width, 7);
 

@@ -130,7 +130,7 @@ impl Pane for ProjectBrowserPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let width = 56_u16.min(area.width.saturating_sub(4));
         let height = (self.entries.len() as u16 + 8).min(area.height.saturating_sub(4)).max(10);
         let rect = center_rect(area, width, height);

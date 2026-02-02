@@ -176,7 +176,7 @@ impl Pane for SequencerPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let box_width: u16 = 97;
         let rect = center_rect(area, box_width, 29);
 

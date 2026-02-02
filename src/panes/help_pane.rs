@@ -83,7 +83,7 @@ impl Pane for HelpPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let rect = center_rect(area, 60, 20);
         let title = format!(" Help: {} ", self.title);
 

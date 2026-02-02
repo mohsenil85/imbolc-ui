@@ -51,7 +51,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 arp_gate REAL NOT NULL DEFAULT 0.5,
                 chord_shape TEXT,
                 convolution_ir_path TEXT,
-                eq_enabled INTEGER
+                eq_enabled INTEGER,
+                layer_group INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS instrument_eq_bands (
@@ -423,7 +424,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (7, datetime('now'))",
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (8, datetime('now'))",
         [],
     )?;
 

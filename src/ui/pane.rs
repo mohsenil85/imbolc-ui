@@ -33,7 +33,7 @@ pub trait Pane {
     }
 
     /// Render the pane to the buffer
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState);
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState);
 
     /// Get the keymap for this pane (for introspection/help)
     fn keymap(&self) -> &Keymap;
@@ -181,8 +181,8 @@ impl PaneManager {
     }
 
     /// Render the active pane to the buffer.
-    pub fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
-        self.active().render(area, buf, state);
+    pub fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+        self.panes[self.active_index].render(area, buf, state);
     }
 
     /// Get the keymap of the active pane

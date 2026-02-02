@@ -7,8 +7,11 @@ pub mod layout_helpers;
 pub mod pad_keyboard;
 pub mod pane;
 pub mod piano_keyboard;
+pub mod rat_compat;
 pub mod ratatui_impl;
 pub mod style;
+#[allow(dead_code)]
+pub mod theme;
 pub mod widgets;
 
 pub use frame::{Frame, ViewState};

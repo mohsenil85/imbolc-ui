@@ -71,19 +71,24 @@ pub(super) fn dispatch_instrument(
         InstrumentAction::PlayNote(pitch, velocity) => {
             let pitch = *pitch;
             let velocity = *velocity;
-            let instrument_info: Option<(u32, Option<crate::state::arpeggiator::ChordShape>)> =
-                state.instruments.selected_instrument().map(|s| (s.id, s.chord_shape));
+            let instrument_id = state.instruments.selected_instrument().map(|s| s.id);
 
-            if let Some((instrument_id, chord_shape)) = instrument_info {
+            if let Some(instrument_id) = instrument_id {
+                let targets = state.instruments.layer_group_members(instrument_id);
                 if audio.is_running() {
                     let vel_f = velocity as f32 / 127.0;
-                    let pitches = match chord_shape {
-                        Some(shape) => shape.expand(pitch),
-                        None => vec![pitch],
-                    };
-                    for p in &pitches {
-                        let _ = audio.spawn_voice(instrument_id, *p, vel_f, 0.0, &state.instruments, &state.session);
-                        audio.push_active_note(instrument_id, *p, 240);
+                    for &target_id in &targets {
+                        if let Some(inst) = state.instruments.instrument(target_id) {
+                            if state.effective_instrument_mute(inst) { continue; }
+                            let pitches = match inst.chord_shape {
+                                Some(shape) => shape.expand(pitch),
+                                None => vec![pitch],
+                            };
+                            for p in &pitches {
+                                let _ = audio.spawn_voice(target_id, *p, vel_f, 0.0, &state.instruments, &state.session);
+                                audio.push_active_note(target_id, *p, 240);
+                            }
+                        }
                     }
                 }
             }
@@ -91,20 +96,25 @@ pub(super) fn dispatch_instrument(
         }
         InstrumentAction::PlayNotes(ref pitches, velocity) => {
             let velocity = *velocity;
-            let instrument_info: Option<(u32, Option<crate::state::arpeggiator::ChordShape>)> =
-                state.instruments.selected_instrument().map(|s| (s.id, s.chord_shape));
+            let instrument_id = state.instruments.selected_instrument().map(|s| s.id);
 
-            if let Some((instrument_id, chord_shape)) = instrument_info {
+            if let Some(instrument_id) = instrument_id {
+                let targets = state.instruments.layer_group_members(instrument_id);
                 if audio.is_running() {
                     let vel_f = velocity as f32 / 127.0;
-                    for &pitch in pitches {
-                        let expanded = match chord_shape {
-                            Some(shape) => shape.expand(pitch),
-                            None => vec![pitch],
-                        };
-                        for p in &expanded {
-                            let _ = audio.spawn_voice(instrument_id, *p, vel_f, 0.0, &state.instruments, &state.session);
-                            audio.push_active_note(instrument_id, *p, 240);
+                    for &target_id in &targets {
+                        if let Some(inst) = state.instruments.instrument(target_id) {
+                            if state.effective_instrument_mute(inst) { continue; }
+                            for &pitch in pitches {
+                                let expanded = match inst.chord_shape {
+                                    Some(shape) => shape.expand(pitch),
+                                    None => vec![pitch],
+                                };
+                                for p in &expanded {
+                                    let _ = audio.spawn_voice(target_id, *p, vel_f, 0.0, &state.instruments, &state.session);
+                                    audio.push_active_note(target_id, *p, 240);
+                                }
+                            }
                         }
                     }
                 }
@@ -484,6 +494,47 @@ pub(super) fn dispatch_instrument(
             result.audio_dirty.instruments = true;
             result.audio_dirty.routing = true;
             result
+        }
+        InstrumentAction::LinkLayer(a, b) => {
+            let a = *a;
+            let b = *b;
+            if a == b {
+                return DispatchResult::none();
+            }
+            let group_b = state.instruments.instrument(b).and_then(|i| i.layer_group);
+            let group_a = state.instruments.instrument(a).and_then(|i| i.layer_group);
+            let group_id = match (group_a, group_b) {
+                (_, Some(g)) => g,
+                (Some(g), None) => g,
+                (None, None) => state.instruments.next_layer_group(),
+            };
+            if let Some(inst) = state.instruments.instrument_mut(a) {
+                inst.layer_group = Some(group_id);
+            }
+            if let Some(inst) = state.instruments.instrument_mut(b) {
+                inst.layer_group = Some(group_id);
+            }
+            DispatchResult::none()
+        }
+        InstrumentAction::UnlinkLayer(id) => {
+            let id = *id;
+            let old_group = state.instruments.instrument(id).and_then(|i| i.layer_group);
+            if let Some(inst) = state.instruments.instrument_mut(id) {
+                inst.layer_group = None;
+            }
+            // If old group now has only 1 member, clear that member too
+            if let Some(g) = old_group {
+                let remaining: Vec<crate::state::InstrumentId> = state.instruments.instruments.iter()
+                    .filter(|i| i.layer_group == Some(g))
+                    .map(|i| i.id)
+                    .collect();
+                if remaining.len() == 1 {
+                    if let Some(inst) = state.instruments.instrument_mut(remaining[0]) {
+                        inst.layer_group = None;
+                    }
+                }
+            }
+            DispatchResult::none()
         }
     }
 }

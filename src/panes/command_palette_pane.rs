@@ -7,31 +7,32 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
+use crate::ui::widgets::TextInput;
 use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, Style};
 
 pub struct CommandPalettePane {
     keymap: Keymap,
     /// (action, description, keybinding display)
     commands: Vec<(String, String, String)>,
-    input: String,
-    cursor: usize,
+    text_input: TextInput,
     /// Indices into `commands` matching current filter
     filtered: Vec<usize>,
     /// Index within `filtered`
     selected: usize,
     scroll: usize,
-    /// The manually-typed prefix (separate from `input` which changes during tab cycling)
+    /// The manually-typed prefix (separate from input which changes during tab cycling)
     filter_base: String,
     pending_command: Option<String>,
 }
 
 impl CommandPalettePane {
     pub fn new(keymap: Keymap) -> Self {
+        let mut text_input = TextInput::new("");
+        text_input.set_focused(true);
         Self {
             keymap,
             commands: Vec::new(),
-            input: String::new(),
-            cursor: 0,
+            text_input,
             filtered: Vec::new(),
             selected: 0,
             scroll: 0,
@@ -46,8 +47,8 @@ impl CommandPalettePane {
             .into_iter()
             .map(|(a, d, k)| (a.to_string(), d.to_string(), k))
             .collect();
-        self.input.clear();
-        self.cursor = 0;
+        self.text_input.set_value("");
+        self.text_input.set_focused(true);
         self.filter_base.clear();
         self.pending_command = None;
         self.selected = 0;
@@ -84,6 +85,8 @@ impl CommandPalettePane {
             return;
         }
 
+        let input = self.text_input.value().to_string();
+
         // Find longest common prefix of all filtered action names
         let first_action = &self.commands[self.filtered[0]].0;
         let mut lcp = first_action.clone();
@@ -95,26 +98,24 @@ impl CommandPalettePane {
             }
         }
 
-        if lcp.len() > self.input.len() && lcp.starts_with(&self.input) {
+        if lcp.len() > input.len() && lcp.starts_with(&input) {
             // LCP extends beyond current input — fill in LCP
-            self.input = lcp;
-            self.cursor = self.input.len();
-            self.filter_base = self.input.clone();
+            self.text_input.set_value(&lcp);
+            self.filter_base = lcp;
             self.update_filter();
         } else if self.filtered.len() == 1 {
             // Single match — fill in completely
             let action = self.commands[self.filtered[0]].0.clone();
-            self.input = action;
-            self.cursor = self.input.len();
-            self.filter_base = self.input.clone();
+            self.text_input.set_value(&action);
+            self.filter_base = action;
             self.update_filter();
         } else if self.filtered.len() > 1 {
             // Already at LCP and multiple matches — cycle selected
             self.selected = (self.selected + 1) % self.filtered.len();
             self.ensure_visible();
             let idx = self.filtered[self.selected];
-            self.input = self.commands[idx].0.clone();
-            self.cursor = self.input.len();
+            let action = self.commands[idx].0.clone();
+            self.text_input.set_value(&action);
             // Don't change filter_base — keep showing all matches
         }
     }
@@ -148,8 +149,11 @@ impl Pane for CommandPalettePane {
                 if !self.filtered.is_empty() {
                     let idx = self.filtered[self.selected];
                     self.pending_command = Some(self.commands[idx].0.clone());
-                } else if !self.input.is_empty() {
-                    self.pending_command = Some(self.input.clone());
+                } else {
+                    let val = self.text_input.value().to_string();
+                    if !val.is_empty() {
+                        self.pending_command = Some(val);
+                    }
                 }
                 Action::Nav(NavAction::PopPane)
             }
@@ -163,61 +167,6 @@ impl Pane for CommandPalettePane {
 
     fn handle_raw_input(&mut self, event: &InputEvent, _state: &AppState) -> Action {
         match event.key {
-            KeyCode::Char(ch) => {
-                self.input.insert(self.cursor, ch);
-                self.cursor += ch.len_utf8();
-                self.filter_base = self.input.clone();
-                self.update_filter();
-            }
-            KeyCode::Backspace => {
-                if self.cursor > 0 {
-                    let prev = self.input[..self.cursor]
-                        .char_indices()
-                        .last()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    self.input.drain(prev..self.cursor);
-                    self.cursor = prev;
-                    self.filter_base = self.input.clone();
-                    self.update_filter();
-                }
-            }
-            KeyCode::Delete => {
-                if self.cursor < self.input.len() {
-                    let next = self.input[self.cursor..]
-                        .char_indices()
-                        .nth(1)
-                        .map(|(i, _)| self.cursor + i)
-                        .unwrap_or(self.input.len());
-                    self.input.drain(self.cursor..next);
-                    self.filter_base = self.input.clone();
-                    self.update_filter();
-                }
-            }
-            KeyCode::Left => {
-                if self.cursor > 0 {
-                    self.cursor = self.input[..self.cursor]
-                        .char_indices()
-                        .last()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                }
-            }
-            KeyCode::Right => {
-                if self.cursor < self.input.len() {
-                    self.cursor = self.input[self.cursor..]
-                        .char_indices()
-                        .nth(1)
-                        .map(|(i, _)| self.cursor + i)
-                        .unwrap_or(self.input.len());
-                }
-            }
-            KeyCode::Home => {
-                self.cursor = 0;
-            }
-            KeyCode::End => {
-                self.cursor = self.input.len();
-            }
             KeyCode::Tab => {
                 self.tab_complete();
             }
@@ -230,8 +179,8 @@ impl Pane for CommandPalettePane {
                     }
                     self.ensure_visible();
                     let idx = self.filtered[self.selected];
-                    self.input = self.commands[idx].0.clone();
-                    self.cursor = self.input.len();
+                    let action = self.commands[idx].0.clone();
+                    self.text_input.set_value(&action);
                 }
             }
             KeyCode::Down => {
@@ -239,16 +188,21 @@ impl Pane for CommandPalettePane {
                     self.selected = (self.selected + 1) % self.filtered.len();
                     self.ensure_visible();
                     let idx = self.filtered[self.selected];
-                    self.input = self.commands[idx].0.clone();
-                    self.cursor = self.input.len();
+                    let action = self.commands[idx].0.clone();
+                    self.text_input.set_value(&action);
                 }
             }
-            _ => {}
+            _ => {
+                // Delegate text editing to rat-widget TextInput
+                self.text_input.handle_input(event);
+                self.filter_base = self.text_input.value().to_string();
+                self.update_filter();
+            }
         }
         Action::None
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let max_visible: usize = 10;
         let list_height = self.filtered.len().min(max_visible);
         // 1 for prompt + 1 for divider + list rows + 2 for border
@@ -279,29 +233,14 @@ impl Pane for CommandPalettePane {
             return;
         }
 
-        // Prompt line: ": <input>"
+        // Prompt line: render ": " prefix then TextInput
         let prompt_y = inner.y;
-        let prompt_area = RatatuiRect::new(inner.x, prompt_y, inner.width, 1);
-        let before_cursor = &self.input[..self.cursor];
-        let cursor_char = self.input[self.cursor..].chars().next().unwrap_or(' ');
-        let after_cursor_start = self.cursor + cursor_char.len_utf8().min(self.input.len() - self.cursor);
-        let after_cursor = if after_cursor_start <= self.input.len() {
-            &self.input[after_cursor_start..]
-        } else {
-            ""
-        };
-
         let prompt_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold());
-        let input_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
-        let cursor_style = ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::WHITE));
+        let prompt_area = RatatuiRect::new(inner.x, prompt_y, 2, 1);
+        Paragraph::new(Line::from(Span::styled(": ", prompt_style))).render(prompt_area, buf);
 
-        let prompt_line = Line::from(vec![
-            Span::styled(": ", prompt_style),
-            Span::styled(before_cursor, input_style),
-            Span::styled(cursor_char.to_string(), cursor_style),
-            Span::styled(after_cursor, input_style),
-        ]);
-        Paragraph::new(prompt_line).render(prompt_area, buf);
+        // TextInput renders after the ": " prefix
+        self.text_input.render_buf(buf, inner.x + 2, prompt_y, inner.width.saturating_sub(2));
 
         // Divider
         if inner.height > 1 {

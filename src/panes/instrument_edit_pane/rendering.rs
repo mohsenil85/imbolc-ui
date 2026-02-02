@@ -10,7 +10,7 @@ use crate::ui::widgets::TextInput;
 use crate::ui::{Color, Style};
 
 impl InstrumentEditPane {
-    pub(super) fn render_impl(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    pub(super) fn render_impl(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let rect = center_rect(area, 97, 29);
 
         let title = format!(" Edit: {} ({}) ", self.instrument_name, self.source.name());
@@ -92,7 +92,7 @@ impl InstrumentEditPane {
         } else {
             for param in &self.source_params {
                 let is_sel = self.selected_row == global_row;
-                render_param_row_buf(buf, content_x, y, param, is_sel, self.editing && is_sel, &self.edit_input);
+                render_param_row_buf(buf, content_x, y, param, is_sel, self.editing && is_sel, &mut self.edit_input);
                 y += 1;
                 global_row += 1;
             }
@@ -122,14 +122,14 @@ impl InstrumentEditPane {
             // Cutoff row
             {
                 let is_sel = self.selected_row == global_row;
-                render_value_row_buf(buf, content_x, y, "Cutoff", f.cutoff.value, f.cutoff.min, f.cutoff.max, is_sel, self.editing && is_sel, &self.edit_input);
+                render_value_row_buf(buf, content_x, y, "Cutoff", f.cutoff.value, f.cutoff.min, f.cutoff.max, is_sel, self.editing && is_sel, &mut self.edit_input);
                 y += 1;
                 global_row += 1;
             }
             // Resonance row
             {
                 let is_sel = self.selected_row == global_row;
-                render_value_row_buf(buf, content_x, y, "Resonance", f.resonance.value, f.resonance.min, f.resonance.max, is_sel, self.editing && is_sel, &self.edit_input);
+                render_value_row_buf(buf, content_x, y, "Resonance", f.resonance.value, f.resonance.min, f.resonance.max, is_sel, self.editing && is_sel, &mut self.edit_input);
                 y += 1;
                 global_row += 1;
             }
@@ -228,7 +228,7 @@ impl InstrumentEditPane {
         // Row 1: Rate
         {
             let is_sel = self.selected_row == global_row;
-            render_value_row_buf(buf, content_x, y, "Rate", self.lfo.rate, 0.1, 32.0, is_sel, self.editing && is_sel, &self.edit_input);
+            render_value_row_buf(buf, content_x, y, "Rate", self.lfo.rate, 0.1, 32.0, is_sel, self.editing && is_sel, &mut self.edit_input);
             // Hz label
             let hz_style = if is_sel {
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG))
@@ -247,7 +247,7 @@ impl InstrumentEditPane {
         // Row 2: Depth
         {
             let is_sel = self.selected_row == global_row;
-            render_value_row_buf(buf, content_x, y, "Depth", self.lfo.depth, 0.0, 1.0, is_sel, self.editing && is_sel, &self.edit_input);
+            render_value_row_buf(buf, content_x, y, "Depth", self.lfo.depth, 0.0, 1.0, is_sel, self.editing && is_sel, &mut self.edit_input);
             y += 1;
             global_row += 1;
         }
@@ -281,7 +281,7 @@ impl InstrumentEditPane {
 
             for (label, (val, max)) in env_labels.iter().zip(env_values.iter().zip(env_maxes.iter())) {
                 let is_sel = self.selected_row == global_row;
-                render_value_row_buf(buf, content_x, y, label, *val, 0.0, *max, is_sel, self.editing && is_sel, &self.edit_input);
+                render_value_row_buf(buf, content_x, y, label, *val, 0.0, *max, is_sel, self.editing && is_sel, &mut self.edit_input);
                 y += 1;
                 global_row += 1;
             }
@@ -327,7 +327,7 @@ fn render_param_row_buf(
     param: &Param,
     is_selected: bool,
     is_editing: bool,
-    edit_input: &TextInput,
+    edit_input: &mut TextInput,
 ) {
     // Selection indicator
     if is_selected {
@@ -399,7 +399,7 @@ fn render_value_row_buf(
     value: f32, min: f32, max: f32,
     is_selected: bool,
     is_editing: bool,
-    edit_input: &TextInput,
+    edit_input: &mut TextInput,
 ) {
     // Selection indicator
     if is_selected {

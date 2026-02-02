@@ -116,7 +116,7 @@ impl Pane for MidiSettingsPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(" MIDI Settings ")

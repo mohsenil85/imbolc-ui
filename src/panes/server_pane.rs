@@ -295,7 +295,7 @@ impl Pane for ServerPane {
         Action::None
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let output_devs = self.output_devices();
         let input_devs = self.input_devices();
 

@@ -405,7 +405,7 @@ impl Pane for MixerPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         if self.detail_mode.is_some() {
             self.render_detail_buf(buf, area, state);
         } else {

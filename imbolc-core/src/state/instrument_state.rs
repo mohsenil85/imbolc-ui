@@ -9,6 +9,8 @@ pub struct InstrumentState {
     pub next_sampler_buffer_id: u32,
     /// Set by dispatch when editing an instrument; read by InstrumentEditPane on_enter
     pub editing_instrument_id: Option<InstrumentId>,
+    /// Counter for allocating layer group IDs
+    pub next_layer_group_id: u32,
 }
 
 impl InstrumentState {
@@ -19,6 +21,7 @@ impl InstrumentState {
             next_id: 0,
             next_sampler_buffer_id: 20000,
             editing_instrument_id: None,
+            next_layer_group_id: 0,
         }
     }
 
@@ -102,6 +105,26 @@ impl InstrumentState {
         self.selected
             .and_then(|idx| self.instruments.get_mut(idx))
             .and_then(|s| s.drum_sequencer.as_mut())
+    }
+
+    /// Allocate a new unique layer group ID
+    pub fn next_layer_group(&mut self) -> u32 {
+        let id = self.next_layer_group_id;
+        self.next_layer_group_id += 1;
+        id
+    }
+
+    /// Returns all instrument IDs in the same layer group as `id` (including `id` itself).
+    /// If the instrument has no layer group, returns just `vec![id]`.
+    pub fn layer_group_members(&self, id: InstrumentId) -> Vec<InstrumentId> {
+        let group = self.instrument(id).and_then(|inst| inst.layer_group);
+        match group {
+            Some(g) => self.instruments.iter()
+                .filter(|inst| inst.layer_group == Some(g))
+                .map(|inst| inst.id)
+                .collect(),
+            None => vec![id],
+        }
     }
 }
 

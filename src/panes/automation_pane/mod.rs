@@ -107,7 +107,7 @@ impl Pane for AutomationPane {
         self.handle_action_impl(action, event, state)
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let rect = center_rect(area, 100.min(area.width), 30.min(area.height));
 
         // Title

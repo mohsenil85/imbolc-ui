@@ -86,7 +86,7 @@ impl Pane for EqPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let rect = center_rect(area, 78, 24);
 
         let instrument = state.instruments.selected_instrument();

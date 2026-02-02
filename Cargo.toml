@@ -19,6 +19,9 @@ hound = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+rat-widget = "2.11"
+rat-event = "1.4"
+rat-dialog = "1.1"
 
 [dev-dependencies]
 tempfile = "3"

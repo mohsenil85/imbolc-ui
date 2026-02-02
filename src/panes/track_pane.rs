@@ -231,7 +231,7 @@ impl Pane for TrackPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let rect = center_rect(area, 97, 29);
         let arr = &state.session.arrangement;
         let ticks_per_col = arr.ticks_per_col.max(1);

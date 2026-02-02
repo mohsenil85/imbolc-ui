@@ -125,7 +125,7 @@ impl Pane for VstParamPane {
         self.handle_raw_input_impl(event, state)
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         self.render_impl(area, buf, state);
     }
 

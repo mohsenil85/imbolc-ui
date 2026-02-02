@@ -107,7 +107,7 @@ impl Pane for SampleChopperPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let rect = center_rect(area, 97, 29);
 
         if let Some(drum_seq) = self.selected_drum_sequencer(state) {

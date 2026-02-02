@@ -35,7 +35,7 @@ impl Pane for LogoPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(" Logo ")

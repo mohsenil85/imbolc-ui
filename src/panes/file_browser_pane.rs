@@ -252,7 +252,7 @@ impl Pane for FileBrowserPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let rect = center_rect(area, 97, 29);
 
         let title = match self.on_select_action {

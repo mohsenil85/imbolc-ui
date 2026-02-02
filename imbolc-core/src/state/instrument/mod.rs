@@ -115,6 +115,8 @@ pub struct Instrument {
     pub chord_shape: Option<super::arpeggiator::ChordShape>,
     /// Path to loaded impulse response file for convolution reverb
     pub convolution_ir_path: Option<String>,
+    /// Layer group ID: instruments sharing the same group sound together
+    pub layer_group: Option<u32>,
 }
 
 impl Instrument {
@@ -157,6 +159,7 @@ impl Instrument {
             arpeggiator: super::arpeggiator::ArpeggiatorConfig::default(),
             chord_shape: None,
             convolution_ir_path: None,
+            layer_group: None,
         }
     }
 }

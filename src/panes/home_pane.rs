@@ -81,7 +81,7 @@ impl Pane for HomePane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
         let rect = center_rect(area, 50, 12);
 
         let block = Block::default()

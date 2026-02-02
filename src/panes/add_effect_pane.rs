@@ -236,7 +236,7 @@ impl Pane for AddEffectPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         let vst_registry = &state.session.vst_plugins;
         let rect = center_rect(area, 40, 20);
 

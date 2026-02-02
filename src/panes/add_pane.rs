@@ -440,7 +440,7 @@ impl Pane for AddPane {
         }
     }
 
-    fn render(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
         self.render_buf_with_registries(area, buf, &state.session.custom_synthdefs, &state.session.vst_plugins);
     }
 

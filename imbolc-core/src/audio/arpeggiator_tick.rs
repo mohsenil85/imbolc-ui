@@ -107,10 +107,18 @@ pub fn tick_arpeggiator(
                 }
             };
 
-            // Spawn the new note
+            // Spawn the new note (fan-out to layer group siblings)
             if engine.is_running() {
                 let vel_f = 0.8; // Default velocity for arp notes
-                let _ = engine.spawn_voice(instrument_id, pitch, vel_f, 0.0, instruments, session);
+                let any_solo = instruments.any_instrument_solo();
+                let targets = instruments.layer_group_members(instrument_id);
+                for &target_id in &targets {
+                    let skip = instruments.instrument(target_id).map_or(true, |inst| {
+                        !inst.active || if any_solo { !inst.solo } else { inst.mute }
+                    });
+                    if skip { continue; }
+                    let _ = engine.spawn_voice(target_id, pitch, vel_f, 0.0, instruments, session);
+                }
             }
             arp.current_pitch = Some(pitch);
         }
