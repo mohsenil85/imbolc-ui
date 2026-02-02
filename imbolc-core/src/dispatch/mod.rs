@@ -1,4 +1,5 @@
 mod automation;
+mod arrangement;
 mod audio_feedback;
 mod helpers;
 mod instrument;
@@ -55,6 +56,7 @@ pub fn dispatch_action(
         Action::Instrument(a) => instrument::dispatch_instrument(a, state, audio),
         Action::Mixer(a) => mixer::dispatch_mixer(a, state, audio),
         Action::PianoRoll(a) => piano_roll::dispatch_piano_roll(a, state, audio),
+        Action::Arrangement(a) => arrangement::dispatch_arrangement(a, state, audio),
         Action::Server(a) => server::dispatch_server(a, state, audio),
         Action::Session(a) => session::dispatch_session(a, state, audio, io_tx),
         Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio),

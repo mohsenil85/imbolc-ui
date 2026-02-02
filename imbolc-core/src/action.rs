@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::audio::ServerStatus;
+use crate::state::arrangement::{ClipId, PlacementId};
 use crate::state::{EqConfig, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
 use crate::state::custom_synthdef::CustomSynthDef;
@@ -142,6 +143,30 @@ pub enum PianoRollAction {
     RenderToWav(InstrumentId),
 }
 
+/// Arrangement/timeline actions
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrangementAction {
+    TogglePlayMode,
+    CreateClip { instrument_id: InstrumentId, length_ticks: u32 },
+    CaptureClipFromPianoRoll { instrument_id: InstrumentId },
+    DeleteClip(ClipId),
+    RenameClip(ClipId, String),
+    PlaceClip { clip_id: ClipId, instrument_id: InstrumentId, start_tick: u32 },
+    RemovePlacement(PlacementId),
+    MovePlacement { placement_id: PlacementId, new_start_tick: u32 },
+    ResizePlacement { placement_id: PlacementId, new_length: Option<u32> },
+    DuplicatePlacement(PlacementId),
+    SelectPlacement(Option<usize>),
+    SelectLane(usize),
+    MoveCursor(i32),
+    ScrollView(i32),
+    ZoomIn,
+    ZoomOut,
+    EnterClipEdit(ClipId),
+    ExitClipEdit,
+    PlayStop,
+}
+
 /// Sample chopper actions
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChopperAction {
@@ -230,6 +255,7 @@ pub enum Action {
     Instrument(InstrumentAction),
     Mixer(MixerAction),
     PianoRoll(PianoRollAction),
+    Arrangement(ArrangementAction),
     Server(ServerAction),
     Session(SessionAction),
     Sequencer(SequencerAction),

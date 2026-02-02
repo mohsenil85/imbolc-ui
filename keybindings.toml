@@ -329,7 +329,31 @@ bindings = [
 ]
 
 [layers.track]
-bindings = []
+bindings = [
+  { key = "Up", action = "lane_up", description = "Select instrument lane above" },
+  { key = "Down", action = "lane_down", description = "Select instrument lane below" },
+  { key = "Left", action = "cursor_left", description = "Move cursor left" },
+  { key = "Right", action = "cursor_right", description = "Move cursor right" },
+  { key = "Home", action = "cursor_home", description = "Jump to start" },
+  { key = "End", action = "cursor_end", description = "Jump to end" },
+  { key = "n", action = "new_clip", description = "Capture clip from piano roll" },
+  { key = "N", action = "new_empty_clip", description = "Create empty 1-bar clip" },
+  { key = "p", action = "place_clip", description = "Place selected clip at cursor" },
+  { key = "Enter", action = "edit_clip", description = "Edit clip under cursor" },
+  { key = "d", action = "delete", description = "Delete placement at cursor" },
+  { key = "D", action = "delete_clip", description = "Delete clip and all placements" },
+  { key = "y", action = "duplicate", description = "Duplicate placement" },
+  { key = "m", action = "toggle_mode", description = "Toggle Song/Pattern mode" },
+  { key = "Space", action = "play_stop", description = "Play / Stop" },
+  { key = "Shift+Left", action = "move_left", description = "Move placement left" },
+  { key = "Shift+Right", action = "move_right", description = "Move placement right" },
+  { key = "z", action = "zoom_in", description = "Zoom in" },
+  { key = "x", action = "zoom_out", description = "Zoom out" },
+  { key = "Tab", action = "select_next_placement", description = "Next placement" },
+  { key = "Shift+Tab", action = "select_prev_placement", description = "Previous placement" },
+  { key = "[", action = "select_prev_clip", description = "Previous clip" },
+  { key = "]", action = "select_next_clip", description = "Next clip" },
+]
 
 [layers.vst_params]
 bindings = [

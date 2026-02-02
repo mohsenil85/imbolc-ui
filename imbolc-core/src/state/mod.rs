@@ -1,5 +1,6 @@
 pub mod arpeggiator;
 pub mod automation;
+pub mod arrangement;
 pub mod custom_synthdef;
 pub mod drum_sequencer;
 pub mod instrument;
@@ -15,6 +16,7 @@ pub mod undo;
 pub mod vst_plugin;
 
 pub use automation::AutomationTarget;
+pub use arrangement::{ArrangementState, Clip, ClipId, ClipPlacement, PlayMode, PlacementId};
 pub use custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
 pub use instrument::*;
 pub use instrument_state::InstrumentState;
@@ -199,6 +201,7 @@ impl AppState {
         self.instruments.remove_instrument(id);
         self.session.piano_roll.remove_track(id);
         self.session.automation.remove_lanes_for_instrument(id);
+        self.session.arrangement.remove_instrument_data(id);
     }
 
     /// Compute effective mute for an instrument, considering solo state and master mute.
