@@ -8,7 +8,7 @@ imbolc is a terminal-based digital audio workstation (DAW) written in Rust. The 
 
 - Install Rust (edition 2021) and SuperCollider (scsynth on PATH; sclang needed for synthdef compilation).
 - Run: `cargo run --release`
-- Use `F5` for server controls, `F1`-`F7` to switch panes, and `?` for context help.
+- Use number keys `1`-`5` to switch panes, `F5` for server controls, and `?` for context help.
 
 Developer mode (UI only):
 
@@ -18,29 +18,28 @@ IMBOLC_NO_AUDIO=1 cargo run
 
 ## Features
 
-- Instrument model: source + filter + FX chain + LFO (15 modulation targets) + envelope + mixer routing.
-- Sources: classic waves + noise, sync, FM/phase mod, pluck, formant, gendy, chaos, additive, wavetable; audio in/bus in; pitched sampler; kit; custom SynthDefs; VST instruments (experimental).
-- Filters: low-pass, high-pass, band-pass.
-- Effects: delay, reverb, gate, tape/sidechain comp, chorus, flanger, phaser, tremolo, distortion, bitcrusher, wavefolder, saturator, tilt EQ, stereo widener, freq shifter, limiter, pitch shifter, vinyl, cabinet, granular delay/freeze, convolution reverb.
-- Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat; kit step sequencer; sample chopper.
-- Mixer: channel/bus levels, pan, mute/solo, 8 buses, sends, master control.
-- Automation lanes (including VST params when discovered).
-- Recording: master/input to WAV with waveform view.
-- Low-latency playback: dedicated audio thread (~1ms tick) with OSC bundles and NTP timetags for sample-accurate scheduling.
+- **Instrument model:** source + filter + FX chain + LFO (15 modulation targets) + envelope + mixer routing.
+- **Sources:** classic waves + noise, sync, FM/phase mod, pluck, formant, gendy, chaos, additive, wavetable; audio in/bus in; polyphonic sampler; drum kit; custom SynthDefs; VST instruments (experimental).
+- **Filters:** low-pass, high-pass, band-pass.
+- **Effects:** delay, reverb, gate, tape/sidechain comp, chorus, flanger, phaser, tremolo, distortion, bitcrusher, wavefolder, saturator, tilt EQ, stereo widener, freq shifter, limiter, pitch shifter, vinyl, cabinet, granular delay/freeze, convolution reverb.
+- **Sequencing:** multi-track piano roll with per-note velocity, probability, and swing; 16-step drum sequencer; sample chopper for slice-based beat making.
+- **Mixer:** channel/bus levels, pan, mute/solo, 8 buses, sends, master control.
+- **Automation:** per-track automation lanes for parameters (including VST params).
+- **Analysis:** Real-time master level meter, spectrum analyzer, oscilloscope, and waveform view for audio input.
+- **Low-latency playback:** Dedicated audio thread (~1ms tick) using **OSC bundles with NTP timetags** for sample-accurate scheduling, decoupled from UI jitter.
 
 ## UI tour (defaults)
 
-- `F1` Instruments: list/manage instruments, `Enter` to edit.
-- `F2` Piano Roll / Sequencer / Waveform (context-driven).
-- `F3` Track: timeline overview (WIP).
-- `F4` Mixer: levels, pan, mute/solo, sends.
-- `F5` Server: scsynth status, device selection, synthdef build/load, recording.
-- `F6` Logo.
-- `F7` Automation: lanes and point editing.
-- `Ctrl+f` Frame Edit: BPM, time signature, tuning, key/scale, snap.
-- `?` Context help for the active pane.
-- `/` Toggle performance mode (piano/pad keyboard depending on instrument).
+- `1` **Instruments:** list/manage instruments, `Enter` to edit the signal chain.
+- `2` **Piano Roll:** multi-track MIDI sequencing.
+- `3` **Sequencer / Chopper:** 16-step drum sequencer and sample slicing.
+- `4` **Mixer:** levels, pan, mute/solo, sends.
+- `5` **Server:** scsynth status, device selection, synthdef build/load, recording.
+- `?` **Help:** Context-sensitive help for the active pane.
+- `/` **Performance:** Toggle performance mode (piano/pad keyboard).
+- `Ctrl+f` **Frame Edit:** BPM, time signature, tuning, key/scale, snap.
 - `Ctrl+s` / `Ctrl+l` Save/load default project.
+- `` ` `` / `~` Navigate back/forward through pane history.
 
 The canonical keybinding list lives in `keybindings.toml` and is surfaced in-app via `?`.
 
@@ -49,19 +48,18 @@ The canonical keybinding list lives in `keybindings.toml` and is surfaced in-app
 VST support is routed through SuperCollider's VSTPlugin UGen and is still evolving.
 
 What works today:
-- Manual import of `.vst` / `.vst3` bundles for instruments and effects (no scanning/catalog yet).
+- Manual import of `.vst` / `.vst3` bundles for instruments and effects.
 - VST instruments are hosted as persistent nodes; note-on/off is sent via `/u_cmd` MIDI messages.
 - VST effects can be inserted in instrument FX chains.
 - A VST parameter pane exists (search, adjust, reset, add automation lane).
 
 Current gaps:
-- Parameter discovery replies from VSTPlugin are not wired yet (the UI is present, but `discover` does not currently populate params).
+- Parameter discovery replies from VSTPlugin are not wired yet (UI exists, but populating requires manual trigger).
 - No parameter UI for VST effects (only VST instruments have a param pane today).
 - No preset/program browser; VST state save/restore is not surfaced in the UI yet.
-- No param groups, MIDI learn, or latency reporting/compensation.
 
 Setup notes:
-- Install the VSTPlugin extension in SuperCollider.
+- Install the [VSTPlugin](https://git.iem.at/pd/vstplugin) extension in SuperCollider.
 - Generate the wrapper synthdefs by running `sclang synthdefs/compile_vst.scd`, then load synthdefs from the Server pane.
 
 ## Configuration & files
@@ -74,8 +72,6 @@ Setup notes:
 - scsynth log: `~/.config/imbolc/scsynth.log`.
 - Recordings: `master_<timestamp>.wav` in the current working directory.
 
-macOS device enumeration uses `system_profiler`; other platforms may need extra work for device selection.
-
 ## Repo map
 
 - `src/` - TUI app, panes, input layers, render loop.
@@ -83,19 +79,9 @@ macOS device enumeration uses `system_profiler`; other platforms may need extra 
 - `synthdefs/` - SuperCollider synth definitions (compiled `.scsyndef`).
 - `docs/` - architecture, audio routing, persistence, and roadmaps.
 
-## Docs
-
-- `docs/architecture.md` - state ownership, panes, dispatch flow.
-- `docs/audio-routing.md` - buses, sends, and mixer routing.
-- `docs/sc-engine-architecture.md` - SC engine modules and design notes.
-- `docs/sqlite-persistence.md` - DB schema and persistence model.
-- `docs/vst3-support-roadmap.md` - VST plan and current status.
-- `docs/ai-coding-affordances.md` - AI-friendly patterns and gotchas.
-
 ## Build & test
 
 ```bash
-cargo ck         # fast typecheck (alias)
 cargo build
 cargo test --bin imbolc
 cargo test
