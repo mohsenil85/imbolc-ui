@@ -741,11 +741,12 @@ SynthDef(\imbolc_granular_delay, { |in=1024, out=1026, time=0.3, grain_size=0.1,
     var bufFrames = 44100 * 2; // 2 second buffer
     var buf = LocalBuf(bufFrames, 1);
     var phase = Phasor.ar(0, 1, 0, bufFrames);
+    var readPos, pitchRatio, trig, wet;
     BufWr.ar(mono, buf, phase);
-    var readPos = (phase - (time.lag(lag) * SampleRate.ir)).wrap(0, bufFrames);
-    var pitchRatio = 2 ** (pitch.lag(lag) / 12);
-    var trig = Impulse.ar(density);
-    var wet = TGrains.ar(2, trig, buf, pitchRatio, readPos / SampleRate.ir, grain_size.lag(lag), 0, 0.5);
+    readPos = (phase - (time.lag(lag) * SampleRate.ir)).wrap(0, bufFrames);
+    pitchRatio = 2 ** (pitch.lag(lag) / 12);
+    trig = Impulse.ar(density);
+    wet = TGrains.ar(2, trig, buf, pitchRatio, readPos / SampleRate.ir, grain_size.lag(lag), 0, 0.5);
     Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
 }).writeDefFile(dir);
 
@@ -756,13 +757,14 @@ SynthDef(\imbolc_granular_freeze, { |in=1024, out=1026, grain_size=0.1, density=
     var bufFrames = 44100 * 2;
     var buf = LocalBuf(bufFrames, 1);
     var phase = Phasor.ar(0, 1, 0, bufFrames);
+    var pitchRatio, trig, scatter, grainPos, wet;
     BufWr.ar(mono, buf, phase);
-    var pitchRatio = 2 ** (pitch.lag(lag) / 12);
-    var trig = Impulse.ar(density);
+    pitchRatio = 2 ** (pitch.lag(lag) / 12);
+    trig = Impulse.ar(density);
     // Scatter grain position around current write position
-    var scatter = TRand.ar(0, spread.lag(lag) * bufFrames, trig);
-    var grainPos = (phase - scatter).wrap(0, bufFrames) / SampleRate.ir;
-    var wet = TGrains.ar(2, trig, buf, pitchRatio, grainPos, grain_size.lag(lag), 0, 0.5);
+    scatter = TRand.ar(0, spread.lag(lag) * bufFrames, trig);
+    grainPos = (phase - scatter).wrap(0, bufFrames) / SampleRate.ir;
+    wet = TGrains.ar(2, trig, buf, pitchRatio, grainPos, grain_size.lag(lag), 0, 0.5);
     Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
 }).writeDefFile(dir);
 
