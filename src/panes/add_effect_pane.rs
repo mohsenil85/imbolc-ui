@@ -20,9 +20,12 @@ enum AddEffectOption {
     ImportVst,
 }
 
+const LIST_HEIGHT: usize = 14;
+
 pub struct AddEffectPane {
     keymap: Keymap,
     selected: usize,
+    scroll_offset: usize,
     cached_options: Vec<AddEffectOption>,
 }
 
@@ -31,7 +34,16 @@ impl AddEffectPane {
         Self {
             keymap,
             selected: 0,
+            scroll_offset: 0,
             cached_options: Self::build_options_static(),
+        }
+    }
+
+    fn adjust_scroll(&mut self) {
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        } else if self.selected >= self.scroll_offset + LIST_HEIGHT {
+            self.scroll_offset = self.selected.saturating_sub(LIST_HEIGHT - 1);
         }
     }
 
@@ -103,6 +115,7 @@ impl AddEffectPane {
         if matches!(self.cached_options.get(self.selected), Some(AddEffectOption::Separator(_))) {
             self.select_next();
         }
+        self.adjust_scroll();
     }
 
     fn select_next(&mut self) {
@@ -115,6 +128,7 @@ impl AddEffectPane {
             next = (next + 1) % len;
         }
         self.selected = next;
+        self.adjust_scroll();
     }
 
     fn select_prev(&mut self) {
@@ -127,6 +141,7 @@ impl AddEffectPane {
             prev = if prev == 0 { len - 1 } else { prev - 1 };
         }
         self.selected = prev;
+        self.adjust_scroll();
     }
 }
 
@@ -184,13 +199,15 @@ impl Pane for AddEffectPane {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let row = event.row;
-                if row >= list_y {
-                    let idx = (row - list_y) as usize;
+                if row >= list_y && row < list_y + LIST_HEIGHT as u16 {
+                    let visual_idx = (row - list_y) as usize;
+                    let idx = visual_idx + self.scroll_offset;
                     if idx < self.cached_options.len() {
                         if matches!(self.cached_options.get(idx), Some(AddEffectOption::Separator(_))) {
                             return Action::None;
                         }
                         self.selected = idx;
+                        self.adjust_scroll();
                         // Confirm on click
                         match &self.cached_options[idx] {
                             AddEffectOption::Effect(effect_type) => {
@@ -244,11 +261,14 @@ impl Pane for AddEffectPane {
         let list_y = content_y + 2;
         let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
 
-        for (i, option) in self.cached_options.iter().enumerate() {
-            let y = list_y + i as u16;
-            if y >= inner.y + inner.height {
+        for (visual_i, i) in (self.scroll_offset..self.cached_options.len()).enumerate() {
+            if visual_i >= LIST_HEIGHT {
                 break;
             }
+            
+            let option = &self.cached_options[i];
+            let y = list_y + visual_i as u16;
+            
             let is_selected = i == self.selected;
 
             match option {
