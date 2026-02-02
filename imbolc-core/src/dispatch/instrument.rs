@@ -1,6 +1,6 @@
 use crate::audio::AudioHandle;
 use crate::state::AppState;
-use crate::action::{DispatchResult, InstrumentAction, NavIntent};
+use crate::action::{DispatchResult, InstrumentAction, NavIntent, VstTarget};
 
 pub(super) fn dispatch_instrument(
     action: &InstrumentAction,
@@ -282,6 +282,9 @@ pub(super) fn dispatch_instrument(
             result.audio_dirty.instruments = true;
             result.audio_dirty.routing = true;
             result
+        }
+        InstrumentAction::OpenVstEffectParams(instrument_id, effect_idx) => {
+            DispatchResult::with_nav(NavIntent::OpenVstParams(*instrument_id, VstTarget::Effect(*effect_idx)))
         }
     }
 }

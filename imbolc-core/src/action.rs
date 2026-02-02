@@ -81,6 +81,7 @@ pub enum InstrumentAction {
     CycleChordShape(InstrumentId),
     ClearChordShape(InstrumentId),
     LoadIRResult(InstrumentId, usize, PathBuf), // instrument_id, effect_index, path
+    OpenVstEffectParams(InstrumentId, usize), // instrument_id, effect_index
 }
 
 /// Mixer actions
@@ -154,14 +155,21 @@ pub enum ServerAction {
     RecordInput,
 }
 
+/// Identifies whether a VST operation targets the instrument source or an effect slot
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VstTarget {
+    Source,
+    Effect(usize),  // index into instrument.effects[]
+}
+
 /// VST parameter actions
 #[derive(Debug, Clone, PartialEq)]
 pub enum VstParamAction {
-    SetParam(InstrumentId, u32, f32),       // instrument_id, param_index, value
-    AdjustParam(InstrumentId, u32, f32),    // instrument_id, param_index, delta
-    ResetParam(InstrumentId, u32),          // instrument_id, param_index
-    DiscoverParams(InstrumentId),
-    SaveState(InstrumentId),
+    SetParam(InstrumentId, VstTarget, u32, f32),       // instrument_id, target, param_index, value
+    AdjustParam(InstrumentId, VstTarget, u32, f32),    // instrument_id, target, param_index, delta
+    ResetParam(InstrumentId, VstTarget, u32),           // instrument_id, target, param_index
+    DiscoverParams(InstrumentId, VstTarget),
+    SaveState(InstrumentId, VstTarget),
 }
 
 /// Automation actions
@@ -257,6 +265,8 @@ pub enum NavIntent {
     PopOrSwitchTo(&'static str),
     /// Configure and push to the file browser
     OpenFileBrowser(FileSelectAction),
+    /// Configure and push to the VST param pane for a specific target
+    OpenVstParams(InstrumentId, VstTarget),
 }
 
 /// Status event returned from dispatch — forwarded to the server pane by the UI layer

@@ -76,7 +76,7 @@ impl InstrumentNodes {
 
 pub struct AudioEngine {
     client: Option<Box<dyn OscClientLike>>,
-    node_map: HashMap<InstrumentId, InstrumentNodes>,
+    pub(crate) node_map: HashMap<InstrumentId, InstrumentNodes>,
     next_node_id: i32,
     is_running: bool,
     scsynth_process: Option<Child>,

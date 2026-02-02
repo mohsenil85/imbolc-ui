@@ -973,6 +973,8 @@ pub struct EffectSlot {
     pub effect_type: EffectType,
     pub params: Vec<Param>,
     pub enabled: bool,
+    pub vst_param_values: Vec<(u32, f32)>,
+    pub vst_state_path: Option<std::path::PathBuf>,
 }
 
 impl EffectSlot {
@@ -981,6 +983,8 @@ impl EffectSlot {
             params: effect_type.default_params(),
             effect_type,
             enabled: true,
+            vst_param_values: Vec::new(),
+            vst_state_path: None,
         }
     }
 }

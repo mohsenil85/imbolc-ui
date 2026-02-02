@@ -1,5 +1,5 @@
-use super::VST_UGEN_INDEX;
 use super::AudioEngine;
+use super::VST_UGEN_INDEX;
 use crate::state::InstrumentId;
 
 impl AudioEngine {
@@ -40,83 +40,65 @@ impl AudioEngine {
         Ok(())
     }
 
-    /// Query VST parameter count from a VSTi source node
-    pub(crate) fn query_vst_param_count(&self, instrument_id: InstrumentId) -> Result<(), String> {
+    /// Query VST parameter count from a VST node
+    #[allow(dead_code)]
+    pub(crate) fn query_vst_param_count_node(&self, node_id: i32) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        if let Some(nodes) = self.node_map.get(&instrument_id) {
-            if let Some(source_node) = nodes.source {
-                client.send_unit_cmd(
-                    source_node,
-                    VST_UGEN_INDEX,
-                    "/param_count",
-                    vec![],
-                ).map_err(|e| e.to_string())?;
-            }
-        }
+        client.send_unit_cmd(
+            node_id,
+            VST_UGEN_INDEX,
+            "/param_count",
+            vec![],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Query VST parameter info for a specific index
-    pub(crate) fn query_vst_param_info(&self, instrument_id: InstrumentId, index: u32) -> Result<(), String> {
+    #[allow(dead_code)] // Reserved for future SC reply handling
+    pub(crate) fn query_vst_param_info_node(&self, node_id: i32, index: u32) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        if let Some(nodes) = self.node_map.get(&instrument_id) {
-            if let Some(source_node) = nodes.source {
-                client.send_unit_cmd(
-                    source_node,
-                    VST_UGEN_INDEX,
-                    "/param_info",
-                    vec![rosc::OscType::Int(index as i32)],
-                ).map_err(|e| e.to_string())?;
-            }
-        }
+        client.send_unit_cmd(
+            node_id,
+            VST_UGEN_INDEX,
+            "/param_info",
+            vec![rosc::OscType::Int(index as i32)],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    /// Set a VST parameter value
-    pub(crate) fn set_vst_param(&self, instrument_id: InstrumentId, param_index: u32, value: f32) -> Result<(), String> {
+    /// Set a VST parameter value on a resolved node
+    pub(crate) fn set_vst_param_node(&self, node_id: i32, param_index: u32, value: f32) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        if let Some(nodes) = self.node_map.get(&instrument_id) {
-            if let Some(source_node) = nodes.source {
-                client.send_unit_cmd(
-                    source_node,
-                    VST_UGEN_INDEX,
-                    "/set",
-                    vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
-                ).map_err(|e| e.to_string())?;
-            }
-        }
+        client.send_unit_cmd(
+            node_id,
+            VST_UGEN_INDEX,
+            "/set",
+            vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    /// Save VST plugin state to a file
-    pub(crate) fn save_vst_state(&self, instrument_id: InstrumentId, path: &std::path::Path) -> Result<(), String> {
+    /// Save VST plugin state to a file from a resolved node
+    pub(crate) fn save_vst_state_node(&self, node_id: i32, path: &std::path::Path) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        if let Some(nodes) = self.node_map.get(&instrument_id) {
-            if let Some(source_node) = nodes.source {
-                client.send_unit_cmd(
-                    source_node,
-                    VST_UGEN_INDEX,
-                    "/program_write",
-                    vec![rosc::OscType::String(path.to_string_lossy().to_string())],
-                ).map_err(|e| e.to_string())?;
-            }
-        }
+        client.send_unit_cmd(
+            node_id,
+            VST_UGEN_INDEX,
+            "/program_write",
+            vec![rosc::OscType::String(path.to_string_lossy().to_string())],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    /// Load VST plugin state from a file
-    pub(crate) fn load_vst_state(&self, instrument_id: InstrumentId, path: &std::path::Path) -> Result<(), String> {
+    /// Load VST plugin state from a file into a resolved node
+    pub(crate) fn load_vst_state_node(&self, node_id: i32, path: &std::path::Path) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
-        if let Some(nodes) = self.node_map.get(&instrument_id) {
-            if let Some(source_node) = nodes.source {
-                client.send_unit_cmd(
-                    source_node,
-                    VST_UGEN_INDEX,
-                    "/program_read",
-                    vec![rosc::OscType::String(path.to_string_lossy().to_string())],
-                ).map_err(|e| e.to_string())?;
-            }
-        }
+        client.send_unit_cmd(
+            node_id,
+            VST_UGEN_INDEX,
+            "/program_read",
+            vec![rosc::OscType::String(path.to_string_lossy().to_string())],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 }

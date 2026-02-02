@@ -6,12 +6,14 @@ use std::any::Any;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 
+use crate::action::VstTarget;
 use crate::state::{AppState, InstrumentId};
 use crate::ui::{Action, InputEvent, Keymap, Pane};
 
 pub struct VstParamPane {
     keymap: Keymap,
     instrument_id: Option<InstrumentId>,
+    target: VstTarget,
     selected_param: usize,
     scroll_offset: usize,
     search_text: String,
@@ -24,6 +26,7 @@ impl VstParamPane {
         Self {
             keymap,
             instrument_id: None,
+            target: VstTarget::Source,
             selected_param: 0,
             scroll_offset: 0,
             search_text: String::new(),
@@ -32,31 +35,59 @@ impl VstParamPane {
         }
     }
 
+    /// Set the target instrument and VST target (source or effect), resetting selection state
+    pub fn set_target(&mut self, instrument_id: InstrumentId, target: VstTarget) {
+        self.instrument_id = Some(instrument_id);
+        self.target = target;
+        self.selected_param = 0;
+        self.scroll_offset = 0;
+        self.search_text.clear();
+        self.search_active = false;
+    }
+
+    /// Get the VstPluginId for the current target
+    fn get_plugin_id(&self, state: &AppState) -> Option<crate::state::vst_plugin::VstPluginId> {
+        let inst = self.instrument_id.and_then(|id| state.instruments.instrument(id))?;
+        match self.target {
+            VstTarget::Source => {
+                if let crate::state::SourceType::Vst(id) = inst.source {
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+            VstTarget::Effect(idx) => {
+                inst.effects.get(idx).and_then(|e| {
+                    if let crate::state::EffectType::Vst(id) = e.effect_type {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                })
+            }
+        }
+    }
+
     /// Rebuild filtered indices based on search text
     fn rebuild_filter(&mut self, state: &AppState) {
-        let Some(inst) = self.instrument_id
-            .and_then(|id| state.instruments.instrument(id)) else {
-            self.filtered_indices.clear();
-            return;
+        let plugin_id = match self.get_plugin_id(state) {
+            Some(id) => id,
+            None => {
+                self.filtered_indices.clear();
+                return;
+            }
         };
 
-        let plugin_params = if let crate::state::SourceType::Vst(plugin_id) = inst.source {
-            state.session.vst_plugins.get(plugin_id)
-                .map(|p| &p.params)
-        } else {
-            None
-        };
-
-        let Some(params) = plugin_params else {
+        let Some(plugin) = state.session.vst_plugins.get(plugin_id) else {
             self.filtered_indices.clear();
             return;
         };
 
         if self.search_text.is_empty() {
-            self.filtered_indices = (0..params.len()).collect();
+            self.filtered_indices = (0..plugin.params.len()).collect();
         } else {
             let query = self.search_text.to_lowercase();
-            self.filtered_indices = params.iter()
+            self.filtered_indices = plugin.params.iter()
                 .enumerate()
                 .filter(|(_, p)| p.name.to_lowercase().contains(&query))
                 .map(|(i, _)| i)
@@ -64,11 +95,12 @@ impl VstParamPane {
         }
     }
 
-    /// Sync state from current selection
+    /// Sync state from current selection (only when navigated to via instrument selection, not set_target)
     fn sync_from_state(&mut self, state: &AppState) {
         let new_id = state.instruments.selected_instrument().map(|i| i.id);
         if new_id != self.instrument_id {
             self.instrument_id = new_id;
+            self.target = VstTarget::Source;
             self.selected_param = 0;
             self.scroll_offset = 0;
             self.search_text.clear();

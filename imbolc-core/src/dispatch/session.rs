@@ -1,7 +1,8 @@
 use crate::audio::AudioHandle;
+use crate::audio::commands::AudioCmd;
 use crate::scd_parser;
-use crate::state::{AppState, CustomSynthDef, ParamSpec};
-use crate::action::{DispatchResult, NavIntent, SessionAction};
+use crate::state::{AppState, CustomSynthDef, EffectType, ParamSpec, SourceType};
+use crate::action::{DispatchResult, NavIntent, SessionAction, VstTarget};
 
 use super::server::{compile_and_load_synthdef, config_synthdefs_dir};
 use super::default_rack_path;
@@ -51,6 +52,26 @@ pub(super) fn dispatch_session(
                         result.audio_dirty.automation = true;
                         result.audio_dirty.routing = true;
                         result.audio_dirty.mixer_params = true;
+
+                        // Queue VST state restores after routing rebuild
+                        for inst in &state.instruments.instruments {
+                            if let (SourceType::Vst(_), Some(ref path)) = (&inst.source, &inst.vst_state_path) {
+                                let _ = audio.send_cmd(AudioCmd::LoadVstState {
+                                    instrument_id: inst.id,
+                                    target: VstTarget::Source,
+                                    path: path.clone(),
+                                });
+                            }
+                            for (idx, effect) in inst.effects.iter().enumerate() {
+                                if let (EffectType::Vst(_), Some(ref path)) = (&effect.effect_type, &effect.vst_state_path) {
+                                    let _ = audio.send_cmd(AudioCmd::LoadVstState {
+                                        instrument_id: inst.id,
+                                        target: VstTarget::Effect(idx),
+                                        path: path.clone(),
+                                    });
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         eprintln!("Failed to load: {}", e);

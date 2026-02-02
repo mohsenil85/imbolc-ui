@@ -13,21 +13,22 @@ impl VstParamPane {
         let rect = center_rect(area, 80.min(area.width), 30.min(area.height));
 
         // Determine plugin name and instrument number
-        let (plugin_name, inst_label) = self.instrument_id
-            .and_then(|id| state.instruments.instrument(id))
-            .map(|inst| {
-                let pname = if let crate::state::SourceType::Vst(pid) = inst.source {
-                    state.session.vst_plugins.get(pid)
-                        .map(|p| p.name.clone())
-                        .unwrap_or_else(|| "Unknown".to_string())
-                } else {
-                    "N/A".to_string()
-                };
-                (pname, format!("Inst {}", inst.id))
-            })
-            .unwrap_or_else(|| ("—".to_string(), "—".to_string()));
+        let plugin_name = self.get_plugin_id(state)
+            .and_then(|pid| state.session.vst_plugins.get(pid))
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "—".to_string());
+        let inst_label = self.instrument_id
+            .map(|id| format!("Inst {}", id))
+            .unwrap_or_else(|| "—".to_string());
 
-        let title = format!(" VST Params: {} — {} ", plugin_name, inst_label);
+        let title = match self.target {
+            crate::action::VstTarget::Source => {
+                format!(" VST Params: {} — {} ", plugin_name, inst_label)
+            }
+            crate::action::VstTarget::Effect(idx) => {
+                format!(" VST Effect Params: {} — {} FX {} ", plugin_name, inst_label, idx)
+            }
+        };
 
         let border_color = Color::CYAN;
         let block = Block::default()
@@ -67,17 +68,21 @@ impl VstParamPane {
         let list_height = inner.height.saturating_sub(2) as usize; // -1 for search, -1 for help
 
         // Get params to display
-        let (params, param_values) = self.instrument_id
-            .and_then(|id| state.instruments.instrument(id))
-            .map(|inst| {
-                let params = if let crate::state::SourceType::Vst(pid) = inst.source {
-                    state.session.vst_plugins.get(pid)
-                        .map(|p| p.params.clone())
-                        .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                (params, inst.vst_param_values.clone())
+        let (params, param_values) = self.get_plugin_id(state)
+            .and_then(|pid| state.session.vst_plugins.get(pid))
+            .map(|plugin| {
+                let param_vals = self.instrument_id
+                    .and_then(|id| state.instruments.instrument(id))
+                    .map(|inst| match self.target {
+                        crate::action::VstTarget::Source => inst.vst_param_values.clone(),
+                        crate::action::VstTarget::Effect(idx) => {
+                            inst.effects.get(idx)
+                                .map(|e| e.vst_param_values.clone())
+                                .unwrap_or_default()
+                        }
+                    })
+                    .unwrap_or_default();
+                (plugin.params.clone(), param_vals)
             })
             .unwrap_or_default();
 

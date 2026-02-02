@@ -216,24 +216,32 @@ pub(super) fn load_source_params(conn: &SqlConnection, instruments: &mut [Instru
 }
 
 pub(super) fn load_effects(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
-    let mut effect_stmt = conn.prepare(
-        "SELECT position, effect_type, enabled FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position",
-    )?;
+    // Check if vst_state_path column exists (backwards compat)
+    let has_vst_state_path = conn
+        .prepare("SELECT vst_state_path FROM instrument_effects LIMIT 0")
+        .is_ok();
+    let effects_query = if has_vst_state_path {
+        "SELECT position, effect_type, enabled, vst_state_path FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
+    } else {
+        "SELECT position, effect_type, enabled, NULL FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
+    };
+    let mut effect_stmt = conn.prepare(effects_query)?;
     let mut param_stmt = conn.prepare(
         "SELECT param_name, param_value FROM instrument_effect_params WHERE instrument_id = ?1 AND effect_position = ?2",
     )?;
     for inst in instruments {
-        let effects: Vec<(i32, String, bool)> = effect_stmt
+        let effects: Vec<(i32, String, bool, Option<String>)> = effect_stmt
             .query_map([&inst.id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?
             .filter_map(|r| r.ok())
             .collect();
 
-        for (pos, type_str, enabled) in effects {
+        for (pos, type_str, enabled, vst_state_path_str) in effects {
             let effect_type = parse_effect_type(&type_str);
             let mut slot = EffectSlot::new(effect_type);
             slot.enabled = enabled;
+            slot.vst_state_path = vst_state_path_str.map(PathBuf::from);
 
             let params: Vec<(String, f64)> = param_stmt
                 .query_map(rusqlite::params![inst.id, pos], |row| {
@@ -1005,6 +1013,32 @@ pub(super) fn load_vst_param_values(conn: &SqlConnection, instruments: &mut [Ins
                 if let Ok((instrument_id, param_index, value)) = result {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
                         inst.vst_param_values.push((param_index, value as f32));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn load_effect_vst_params(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT instrument_id, effect_position, param_index, value FROM effect_vst_params",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, InstrumentId>(0)?,
+                row.get::<_, usize>(1)?,
+                row.get::<_, u32>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        }) {
+            for result in rows {
+                if let Ok((instrument_id, effect_pos, param_index, value)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
+                        if let Some(effect) = inst.effects.get_mut(effect_pos) {
+                            effect.vst_param_values.push((param_index, value as f32));
+                        }
                     }
                 }
             }

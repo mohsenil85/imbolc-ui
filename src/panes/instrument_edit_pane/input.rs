@@ -288,8 +288,23 @@ impl InstrumentEditPane {
                 self.emit_update()
             }
             "vst_params" => {
-                // Navigate to VST params pane for VST instruments
-                if self.source.is_vst() {
+                let (section, local_idx) = self.row_info(self.selected_row);
+                if section == Section::Source && self.source.is_vst() {
+                    // Navigate to VST params pane for VST instrument source
+                    Action::Nav(crate::ui::NavAction::PushPane("vst_params"))
+                } else if section == Section::Effects {
+                    let idx = local_idx.min(self.effects.len().saturating_sub(1));
+                    if self.effects.get(idx).map(|e| e.effect_type.is_vst()).unwrap_or(false) {
+                        if let Some(instrument_id) = self.instrument_id {
+                            Action::Instrument(InstrumentAction::OpenVstEffectParams(instrument_id, idx))
+                        } else {
+                            Action::None
+                        }
+                    } else {
+                        Action::None
+                    }
+                } else if self.source.is_vst() {
+                    // Fallback: if source is VST, navigate to source params
                     Action::Nav(crate::ui::NavAction::PushPane("vst_params"))
                 } else {
                     Action::None

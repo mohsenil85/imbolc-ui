@@ -21,6 +21,7 @@ impl VstParamPane {
         let Some(instrument_id) = self.instrument_id else {
             return Action::None;
         };
+        let target = self.target;
 
         match action {
             "up" | "prev" => {
@@ -43,7 +44,7 @@ impl VstParamPane {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
-                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, idx, -0.01));
+                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, target, idx, -0.01));
                     }
                 }
                 Action::None
@@ -52,7 +53,7 @@ impl VstParamPane {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
-                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, idx, 0.01));
+                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, target, idx, 0.01));
                     }
                 }
                 Action::None
@@ -61,7 +62,7 @@ impl VstParamPane {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
-                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, idx, -0.1));
+                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, target, idx, -0.1));
                     }
                 }
                 Action::None
@@ -70,7 +71,7 @@ impl VstParamPane {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
-                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, idx, 0.1));
+                        return Action::VstParam(VstParamAction::AdjustParam(instrument_id, target, idx, 0.1));
                     }
                 }
                 Action::None
@@ -79,7 +80,7 @@ impl VstParamPane {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
-                        return Action::VstParam(VstParamAction::ResetParam(instrument_id, idx));
+                        return Action::VstParam(VstParamAction::ResetParam(instrument_id, target, idx));
                     }
                 }
                 Action::None
@@ -96,7 +97,7 @@ impl VstParamPane {
                 Action::None
             }
             "discover" => {
-                Action::VstParam(VstParamAction::DiscoverParams(instrument_id))
+                Action::VstParam(VstParamAction::DiscoverParams(instrument_id, target))
             }
             "search" => {
                 self.search_active = true;
@@ -147,13 +148,8 @@ impl VstParamPane {
 
     /// Get the VST parameter index for a filtered param index
     fn get_param_index(&self, filtered_idx: usize, state: &AppState) -> Option<u32> {
-        let inst = self.instrument_id
-            .and_then(|id| state.instruments.instrument(id))?;
-        if let crate::state::SourceType::Vst(plugin_id) = inst.source {
-            let plugin = state.session.vst_plugins.get(plugin_id)?;
-            plugin.params.get(filtered_idx).map(|p| p.index)
-        } else {
-            None
-        }
+        let plugin_id = self.get_plugin_id(state)?;
+        let plugin = state.session.vst_plugins.get(plugin_id)?;
+        plugin.params.get(filtered_idx).map(|p| p.index)
     }
 }

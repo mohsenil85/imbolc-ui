@@ -451,6 +451,44 @@ impl AudioEngine {
             }
         }
 
+        // Restore saved VST param values for sources and effects
+        for instrument in &state.instruments {
+            if matches!(instrument.source, SourceType::Vst(_)) {
+                if let Some(source_node) = self.node_map.get(&instrument.id).and_then(|n| n.source) {
+                    if let Some(ref client) = self.client {
+                        for &(param_index, value) in &instrument.vst_param_values {
+                            let _ = client.send_unit_cmd(
+                                source_node,
+                                VST_UGEN_INDEX,
+                                "/set",
+                                vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+                            );
+                        }
+                    }
+                }
+            }
+            let mut enabled_idx = 0;
+            for effect in &instrument.effects {
+                if !effect.enabled { continue; }
+                if matches!(effect.effect_type, EffectType::Vst(_)) {
+                    if let Some(&node) = self.node_map.get(&instrument.id)
+                        .and_then(|n| n.effects.get(enabled_idx)) {
+                        if let Some(ref client) = self.client {
+                            for &(param_index, value) in &effect.vst_param_values {
+                                let _ = client.send_unit_cmd(
+                                    node,
+                                    VST_UGEN_INDEX,
+                                    "/set",
+                                    vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+                                );
+                            }
+                        }
+                    }
+                }
+                enabled_idx += 1;
+            }
+        }
+
         // (Re)create meter synth
         self.restart_meter();
 

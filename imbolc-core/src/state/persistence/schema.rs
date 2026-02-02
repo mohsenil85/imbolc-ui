@@ -68,6 +68,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 position INTEGER NOT NULL,
                 effect_type TEXT NOT NULL,
                 enabled INTEGER NOT NULL,
+                vst_state_path TEXT,
                 PRIMARY KEY (instrument_id, position)
             );
 
@@ -216,6 +217,14 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 PRIMARY KEY (instrument_id, param_index)
             );
 
+            CREATE TABLE IF NOT EXISTS effect_vst_params (
+                instrument_id INTEGER NOT NULL,
+                effect_position INTEGER NOT NULL,
+                param_index INTEGER NOT NULL,
+                value REAL NOT NULL,
+                PRIMARY KEY (instrument_id, effect_position, param_index)
+            );
+
             CREATE TABLE IF NOT EXISTS vst_plugins (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -330,6 +339,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             DELETE FROM drum_sequencer_chain;
             DELETE FROM drum_patterns;
             DELETE FROM drum_pads;
+            DELETE FROM effect_vst_params;
             DELETE FROM instrument_vst_params;
             DELETE FROM vst_plugin_params;
             DELETE FROM vst_plugins;
@@ -355,7 +365,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (5, datetime('now'))",
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (6, datetime('now'))",
         [],
     )?;
 

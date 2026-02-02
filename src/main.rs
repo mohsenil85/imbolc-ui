@@ -271,7 +271,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         }
                     }
                 }
-                AudioFeedback::VstParamsDiscovered { instrument_id, vst_plugin_id, params } => {
+                AudioFeedback::VstParamsDiscovered { instrument_id, target, vst_plugin_id, params } => {
                     // Update plugin registry with discovered param specs
                     if let Some(plugin) = state.session.vst_plugins.get_mut(vst_plugin_id) {
                         plugin.params.clear();
@@ -286,15 +286,36 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     }
                     // Initialize per-instance param values from defaults
                     if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
-                        instrument.vst_param_values.clear();
-                        for (index, _, _, default) in &params {
-                            instrument.vst_param_values.push((*index, *default));
+                        match target {
+                            action::VstTarget::Source => {
+                                instrument.vst_param_values.clear();
+                                for (index, _, _, default) in &params {
+                                    instrument.vst_param_values.push((*index, *default));
+                                }
+                            }
+                            action::VstTarget::Effect(idx) => {
+                                if let Some(effect) = instrument.effects.get_mut(idx) {
+                                    effect.vst_param_values.clear();
+                                    for (index, _, _, default) in &params {
+                                        effect.vst_param_values.push((*index, *default));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                AudioFeedback::VstStateSaved { instrument_id, path } => {
+                AudioFeedback::VstStateSaved { instrument_id, target, path } => {
                     if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
-                        instrument.vst_state_path = Some(path);
+                        match target {
+                            action::VstTarget::Source => {
+                                instrument.vst_state_path = Some(path);
+                            }
+                            action::VstTarget::Effect(idx) => {
+                                if let Some(effect) = instrument.effects.get_mut(idx) {
+                                    effect.vst_state_path = Some(path);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -722,6 +743,12 @@ fn apply_dispatch_result(
                     fb.open_for(file_action.clone(), None);
                 }
                 panes.push_to("file_browser", state);
+            }
+            NavIntent::OpenVstParams(instrument_id, target) => {
+                if let Some(vp) = panes.get_pane_mut::<VstParamPane>("vst_params") {
+                    vp.set_target(*instrument_id, *target);
+                }
+                panes.push_to("vst_params", state);
             }
             _ => {}
         }

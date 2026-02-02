@@ -13,7 +13,7 @@ use super::engine::AudioEngine;
 use super::osc_client::AudioMonitor;
 use super::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use super::ServerStatus;
-use crate::action::AudioDirty;
+use crate::action::{AudioDirty, VstTarget};
 use crate::state::automation::AutomationTarget;
 use crate::state::piano_roll::PianoRollState;
 use crate::state::{AppState, BufferId, InstrumentId, InstrumentState, SessionState};
@@ -778,21 +778,44 @@ impl AudioThread {
             AudioCmd::ApplyAutomation { target, value } => {
                 let _ = self.engine.apply_automation(&target, value, &self.instruments, &self.session);
             }
-            AudioCmd::QueryVstParams { instrument_id } => {
-                let _ = self.engine.query_vst_param_count(instrument_id);
+            AudioCmd::QueryVstParams { instrument_id, target } => {
+                if let Some(node_id) = self.resolve_vst_node_id(instrument_id, target) {
+                    let _ = self.engine.query_vst_param_count_node(node_id);
+                }
+                // Generate synthetic VstParamsDiscovered feedback (128 placeholder params)
+                // since SC doesn't reply via OSC for param queries
+                let vst_plugin_id = self.resolve_vst_plugin_id(instrument_id, target);
+                if let Some(vst_plugin_id) = vst_plugin_id {
+                    let params: Vec<(u32, String, Option<String>, f32)> = (0..128)
+                        .map(|i| (i, format!("Param {}", i), None, 0.5))
+                        .collect();
+                    let _ = self.feedback_tx.send(AudioFeedback::VstParamsDiscovered {
+                        instrument_id,
+                        target,
+                        vst_plugin_id,
+                        params,
+                    });
+                }
             }
-            AudioCmd::SetVstParam { instrument_id, param_index, value } => {
-                let _ = self.engine.set_vst_param(instrument_id, param_index, value);
+            AudioCmd::SetVstParam { instrument_id, target, param_index, value } => {
+                if let Some(node_id) = self.resolve_vst_node_id(instrument_id, target) {
+                    let _ = self.engine.set_vst_param_node(node_id, param_index, value);
+                }
             }
-            AudioCmd::SaveVstState { instrument_id, path } => {
-                let _ = self.engine.save_vst_state(instrument_id, &path);
+            AudioCmd::SaveVstState { instrument_id, target, path } => {
+                if let Some(node_id) = self.resolve_vst_node_id(instrument_id, target) {
+                    let _ = self.engine.save_vst_state_node(node_id, &path);
+                }
                 let _ = self.feedback_tx.send(AudioFeedback::VstStateSaved {
                     instrument_id,
+                    target,
                     path,
                 });
             }
-            AudioCmd::LoadVstState { instrument_id, path } => {
-                let _ = self.engine.load_vst_state(instrument_id, &path);
+            AudioCmd::LoadVstState { instrument_id, target, path } => {
+                if let Some(node_id) = self.resolve_vst_node_id(instrument_id, target) {
+                    let _ = self.engine.load_vst_state_node(node_id, &path);
+                }
             }
             AudioCmd::Shutdown => return true,
         }
@@ -821,6 +844,50 @@ impl AudioThread {
         self.piano_roll = updated;
         self.piano_roll.playhead = playhead;
         self.piano_roll.playing = playing;
+    }
+
+    /// Resolve a VstTarget to a SuperCollider node ID using the instrument snapshot and engine node map
+    fn resolve_vst_node_id(&self, instrument_id: InstrumentId, target: VstTarget) -> Option<i32> {
+        let nodes = self.engine.node_map.get(&instrument_id)?;
+        match target {
+            VstTarget::Source => nodes.source,
+            VstTarget::Effect(idx) => {
+                // nodes.effects only contains enabled effects; map full index to enabled index
+                let inst = self.instruments.instruments.iter()
+                    .find(|i| i.id == instrument_id)?;
+                let enabled_idx = inst.effects.iter()
+                    .take(idx)
+                    .filter(|e| e.enabled)
+                    .count();
+                nodes.effects.get(enabled_idx).copied()
+            }
+        }
+    }
+
+    /// Resolve the VstPluginId for a given instrument and target
+    fn resolve_vst_plugin_id(&self, instrument_id: InstrumentId, target: VstTarget) -> Option<crate::state::vst_plugin::VstPluginId> {
+        let inst = self.instruments.instruments.iter()
+            .find(|i| i.id == instrument_id)?;
+        match target {
+            VstTarget::Source => {
+                if let crate::state::SourceType::Vst(id) = inst.source {
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+            VstTarget::Effect(idx) => {
+                if let Some(effect) = inst.effects.get(idx) {
+                    if let crate::state::EffectType::Vst(id) = effect.effect_type {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     fn send_server_status(&self, status: ServerStatus, message: impl Into<String>) {

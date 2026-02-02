@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
+use crate::action::VstTarget;
 use crate::audio::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use crate::state::automation::AutomationTarget;
 use crate::state::vst_plugin::VstPluginId;
@@ -138,18 +139,22 @@ pub enum AudioCmd {
     // ── VST parameter control ──────────────────────────────────
     QueryVstParams {
         instrument_id: InstrumentId,
+        target: VstTarget,
     },
     SetVstParam {
         instrument_id: InstrumentId,
+        target: VstTarget,
         param_index: u32,
         value: f32,
     },
     SaveVstState {
         instrument_id: InstrumentId,
+        target: VstTarget,
         path: PathBuf,
     },
     LoadVstState {
         instrument_id: InstrumentId,
+        target: VstTarget,
         path: PathBuf,
     },
 
@@ -183,11 +188,13 @@ pub enum AudioFeedback {
     PendingBufferFreed,
     VstParamsDiscovered {
         instrument_id: InstrumentId,
+        target: VstTarget,
         vst_plugin_id: VstPluginId,
         params: Vec<(u32, String, Option<String>, f32)>, // (index, name, label, default)
     },
     VstStateSaved {
         instrument_id: InstrumentId,
+        target: VstTarget,
         path: PathBuf,
     },
 }
