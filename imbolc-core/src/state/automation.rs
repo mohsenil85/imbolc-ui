@@ -191,6 +191,12 @@ impl AutomationTarget {
         ]
     }
 
+    /// Normalize an actual parameter value to 0.0–1.0 based on this target's range
+    pub fn normalize_value(&self, actual: f32) -> f32 {
+        let (min, max) = self.default_range();
+        if max > min { ((actual - min) / (max - min)).clamp(0.0, 1.0) } else { 0.5 }
+    }
+
     /// Get the default min/max range for this target type
     pub fn default_range(&self) -> (f32, f32) {
         match self {
@@ -227,6 +233,8 @@ pub struct AutomationLane {
     pub target: AutomationTarget,
     pub points: Vec<AutomationPoint>,
     pub enabled: bool,
+    /// Whether this lane is armed for recording
+    pub record_armed: bool,
     /// Minimum value for this parameter
     pub min_value: f32,
     /// Maximum value for this parameter
@@ -241,6 +249,7 @@ impl AutomationLane {
             target,
             points: Vec::new(),
             enabled: true,
+            record_armed: false,
             min_value,
             max_value,
         }

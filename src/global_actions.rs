@@ -317,6 +317,9 @@ pub(crate) fn handle_global_action(
         "switch:eq" => {
             switch_to_pane("eq", panes, state, app_frame, layer_stack, audio, io_tx);
         }
+        "switch:midi_settings" => {
+            switch_to_pane("midi_settings", panes, state, app_frame, layer_stack, audio, io_tx);
+        }
         "switch:frame_edit" => {
             if panes.active().id() == "frame_edit" {
                 panes.pop(&*state);

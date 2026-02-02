@@ -5,8 +5,8 @@ use crate::state::automation::CurveType;
 
 pub(crate) fn save_automation(conn: &SqlConnection, session: &SessionState) -> SqlResult<()> {
     let mut lane_stmt = conn.prepare(
-        "INSERT INTO automation_lanes (id, target_type, target_instrument_id, target_effect_idx, target_param_idx, enabled, min_value, max_value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO automation_lanes (id, target_type, target_instrument_id, target_effect_idx, target_param_idx, enabled, record_armed, min_value, max_value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )?;
     let mut point_stmt = conn.prepare(
         "INSERT INTO automation_points (lane_id, tick, value, curve_type)
@@ -24,6 +24,7 @@ pub(crate) fn save_automation(conn: &SqlConnection, session: &SessionState) -> S
             effect_idx,
             param_idx,
             lane.enabled,
+            lane.record_armed,
             lane.min_value as f64,
             lane.max_value as f64,
         ])?;

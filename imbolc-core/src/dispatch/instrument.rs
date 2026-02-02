@@ -1,6 +1,9 @@
 use crate::audio::AudioHandle;
 use crate::state::AppState;
+use crate::state::automation::AutomationTarget;
 use crate::action::{DispatchResult, InstrumentAction, NavIntent, VstTarget};
+
+use super::automation::record_automation_point;
 
 pub(super) fn dispatch_instrument(
     action: &InstrumentAction,
@@ -257,28 +260,47 @@ pub(super) fn dispatch_instrument(
             result
         }
         InstrumentAction::AdjustFilterCutoff(id, delta) => {
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
                 if let Some(ref mut filter) = instrument.filter {
                     filter.cutoff.value = (filter.cutoff.value + delta * filter.cutoff.max * 0.02)
                         .clamp(filter.cutoff.min, filter.cutoff.max);
+                    if state.automation_recording && state.session.piano_roll.playing {
+                        let target = AutomationTarget::FilterCutoff(instrument.id);
+                        record_target = Some((target.clone(), target.normalize_value(filter.cutoff.value)));
+                    }
                 }
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
+            }
             result
         }
         InstrumentAction::AdjustFilterResonance(id, delta) => {
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
                 if let Some(ref mut filter) = instrument.filter {
                     filter.resonance.value = (filter.resonance.value + delta * 0.05)
                         .clamp(filter.resonance.min, filter.resonance.max);
+                    if state.automation_recording && state.session.piano_roll.playing {
+                        let target = AutomationTarget::FilterResonance(instrument.id);
+                        record_target = Some((target.clone(), target.normalize_value(filter.resonance.value)));
+                    }
                 }
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
+            }
             result
         }
         InstrumentAction::AdjustEffectParam(id, effect_idx, param_idx, delta) => {
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
                 if let Some(effect) = instrument.effects.get_mut(*effect_idx) {
                     if let Some(param) = effect.params.get_mut(*param_idx) {
@@ -286,6 +308,10 @@ pub(super) fn dispatch_instrument(
                         match &mut param.value {
                             crate::state::ParamValue::Float(v) => {
                                 *v = (*v + delta * range * 0.02).clamp(param.min, param.max);
+                                if state.automation_recording && state.session.piano_roll.playing {
+                                    let target = AutomationTarget::EffectParam(instrument.id, *effect_idx, *param_idx);
+                                    record_target = Some((target.clone(), target.normalize_value(*v)));
+                                }
                             }
                             crate::state::ParamValue::Int(v) => {
                                 *v = (*v + (delta * range * 0.02) as i32).clamp(param.min as i32, param.max as i32);
@@ -299,6 +325,10 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
+            }
             result
         }
         InstrumentAction::ToggleArp(id) => {
@@ -398,6 +428,7 @@ pub(super) fn dispatch_instrument(
             let instrument_id = *instrument_id;
             let band_idx = *band_idx;
             let value = *value;
+            let mut record_target: Option<(AutomationTarget, f32)> = None;
 
             if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
                 if let Some(ref mut eq) = instrument.eq {
@@ -408,6 +439,18 @@ pub(super) fn dispatch_instrument(
                             "q" => band.q = value.clamp(0.1, 10.0),
                             "on" => band.enabled = value > 0.5,
                             _ => {}
+                        }
+                        if state.automation_recording && state.session.piano_roll.playing {
+                            let param_idx = match param_name.as_str() {
+                                "freq" => Some(0),
+                                "gain" => Some(1),
+                                "q" => Some(2),
+                                _ => None,
+                            };
+                            if let Some(pi) = param_idx {
+                                let target = AutomationTarget::EqBandParam(instrument.id, band_idx, pi);
+                                record_target = Some((target.clone(), target.normalize_value(value)));
+                            }
                         }
                     }
                 }
@@ -422,6 +465,10 @@ pub(super) fn dispatch_instrument(
 
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            if let Some((target, value)) = record_target {
+                record_automation_point(state, target, value);
+                result.audio_dirty.automation = true;
+            }
             result
         }
         InstrumentAction::ToggleEq(instrument_id) => {

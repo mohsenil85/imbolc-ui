@@ -50,7 +50,7 @@ impl AutomationPane {
         }
 
         // Header
-        let header = format!("{:<6} {:<16} {:>3} {:>4} {:<6}", "Lane", "Target", "En", "Pts", "Curve");
+        let header = format!("{:<6} {:<16} {:>3} {:>2} {:>4} {:<6}", "Lane", "Target", "En", "R", "Pts", "Curve");
         let header_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
         for (i, ch) in header.chars().enumerate() {
             if area.x + 1 + i as u16 >= area.x + area.width { break; }
@@ -81,12 +81,14 @@ impl AutomationPane {
 
             let short = lane.target.short_name();
             let name = lane.target.name();
+            let arm_char = if lane.record_armed { "R" } else { " " };
             let line_text = format!(
-                "{}{:<5} {:<16} [{}] {:>3} {:<6}",
+                "{}{:<5} {:<16} [{}] {} {:>3} {:<6}",
                 if is_selected { ">" } else { " " },
                 short,
                 name,
                 enabled_char,
+                arm_char,
                 point_count,
                 curve_name
             );
@@ -101,11 +103,18 @@ impl AutomationPane {
                 ratatui::style::Style::from(Style::new().fg(Color::GRAY))
             };
 
+            // Arm indicator position: 1 (marker) + 5 (short) + 1 (sp) + 16 (name) + 2 (" [") + 1 (en) + 2 ("] ") = 28
+            let arm_pos = 28;
+            let arm_style = ratatui::style::Style::from(Style::new().fg(Color::MUTE_COLOR).bold());
             for (i, ch) in line_text.chars().enumerate() {
                 let x = area.x + i as u16;
                 if x >= area.x + area.width { break; }
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_char(ch).set_style(style);
+                    if lane.record_armed && i == arm_pos {
+                        cell.set_char(ch).set_style(arm_style);
+                    } else {
+                        cell.set_char(ch).set_style(style);
+                    }
                 }
             }
             // Fill remaining width for selected row

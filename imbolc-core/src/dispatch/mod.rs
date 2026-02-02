@@ -3,6 +3,7 @@ mod arrangement;
 mod audio_feedback;
 mod helpers;
 mod instrument;
+mod midi;
 mod mixer;
 mod piano_roll;
 mod sequencer;
@@ -73,6 +74,7 @@ pub fn dispatch_action(
         Action::Sequencer(a) => sequencer::dispatch_sequencer(a, state, audio),
         Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio),
         Action::Automation(a) => automation::dispatch_automation(a, state, audio),
+        Action::Midi(a) => midi::dispatch_midi(a, state),
         Action::VstParam(a) => vst_param::dispatch_vst_param(a, state, audio),
         Action::AudioFeedback(f) => audio_feedback::dispatch_audio_feedback(f, state, audio),
         Action::None => DispatchResult::none(),

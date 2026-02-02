@@ -174,6 +174,21 @@ impl AutomationPane {
                 Action::Automation(AutomationAction::ToggleRecording)
             }
 
+            // Lane arm/disarm
+            "toggle_arm" => {
+                if let Some(id) = self.selected_lane_id(state) {
+                    Action::Automation(AutomationAction::ToggleLaneArm(id))
+                } else {
+                    Action::None
+                }
+            }
+            "arm_all" => {
+                Action::Automation(AutomationAction::ArmAllLanes)
+            }
+            "disarm_all" => {
+                Action::Automation(AutomationAction::DisarmAllLanes)
+            }
+
             // Zoom
             "zoom_in" => {
                 self.zoom_level = self.zoom_level.saturating_sub(1).max(1);

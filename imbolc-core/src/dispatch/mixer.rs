@@ -190,10 +190,8 @@ pub(super) fn dispatch_mixer(
                         result.audio_dirty.instruments = true;
                         result.audio_dirty.mixer_params = true;
                         if state.automation_recording && state.session.piano_roll.playing {
-                            record_target = Some((
-                                AutomationTarget::InstrumentPan(instrument.id),
-                                instrument.pan,
-                            ));
+                            let target = AutomationTarget::InstrumentPan(instrument.id);
+                            record_target = Some((target.clone(), target.normalize_value(instrument.pan)));
                         }
                     }
                 }

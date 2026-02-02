@@ -154,7 +154,16 @@ pub fn is_undoable(action: &Action) -> bool {
         Action::Automation(a) => match a {
             crate::action::AutomationAction::SelectLane(_)
             | crate::action::AutomationAction::ToggleRecording
+            | crate::action::AutomationAction::ToggleLaneArm(_)
+            | crate::action::AutomationAction::ArmAllLanes
+            | crate::action::AutomationAction::DisarmAllLanes
+            | crate::action::AutomationAction::RecordValue(_, _)
             | crate::action::AutomationAction::CopyPoints(_, _, _) => false,
+            _ => true,
+        },
+        Action::Midi(a) => match a {
+            crate::action::MidiAction::ConnectPort(_)
+            | crate::action::MidiAction::DisconnectPort => false,
             _ => true,
         },
         Action::Arrangement(a) => match a {

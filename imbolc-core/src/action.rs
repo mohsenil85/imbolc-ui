@@ -269,6 +269,9 @@ pub enum AutomationAction {
     SelectLane(i8),                                  // +1/-1
     ClearLane(AutomationLaneId),
     ToggleRecording,
+    ToggleLaneArm(AutomationLaneId),
+    ArmAllLanes,
+    DisarmAllLanes,
     RecordValue(AutomationTarget, f32),
     /// Delete automation points in tick range on a lane
     DeletePointsInRange(AutomationLaneId, u32, u32),
@@ -296,6 +299,18 @@ pub enum SessionAction {
     ToggleMasterMute,
 }
 
+/// MIDI configuration actions
+#[derive(Debug, Clone)]
+pub enum MidiAction {
+    ConnectPort(usize),
+    DisconnectPort,
+    AddCcMapping { cc: u8, channel: Option<u8>, target: AutomationTarget },
+    RemoveCcMapping { cc: u8, channel: Option<u8> },
+    SetChannelFilter(Option<u8>),
+    SetLiveInputInstrument(Option<InstrumentId>),
+    ToggleNotePassthrough,
+}
+
 /// Actions that can be returned from pane input handling
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -311,6 +326,7 @@ pub enum Action {
     Sequencer(SequencerAction),
     Chopper(ChopperAction),
     Automation(AutomationAction),
+    Midi(MidiAction),
     VstParam(VstParamAction),
     AudioFeedback(crate::audio::commands::AudioFeedback),
     /// Pane signals: pop piano_mode/pad_mode layer

@@ -137,6 +137,10 @@ pub struct AppState {
     pub undo_history: UndoHistory,
     /// Musical defaults used when creating new projects
     pub default_settings: MusicalSettings,
+    /// Available MIDI input port names (updated by main loop)
+    pub midi_port_names: Vec<String>,
+    /// Currently connected MIDI port name
+    pub midi_connected_port: Option<String>,
 }
 
 impl AppState {
@@ -161,6 +165,8 @@ impl AppState {
             dirty: false,
             undo_history: UndoHistory::new(500),
             default_settings: MusicalSettings::default(),
+            midi_port_names: Vec::new(),
+            midi_connected_port: None,
         }
     }
 
@@ -184,6 +190,8 @@ impl AppState {
             dirty: false,
             undo_history: UndoHistory::new(500),
             default_settings: defaults,
+            midi_port_names: Vec::new(),
+            midi_connected_port: None,
         }
     }
 

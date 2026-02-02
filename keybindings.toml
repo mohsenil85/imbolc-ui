@@ -19,6 +19,7 @@ bindings = [
   { key = "Ctrl+o", action = "open_project_browser", description = "Project browser" },
   { key = "Ctrl+S", action = "save_as", description = "Save project as..." },
   { key = "Ctrl+f", action = "switch:frame_edit", description = "Frame edit" },
+  { key = "Ctrl+m", action = "switch:midi_settings", description = "MIDI settings" },
   { key = "`", action = "nav_back", description = "Back / Forward" },
   { key = "~", action = "nav_forward", description = "Forward" },
   { key = "?", action = "help", description = "Context help" },
@@ -333,6 +334,9 @@ bindings = [
   { key = "c", action = "cycle_curve", description = "Cycle curve type" },
   { key = "C", action = "clear_lane", description = "Clear all points in lane" },
   { key = "r", action = "toggle_recording", description = "Toggle automation recording" },
+  { key = "R", action = "toggle_arm", description = "Arm/disarm lane for recording" },
+  { key = "Ctrl+r", action = "arm_all", description = "Arm all lanes" },
+  { key = "Alt+r", action = "disarm_all", description = "Disarm all lanes" },
   { key = "z", action = "zoom_in", description = "Zoom in" },
   { key = "Z", action = "zoom_out", description = "Zoom out" },
   { key = "Home", action = "home", description = "Jump to start" },
@@ -405,6 +409,20 @@ bindings = [
 [layers.waveform]
 bindings = [
   { key = "Tab", action = "cycle_mode", description = "Cycle display mode" },
+]
+
+[layers.midi_settings]
+bindings = [
+  { key = "Tab", action = "switch_section", description = "Switch section" },
+  { key = "Up", action = "up", description = "Move up" },
+  { key = "Down", action = "down", description = "Move down" },
+  { key = "Enter", action = "connect", description = "Connect to port" },
+  { key = "d", action = "disconnect", description = "Disconnect MIDI" },
+  { key = "x", action = "remove_mapping", description = "Remove CC mapping" },
+  { key = "n", action = "toggle_passthrough", description = "Toggle note passthrough" },
+  { key = "c", action = "set_channel_all", description = "Clear channel filter" },
+  { key = "i", action = "set_live_instrument", description = "Set live input to selected" },
+  { key = "I", action = "clear_live_instrument", description = "Clear live input instrument" },
 ]
 
 # --- Mode layers ---

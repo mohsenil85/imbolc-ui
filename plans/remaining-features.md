@@ -8,19 +8,19 @@ parameter change, effect chain edit, and mixer adjustment should be
 undoable. Requires a history stack of state diffs or command objects,
 with configurable depth. Table-stakes for any editor application.
 
-### 2. Copy/Paste
+### 2. Copy/Paste DONE
 Clipboard system for notes in the piano roll, patterns in the drum
 sequencer, automation points, and effect chains. Should support
 cut/copy/paste with keyboard shortcuts. Enables efficient composition
 without manual recreation of patterns.
 
-### 3. Arrangement/Timeline View
+### 3. Arrangement/Timeline View DONE
 Complete the TrackPane into a proper song timeline with
 sections/clips. Move beyond single-loop playback to support song
 structure (intro, verse, chorus, bridge). Clip-based arrangement where
 piano roll patterns become reusable clips placed on a timeline.
 
-### 4. Audio Export/Bounce
+### 4. Audio Export/Bounce DONE
 Offline render to WAV/AIFF using SuperCollider's NRT (Non-Realtime)
 mode. Currently only real-time disk recording exists — there's no way
 to export a mixdown without playing the entire song. NRT mode allows
@@ -30,7 +30,7 @@ independent of audio hardware. Should support stem export
 generating an OSC score file from the piano roll/automation/sequencer
 state and invoking scsynth in NRT mode.
 
-### 5. Project Management
+### 5. Project Management DONE
 Full project lifecycle: save, open, load, rename, save-as, new
 project. Currently persistence exists (SQLite) but the workflow around
 managing multiple projects needs a proper UI — project browser, recent
@@ -58,9 +58,8 @@ parameter. Should support learn mode where the next incoming CC
 automatically maps to the selected target.
 
 ### 9. Notification/Feedback System
-Toast messages or status bar for transient user feedback. Save
-confirmations, error messages, operation results, and warnings are
-currently easy to miss. Timed popups that auto-dismiss.
+A one-line status bar across the bottom of the screen that we can
+print to programatically.
 
 ### 10. Test Coverage
 ~31 unit tests and a handful of e2e tests — low for a project this

@@ -11,13 +11,14 @@ mod panes;
 mod setup;
 mod ui;
 mod global_actions;
+mod midi_dispatch;
 
 use std::time::{Duration, Instant};
 
 use audio::AudioHandle;
 use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
-use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MidiSettingsPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult,
@@ -74,6 +75,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(ProjectBrowserPane::new(pane_keymap(&mut keymaps, "project_browser"))));
     panes.add_pane(Box::new(SaveAsPane::new(pane_keymap(&mut keymaps, "save_as"))));
     panes.add_pane(Box::new(CommandPalettePane::new(pane_keymap(&mut keymaps, "command_palette"))));
+    panes.add_pane(Box::new(MidiSettingsPane::new(pane_keymap(&mut keymaps, "midi_settings"))));
 
     // Create layer stack
     let mut layer_stack = LayerStack::new(layers);
@@ -86,6 +88,16 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut audio = AudioHandle::new();
     audio.sync_state(&state);
     let mut app_frame = Frame::new();
+
+    // Initialize MIDI input
+    let mut midi_input = midi::MidiInputManager::new();
+    midi_input.refresh_ports();
+    // Auto-connect first available port
+    if !midi_input.list_ports().is_empty() {
+        let _ = midi_input.connect(0);
+    }
+    state.midi_port_names = midi_input.list_ports().iter().map(|p| p.name.clone()).collect();
+    state.midi_connected_port = midi_input.connected_port_name().map(|s| s.to_string());
     let mut recent_projects = state::recent_projects::RecentProjects::load();
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
@@ -277,6 +289,24 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
+            // Intercept MIDI port actions that need MidiInputManager
+            if let Action::Midi(action::MidiAction::ConnectPort(port_idx)) = &pane_action {
+                let port_idx = *port_idx;
+                midi_input.refresh_ports();
+                match midi_input.connect(port_idx) {
+                    Ok(()) => {
+                        state.midi_connected_port = midi_input.connected_port_name().map(|s| s.to_string());
+                    }
+                    Err(_) => {
+                        state.midi_connected_port = None;
+                    }
+                }
+                state.midi_port_names = midi_input.list_ports().iter().map(|p| p.name.clone()).collect();
+            } else if let Action::Midi(action::MidiAction::DisconnectPort) = &pane_action {
+                midi_input.disconnect();
+                state.midi_connected_port = None;
+            }
+
             let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
             if dispatch_result.quit {
                 break;
@@ -437,6 +467,14 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             let r = dispatch::dispatch_action(&action, &mut state, &mut audio, &io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
             apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame);
+        }
+
+        // Poll MIDI events
+        for event in midi_input.poll_events() {
+            if let Some(action) = midi_dispatch::process_midi_event(&event, &state) {
+                let r = dispatch::dispatch_action(&action, &mut state, &mut audio, &io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+            }
         }
 
         // Visual updates and rendering at ~60fps

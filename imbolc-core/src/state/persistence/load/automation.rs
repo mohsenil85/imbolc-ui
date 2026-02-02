@@ -9,7 +9,7 @@ pub(crate) fn load_automation(conn: &SqlConnection) -> SqlResult<crate::state::a
     let mut state = AutomationState::new();
 
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT id, target_type, target_instrument_id, target_effect_idx, target_param_idx, enabled, min_value, max_value
+        "SELECT id, target_type, target_instrument_id, target_effect_idx, target_param_idx, enabled, min_value, max_value, record_armed
          FROM automation_lanes",
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
@@ -18,13 +18,15 @@ pub(crate) fn load_automation(conn: &SqlConnection) -> SqlResult<crate::state::a
                 row.get::<_, InstrumentId>(2)?, row.get::<_, Option<i32>>(3)?,
                 row.get::<_, Option<i32>>(4)?, row.get::<_, bool>(5)?,
                 row.get::<_, f64>(6)?, row.get::<_, f64>(7)?,
+                row.get::<_, Option<bool>>(8).unwrap_or(None),
             ))
         }) {
             for result in rows {
-                if let Ok((id, target_type, instrument_id, effect_idx, param_idx, enabled, min_value, max_value)) = result {
+                if let Ok((id, target_type, instrument_id, effect_idx, param_idx, enabled, min_value, max_value, record_armed)) = result {
                     if let Some(target) = deserialize_automation_target(&target_type, instrument_id, effect_idx, param_idx) {
                         let mut lane = AutomationLane::new(id as u32, target);
                         lane.enabled = enabled;
+                        lane.record_armed = record_armed.unwrap_or(false);
                         lane.min_value = min_value as f32;
                         lane.max_value = max_value as f32;
                         state.lanes.push(lane);

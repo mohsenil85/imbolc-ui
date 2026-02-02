@@ -103,7 +103,7 @@ impl Frame {
         Paragraph::new(Line::from(Span::styled(&header, header_style)))
             .render(RatatuiRect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1), buf);
 
-        // Right-aligned items: [instrument indicator] [REC indicator]
+        // Right-aligned items: [instrument indicator] [A-REC indicator] [REC indicator]
         let inst_indicator = if let Some(idx) = state.instruments.selected {
             if let Some(inst) = state.instruments.instruments.get(idx) {
                 format!(" {}: {} ", idx + 1, inst.name)
@@ -139,6 +139,22 @@ impl Frame {
                 }
             }
             cursor = rec_start;
+        }
+
+        // A-REC indicator (automation recording)
+        if state.automation_recording {
+            let arec_text = " A-REC ";
+            let arec_start = cursor.saturating_sub(arec_text.len() as u16);
+            let arec_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::MUTE_COLOR).bold());
+            for (j, ch) in arec_text.chars().enumerate() {
+                let ax = arec_start + j as u16;
+                if ax < cursor {
+                    if let Some(cell) = buf.cell_mut((ax, area.y)) {
+                        cell.set_char(ch).set_style(arec_style);
+                    }
+                }
+            }
+            cursor = arec_start;
         }
 
         // Instrument indicator (to the left of REC)

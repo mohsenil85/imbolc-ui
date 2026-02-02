@@ -192,6 +192,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 target_effect_idx INTEGER,
                 target_param_idx INTEGER,
                 enabled INTEGER NOT NULL,
+                record_armed INTEGER NOT NULL DEFAULT 0,
                 min_value REAL NOT NULL,
                 max_value REAL NOT NULL
             );

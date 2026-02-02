@@ -70,7 +70,25 @@ pub(super) fn dispatch_automation(
             }
         }
         AutomationAction::ToggleRecording => {
+            if !state.automation_recording {
+                state.undo_history.push_from(state.session.clone(), state.instruments.clone());
+            }
             state.automation_recording = !state.automation_recording;
+        }
+        AutomationAction::ToggleLaneArm(id) => {
+            if let Some(lane) = state.session.automation.lane_mut(*id) {
+                lane.record_armed = !lane.record_armed;
+            }
+        }
+        AutomationAction::ArmAllLanes => {
+            for lane in &mut state.session.automation.lanes {
+                lane.record_armed = true;
+            }
+        }
+        AutomationAction::DisarmAllLanes => {
+            for lane in &mut state.session.automation.lanes {
+                lane.record_armed = false;
+            }
         }
         AutomationAction::RecordValue(target, value) => {
             // Find or create lane for this target
@@ -123,12 +141,26 @@ pub(super) fn dispatch_automation(
     result
 }
 
-/// Record an automation point with thinning
-pub(super) fn record_automation_point(state: &mut AppState, target: AutomationTarget, value: f32) {
+/// Record an automation point with thinning.
+/// Respects per-lane arm state: auto-arms newly created lanes, skips unarmed lanes.
+pub(crate) fn record_automation_point(state: &mut AppState, target: AutomationTarget, value: f32) {
     let playhead = state.session.piano_roll.playhead;
+
+    // Check if lane already exists before adding
+    let is_new = state.session.automation.lane_for_target(&target).is_none();
     let lane_id = state.session.automation.add_lane(target);
 
     if let Some(lane) = state.session.automation.lane_mut(lane_id) {
+        // Auto-arm newly created (empty) lanes during recording
+        if is_new {
+            lane.record_armed = true;
+        }
+
+        // Skip if lane is not armed for recording
+        if !lane.record_armed {
+            return;
+        }
+
         // Point thinning: skip if value changed less than threshold and tick delta is small
         if let Some(last) = lane.points.last() {
             let value_delta = (value - last.value).abs();
