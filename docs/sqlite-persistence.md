@@ -20,7 +20,7 @@ save_project(path, session, instruments)
   2. Run tolerant renames (if needed)
   3. CREATE TABLE IF NOT EXISTS for all tables
   4. DELETE FROM all data tables
-  5. INSERT schema_version (5)
+  5. INSERT schema_version (6)
   6. INSERT session (metadata + selected_instrument + selected_automation_lane)
   7. save_instruments          — instruments table
   8. save_source_params        — instrument_source_params
@@ -36,11 +36,13 @@ save_project(path, session, instruments)
   18. save_drum_sequencers     — drum_pads + drum_patterns + drum_steps
   19. save_chopper_states      — chopper_states + chopper_slices
   20. save_midi_recording      — midi_recording_settings + midi_cc_mappings + midi_pitch_bend_configs
+  21. save_vst_param_values    — instrument_vst_params
+  22. save_effect_vst_params   — effect_vst_params
 ```
 
 Load is the reverse. Playback state (`playing`, `playhead`, `current_step`, `step_accumulator`) is intentionally transient and resets on load.
 
-## Schema (v5)
+## Schema (v6)
 
 ### Session & Metadata
 
@@ -103,8 +105,9 @@ CREATE TABLE instrument_source_params (
 CREATE TABLE instrument_effects (
     instrument_id INTEGER NOT NULL,
     position INTEGER NOT NULL,
-    effect_type TEXT NOT NULL,     -- delay, reverb, gate, tape_comp, sidechain_comp
+    effect_type TEXT NOT NULL,     -- delay, reverb, gate, tape_comp, sidechain_comp, vst:N
     enabled INTEGER NOT NULL,
+    vst_state_path TEXT,           -- path to saved VST state file (for VST effects)
     PRIMARY KEY (instrument_id, position)
 );
 
@@ -236,6 +239,25 @@ CREATE TABLE vst_plugin_params (
     default_val REAL NOT NULL,
     PRIMARY KEY (plugin_id, position),
     FOREIGN KEY (plugin_id) REFERENCES vst_plugins(id)
+);
+```
+
+### VST Instance Parameters
+
+```sql
+CREATE TABLE instrument_vst_params (
+    instrument_id INTEGER NOT NULL,
+    param_index INTEGER NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (instrument_id, param_index)
+);
+
+CREATE TABLE effect_vst_params (
+    instrument_id INTEGER NOT NULL,
+    effect_position INTEGER NOT NULL,
+    param_index INTEGER NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (instrument_id, effect_position, param_index)
 );
 ```
 

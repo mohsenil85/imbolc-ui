@@ -49,6 +49,8 @@ imbolc-core/src/
 | `Instrument` | `imbolc-core/src/state/instrument.rs` | One instrument: source + filter + effects + LFO + envelope + mixer |
 | `InstrumentId` | `imbolc-core/src/state/instrument.rs` | `u32` — unique identifier for instruments |
 | `SourceType` | `imbolc-core/src/state/instrument.rs` | Oscillator/Source types (Saw/Sin/etc, AudioIn, BusIn, PitchedSampler, Kit, Custom, VST) |
+| `EffectSlot` | `imbolc-core/src/state/instrument.rs` | One effect in the chain: type + params + enabled + VST param values/state path |
+| `VstTarget` | `imbolc-core/src/action.rs` | `Source` or `Effect(usize)` — identifies which VST node an action targets |
 | `Action` | `imbolc-core/src/action.rs` | Action enum (re-exported in `src/ui/pane.rs`) |
 | `Pane` | `src/ui/pane.rs` | Trait: `id()`, `handle_action()`, `handle_raw_input()`, `handle_mouse()`, `render()`, `keymap()` |
 | `PaneManager` | `src/ui/pane.rs` | Owns all panes, manages active pane, coordinates input |
@@ -130,7 +132,7 @@ Musical defaults (`[defaults]` section): `bpm`, `key`, `scale`, `tuning_a4`, `ti
 - Format: SQLite database (`.imbolc` / `.sqlite`)
 - Save/load: `save_project()` / `load_project()` in `imbolc-core/src/state/persistence/mod.rs`
 - Default path: `~/.config/imbolc/default.sqlite`
-- Persists: instruments, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs, drum sequencer, midi settings
+- Persists: instruments, params, effects, filters, sends, modulations, buses, mixer, piano roll, automation, sampler configs, custom synthdefs, drum sequencer, midi settings, VST plugins, VST param values (source + effects), VST state paths
 
 ## LSP Integration (CCLSP)
 

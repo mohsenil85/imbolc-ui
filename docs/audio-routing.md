@@ -31,7 +31,7 @@ SuperCollider (our audio engine) handles this natively. `Out.ar(bus, signal)` ad
 - Frequency (from MIDI or LFO)
 - Gate (note on/off)
 - Velocity
-- Modulation (LFO → filter cutoff)
+- Modulation (LFO → filter cutoff/resonance, amplitude, pitch, pan, effects, etc.)
 
 In our layout:
 - Audio buses 0-15: Reserved for hardware I/O (0-1 = stereo out)

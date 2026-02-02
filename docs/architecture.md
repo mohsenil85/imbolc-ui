@@ -68,7 +68,7 @@ pub struct Instrument {
     pub source: SourceType,        // Saw/Sin/Sqr/Tri, Noise/Pulse/SuperSaw/etc, AudioIn, BusIn, PitchedSampler, Kit, Custom, VST
     pub source_params: Vec<Param>,
     pub filter: Option<FilterConfig>,
-    pub effects: Vec<EffectSlot>,
+    pub effects: Vec<EffectSlot>,   // Each slot has its own vst_param_values and vst_state_path
     pub lfo: LfoConfig,
     pub amp_envelope: EnvConfig,
     pub polyphonic: bool,
@@ -82,6 +82,8 @@ pub struct Instrument {
     pub sends: Vec<MixerSend>,
     pub sampler_config: Option<SamplerConfig>,
     pub drum_sequencer: Option<DrumSequencerState>,
+    pub vst_param_values: Vec<(u32, f32)>,  // VST source param overrides
+    pub vst_state_path: Option<PathBuf>,     // VST source state file
 }
 ```
 
@@ -215,6 +217,8 @@ Instruments map to SuperCollider nodes in two ways:
 
 Filters and effects are currently static per-instrument nodes (shared by all polyphonic voices), though the architecture allows for per-voice effects in the future.
 
+**LFO Modulation:** Each instrument's LFO writes to a control bus (`lfo_out`). Routing-level targets (filter resonance, pan, delay time/feedback, reverb mix, gate rate, send level) are wired in `rebuild_instrument_routing()` by passing the LFO bus as a `*_mod_in` param to the relevant synth. Voice-level targets (amplitude, pitch, detune, pulse width, sample rate, attack, release) are wired in `spawn_voice()` / `spawn_sampler_voice()` by looking up the bus via `bus_allocator.get_control_bus()`. All SynthDefs accept `*_mod_in` params defaulting to -1 (no modulation).
+
 ### OSC Communication
 
 - `OscClient::send_message()` — fire-and-forget single message
@@ -246,7 +250,7 @@ SQLite database via `rusqlite`. Implementation in `imbolc-core/src/state/persist
 Comprehensive — the full state survives save/load:
 - Instruments (source type, name, filter, LFO, envelope, polyphonic, mixer controls)
 - Source parameters (with type: float/int/bool)
-- Effects chain (type, params, enabled, ordering)
+- Effects chain (type, params, enabled, ordering, VST state paths)
 - Sends (per-instrument bus sends with level and enabled)
 - Filter modulation sources (LFO, envelope, or instrument-param cross-modulation)
 - Mixer buses (name, level, pan, mute, solo)
@@ -260,6 +264,8 @@ Comprehensive — the full state survives save/load:
 - MIDI recording settings and mappings
 - Custom synthdef registry (name, params, source path)
 - VST plugin registry (name, path, params)
+- VST param values (per-instrument source and per-effect slot)
+- VST state paths (per-instrument source and per-effect slot, auto-loaded on project open)
 
 ### What's NOT Persisted
 

@@ -24,30 +24,49 @@ Implemented in the Rust codebase and SC engine:
   sequencer.
 - VST parameter pane exists (search/list/adjust/reset, add automation lane).
 - Automation target for VST parameters is wired in the audio engine (`/set`).
+- `VstTarget` enum (`Source | Effect(usize)`) unifies all VST operations
+  across source instruments and effect slots.
+- VST effect parameter editing: VstParamPane supports both source and effect
+  targets. From InstrumentEditPane, pressing 'v' on a VST effect row opens the
+  param pane for that effect.
+- Parameter discovery: `QueryVstParams` generates synthetic 128-param placeholder
+  specs via `AudioFeedback::VstParamsDiscovered` (actual SC reply handling is
+  still TODO). Values are stored per-instance in `instrument.vst_param_values`
+  (source) or `effect.vst_param_values` (effect slot).
+- VST state persistence: state file paths are saved per-instrument and per-effect
+  in the SQLite database. On project load, `LoadVstState` commands are queued
+  after routing rebuild so saved state is restored.
+- Saved VST param values are re-applied after routing rebuild via `/set` commands
+  for both source and effect nodes.
+- Effect slots carry `vst_param_values: Vec<(u32, f32)>` and
+  `vst_state_path: Option<PathBuf>`, persisted in `effect_vst_params` table and
+  `instrument_effects.vst_state_path` column (schema v6).
 
 What is missing or stubbed:
 
 - No plugin scanning or cataloging; only manual import by file path.
-- Parameter discovery replies are not wired yet: `QueryVstParams` sends `/param_count`,
-  but OSC reply handling to populate the registry is still TODO.
-- No parameter UI for VST effects (only VST instruments have a param pane today).
-- VST state save/restore is not surfaced in the UI yet (SaveState exists in dispatch, but no bindings).
+- Parameter discovery uses synthetic placeholder params (128 x "Param N" @ 0.5 default);
+  actual SC OSC reply handling for real param names/defaults is TODO.
 - No preset/program handling.
 - No param groups, MIDI learn, or latency reporting/compensation.
 
-## Parameter browser (current UI + gaps)
+## Parameter browser (current UI)
 
 Because we cannot open native plugin GUIs in a TUI, a generic parameter browser
 is the core user-facing surface for VST3 support.
 
-Current shape (implemented in `src/panes/vst_param_pane`):
+Implemented in `src/panes/vst_param_pane`:
 
-- Searchable list of parameters with value display.
-- Adjust/reset actions and "add automation lane".
+- Searchable list of parameters with value bar display.
+- Adjust (fine/coarse), reset, and "add automation lane" actions.
+- Supports both VST source instruments and VST effect slots via `VstTarget`.
+- `set_target(instrument_id, target)` configures the pane before navigation.
+- Title shows "VST Params" for sources, "VST Effect Params" for effects.
+- Discovery ('d') populates placeholder params via the audio thread.
 
 Gaps:
 
-- Parameter discovery replies from VSTPlugin (no list population yet).
+- Real parameter names/units from VSTPlugin OSC replies.
 - Range/unit display and richer widgets.
 - Favorites/compact views.
 
@@ -80,28 +99,29 @@ That implies:
 - Param grouping and MIDI learn for faster control.
 - Latency reporting (and compensation where possible).
 
-## Plan A: Param list + automation + state
+## Plan A: Param list + automation + state (DONE)
 
-This phase makes VSTs truly usable in projects.
+This phase is implemented. VSTs are usable in projects.
 
-1) Parameter discovery
-   - Query VSTPlugin for parameter metadata when a plugin is opened.
-   - Store param specs (name, default, unit, normalized range) in
-     `VstPlugin` and/or a per-instance state.
+1) Parameter discovery — **done** (synthetic placeholders; real SC reply TODO)
+   - `QueryVstParams` sends `/param_count` and generates placeholder specs.
+   - Specs stored in `VstPlugin` registry; per-instance values in instrument
+     and effect slot state.
 
-2) Parameter browser UI
-   - Read-only list at first, then editable values.
-   - Add search and favorites.
-   - Wire edits to `/u_cmd` param set messages.
+2) Parameter browser UI — **done**
+   - Searchable list with value bars, fine/coarse adjust, reset.
+   - Works for both VST source instruments and VST effect slots.
+   - Wire edits to `/set` via `AudioCmd::SetVstParam`.
 
-3) Parameter automation
-   - New automation target: `VstParam { instance_id, param_index }`.
-   - Playback: send param changes during tick (sample-accurate if possible,
-     otherwise block-accurate).
+3) Parameter automation — **done**
+   - Automation target: `VstParam(instrument_id, param_index)`.
+   - Playback applies via `/set` during tick.
 
-4) Plugin state save/restore
-   - Store a per-instance "state blob" (chunk) provided by the plugin.
-   - Persist with the session so reloads are deterministic.
+4) Plugin state save/restore — **done**
+   - State file saved via `/program_write`, loaded via `/program_read`.
+   - Paths persisted in SQLite (`instruments.vst_state_path`,
+     `instrument_effects.vst_state_path`).
+   - Auto-restored on project load (queued after routing rebuild).
 
 ## Plan B: Presets + param groups + MIDI learn + latency
 

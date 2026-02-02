@@ -18,10 +18,10 @@ IMBOLC_NO_AUDIO=1 cargo run
 
 ## Features
 
-- Instrument model: source + filter + FX chain + LFO + envelope + mixer routing.
+- Instrument model: source + filter + FX chain + LFO (15 modulation targets) + envelope + mixer routing.
 - Sources: classic waves + noise, sync, FM/phase mod, pluck, formant, gendy, chaos, additive, wavetable; audio in/bus in; pitched sampler; kit; custom SynthDefs; VST instruments (experimental).
 - Filters: low-pass, high-pass, band-pass.
-- Effects: delay, reverb, gate, tape comp, sidechain comp. (More effects are defined in `synthdefs/compile.scd`; run the server "Compile SynthDefs" action to regenerate `.scsyndef` files.)
+- Effects: delay, reverb, gate, tape/sidechain comp, chorus, flanger, phaser, tremolo, distortion, bitcrusher, wavefolder, saturator, tilt EQ, stereo widener, freq shifter, limiter, pitch shifter, vinyl, cabinet, granular delay/freeze, convolution reverb.
 - Sequencing: piano roll with per-note velocity, loop points, 480 ticks/beat; kit step sequencer; sample chopper.
 - Mixer: channel/bus levels, pan, mute/solo, 8 buses, sends, master control.
 - Automation lanes (including VST params when discovered).
