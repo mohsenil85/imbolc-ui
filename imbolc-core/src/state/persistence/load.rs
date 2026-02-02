@@ -573,6 +573,11 @@ pub(super) fn load_piano_roll(conn: &SqlConnection) -> SqlResult<(PianoRollState
         }
     }
 
+    // Ensure notes are sorted by tick (required for playback optimization)
+    for track in piano_roll.tracks.values_mut() {
+        track.notes.sort_by_key(|n| n.tick);
+    }
+
     Ok((piano_roll, musical))
 }
 

@@ -96,6 +96,7 @@ pub struct AppState {
     pub io_generation: IoGeneration,
     /// Real-time visualization data from audio analysis
     pub visualization: VisualizationState,
+    pub recorded_waveform_peaks: Option<Vec<f32>>,
 }
 
 impl AppState {
@@ -111,6 +112,7 @@ impl AppState {
             automation_recording: false,
             io_generation: IoGeneration::default(),
             visualization: VisualizationState::default(),
+            recorded_waveform_peaks: None,
         }
     }
 
@@ -125,6 +127,7 @@ impl AppState {
             automation_recording: false,
             io_generation: IoGeneration::default(),
             visualization: VisualizationState::default(),
+            recorded_waveform_peaks: None,
         }
     }
 

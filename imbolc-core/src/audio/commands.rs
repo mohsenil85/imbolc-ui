@@ -170,7 +170,7 @@ pub enum AudioCmd {
 /// Feedback sent from the audio thread back to the main thread.
 ///
 /// In Phase 3 these are received via mpsc::Receiver and polled each frame.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum AudioFeedback {
     PlayheadPosition(u32),

@@ -186,6 +186,11 @@ pub(super) fn dispatch_session(
             result.push_nav(NavIntent::Pop);
             result.audio_dirty.session = true;
         }
+        SessionAction::ToggleMasterMute => {
+            state.session.master_mute = !state.session.master_mute;
+            result.audio_dirty.session = true;
+            result.audio_dirty.mixer_params = true;
+        }
     }
 
     result

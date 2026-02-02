@@ -1,4 +1,5 @@
 mod automation;
+mod audio_feedback;
 mod helpers;
 mod instrument;
 mod mixer;
@@ -60,6 +61,7 @@ pub fn dispatch_action(
         Action::Chopper(a) => sequencer::dispatch_chopper(a, state, audio),
         Action::Automation(a) => automation::dispatch_automation(a, state, audio),
         Action::VstParam(a) => vst_param::dispatch_vst_param(a, state, audio),
+        Action::AudioFeedback(f) => audio_feedback::dispatch_audio_feedback(f, state, audio),
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),
