@@ -30,6 +30,76 @@ impl AudioEngine {
     }
 
     // =========================================================================
+    // Wavetable Initialization (for VOsc / imbolc_wavetable)
+    // =========================================================================
+
+    /// Allocate and fill wavetable buffers 100–107 so VOsc has data to read.
+    /// Each buffer gets a different harmonic spectrum for smooth morphing.
+    pub fn initialize_wavetables(&mut self) -> Result<(), String> {
+        if self.wavetables_initialized {
+            return Ok(());
+        }
+
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        // Harmonic amplitude tables: index 0 = pure sine, 7 = full spectrum
+        let tables: Vec<Vec<f32>> = vec![
+            // 100: Pure sine
+            vec![1.0],
+            // 101: Soft
+            vec![1.0, 0.5],
+            // 102: Warm
+            vec![1.0, 0.5, 0.25, 0.125],
+            // 103: Medium
+            vec![1.0, 0.75, 0.5, 0.35, 0.25, 0.15, 0.1, 0.05],
+            // 104: Square-ish (odd harmonics)
+            vec![1.0, 0.0, 0.33, 0.0, 0.2, 0.0, 0.14, 0.0, 0.11],
+            // 105: Saw-ish (1/n series, 16 harmonics)
+            (1..=16).map(|n| 1.0 / n as f32).collect(),
+            // 106: Bright (emphasised upper harmonics)
+            (1..=16).map(|n| {
+                let x = n as f32 / 16.0;
+                (1.0 - x) * 0.3 + x * 1.0
+            }).collect(),
+            // 107: Full (32 harmonics, gradual decrease)
+            (1..=32).map(|n| 1.0 / (n as f32).sqrt()).collect(),
+        ];
+
+        for (i, harmonics) in tables.iter().enumerate() {
+            let bufnum = super::WAVETABLE_BUFNUM_START + i as i32;
+
+            // /b_alloc bufnum 2048 1
+            client
+                .send_message(
+                    "/b_alloc",
+                    vec![
+                        rosc::OscType::Int(bufnum),
+                        rosc::OscType::Int(2048),
+                        rosc::OscType::Int(1),
+                    ],
+                )
+                .map_err(|e| format!("b_alloc buf {}: {}", bufnum, e))?;
+
+            // /b_gen bufnum "sine1" 7 amp1 amp2 ...
+            // flags 7 = normalize(1) + wavetable(2) + clear(4)
+            let mut args: Vec<rosc::OscType> = vec![
+                rosc::OscType::Int(bufnum),
+                rosc::OscType::String("sine1".to_string()),
+                rosc::OscType::Int(7),
+            ];
+            for &amp in harmonics {
+                args.push(rosc::OscType::Float(amp));
+            }
+            client
+                .send_message("/b_gen", args)
+                .map_err(|e| format!("b_gen buf {}: {}", bufnum, e))?;
+        }
+
+        self.wavetables_initialized = true;
+        Ok(())
+    }
+
+    // =========================================================================
     // Buffer Management (for Sampler)
     // =========================================================================
 

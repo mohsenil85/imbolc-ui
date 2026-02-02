@@ -909,6 +909,9 @@ impl AudioThread {
             Ok(())
         };
 
+        // Initialize wavetable buffers for VOsc before any voices can play
+        let _ = self.engine.initialize_wavetables();
+
         self.load_drum_samples();
 
         match (builtin_result, custom_result) {

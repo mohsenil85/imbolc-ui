@@ -374,6 +374,7 @@ impl AudioEngine {
         self.buffer_map.clear();
         self.bus_allocator.reset();
         self.groups_created = false;
+        self.wavetables_initialized = false;
         self.client = None;
         self.is_running = false;
         if self.scsynth_process.is_some() {

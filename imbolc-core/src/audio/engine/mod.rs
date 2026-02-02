@@ -26,6 +26,10 @@ pub const GROUP_PROCESSING: i32 = 200;
 pub const GROUP_OUTPUT: i32 = 300;
 pub const GROUP_RECORD: i32 = 400;
 
+// Wavetable buffer range for VOsc (imbolc_wavetable SynthDef)
+pub const WAVETABLE_BUFNUM_START: i32 = 100;
+pub const WAVETABLE_NUM_TABLES: i32 = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
     Stopped,
@@ -106,6 +110,8 @@ pub struct AudioEngine {
     /// Next available buffer number for SuperCollider
     #[allow(dead_code)]
     next_bufnum: i32,
+    /// Whether wavetable buffers (100–107) have been initialized
+    wavetables_initialized: bool,
     /// Active disk recording session
     recording: Option<RecordingState>,
     /// Buffer pending free after recording stop (bufnum, when to free)
@@ -134,7 +140,8 @@ impl AudioEngine {
             meter_node_id: None,
             analysis_node_ids: Vec::new(),
             buffer_map: HashMap::new(),
-            next_bufnum: 100, // Start at 100 to avoid conflicts with built-in buffers
+            next_bufnum: WAVETABLE_BUFNUM_START + WAVETABLE_NUM_TABLES, // Start after wavetable range
+            wavetables_initialized: false,
             recording: None,
             pending_buffer_free: None,
         }
