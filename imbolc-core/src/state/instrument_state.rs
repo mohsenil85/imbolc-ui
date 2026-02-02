@@ -36,6 +36,9 @@ impl InstrumentState {
     }
 
     pub fn remove_instrument(&mut self, id: InstrumentId) {
+        // Capture layer group before removal for singleton cleanup
+        let old_group = self.instrument(id).and_then(|i| i.layer_group);
+
         if let Some(pos) = self.instruments.iter().position(|s| s.id == id) {
             self.instruments.remove(pos);
 
@@ -46,6 +49,19 @@ impl InstrumentState {
                     } else {
                         Some(self.instruments.len() - 1)
                     };
+                }
+            }
+        }
+
+        // If old group now has only 1 member, clear it (group of 1 is meaningless)
+        if let Some(g) = old_group {
+            let remaining: Vec<InstrumentId> = self.instruments.iter()
+                .filter(|i| i.layer_group == Some(g))
+                .map(|i| i.id)
+                .collect();
+            if remaining.len() == 1 {
+                if let Some(inst) = self.instrument_mut(remaining[0]) {
+                    inst.layer_group = None;
                 }
             }
         }

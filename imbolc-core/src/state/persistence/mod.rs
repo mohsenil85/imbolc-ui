@@ -18,12 +18,13 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     schema::create_tables_and_clear(&conn)?;
 
     conn.execute(
-        "INSERT INTO session (id, name, created_at, modified_at, next_instrument_id, selected_instrument, selected_automation_lane)
-             VALUES (1, 'default', datetime('now'), datetime('now'), ?1, ?2, ?3)",
+        "INSERT INTO session (id, name, created_at, modified_at, next_instrument_id, selected_instrument, selected_automation_lane, next_layer_group_id)
+             VALUES (1, 'default', datetime('now'), datetime('now'), ?1, ?2, ?3, ?4)",
         rusqlite::params![
             &instruments.next_id,
             instruments.selected.map(|s| s as i32),
             session.automation.selected_lane.map(|s| s as i32),
+            &instruments.next_layer_group_id,
         ],
     )?;
 
@@ -53,11 +54,24 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
 pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let conn = SqlConnection::open(path)?;
 
-    let (next_id, selected_instrument, selected_automation_lane): (InstrumentId, Option<i32>, Option<i32>) = conn.query_row(
-        "SELECT next_instrument_id, selected_instrument, selected_automation_lane FROM session WHERE id = 1",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )?;
+    let has_layer_group_col = conn
+        .prepare("SELECT next_layer_group_id FROM session LIMIT 0")
+        .is_ok();
+    let (next_id, selected_instrument, selected_automation_lane, next_layer_group_id): (InstrumentId, Option<i32>, Option<i32>, u32) =
+        if has_layer_group_col {
+            conn.query_row(
+                "SELECT next_instrument_id, selected_instrument, selected_automation_lane, COALESCE(next_layer_group_id, 0) FROM session WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i32>(3)? as u32)),
+            )?
+        } else {
+            let (a, b, c): (InstrumentId, Option<i32>, Option<i32>) = conn.query_row(
+                "SELECT next_instrument_id, selected_instrument, selected_automation_lane FROM session WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            (a, b, c, 0)
+        };
 
     let mut instruments = load::load_instruments(&conn)?;
     load::load_eq_bands(&conn, &mut instruments)?;
@@ -78,6 +92,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     load::load_vst_param_values(&conn, &mut instruments)?;
     load::load_effect_vst_params(&conn, &mut instruments)?;
     load::load_arpeggiator_settings(&conn, &mut instruments)?;
+    load::load_layer_groups(&conn, &mut instruments)?;
     let midi_recording = load::load_midi_recording(&conn)?;
     let arrangement = load::load_arrangement(&conn)?;
 
@@ -114,6 +129,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
         next_id,
         next_sampler_buffer_id: 20000,
         editing_instrument_id: None,
+        next_layer_group_id,
     };
 
     Ok((session, instrument_state))

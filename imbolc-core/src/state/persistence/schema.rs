@@ -16,7 +16,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 modified_at TEXT NOT NULL,
                 next_instrument_id INTEGER NOT NULL,
                 selected_instrument INTEGER,
-                selected_automation_lane INTEGER
+                selected_automation_lane INTEGER,
+                next_layer_group_id INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS instruments (

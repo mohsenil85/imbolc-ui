@@ -10,8 +10,8 @@ pub(crate) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
              lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
              amp_attack, amp_decay, amp_sustain, amp_release, polyphonic,
              level, pan, mute, solo, active, output_target, vst_state_path,
-             arp_enabled, arp_direction, arp_rate, arp_octaves, arp_gate, chord_shape, convolution_ir_path, eq_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
+             arp_enabled, arp_direction, arp_rate, arp_octaves, arp_gate, chord_shape, convolution_ir_path, eq_enabled, layer_group)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)",
     )?;
     for (pos, inst) in instruments.instruments.iter().enumerate() {
         let source_str = match inst.source {
@@ -89,6 +89,7 @@ pub(crate) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
             inst.chord_shape.as_ref().map(|s| s.name()),
             inst.convolution_ir_path.as_deref(),
             inst.eq.as_ref().map(|_| 1i32),
+            inst.layer_group.map(|g| g as i32),
         ])?;
     }
     Ok(())

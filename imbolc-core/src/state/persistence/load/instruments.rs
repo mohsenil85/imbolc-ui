@@ -147,6 +147,7 @@ pub(crate) fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument
             arpeggiator: crate::state::arpeggiator::ArpeggiatorConfig::default(),
             chord_shape: None,
             convolution_ir_path: None,
+            layer_group: None,
         });
     }
     Ok(instruments)
@@ -388,6 +389,31 @@ pub(crate) fn load_modulations(conn: &SqlConnection, instruments: &mut [Instrume
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn load_layer_groups(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    let has_col = conn
+        .prepare("SELECT layer_group FROM instruments LIMIT 0")
+        .is_ok();
+    if !has_col {
+        return Ok(());
+    }
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, layer_group FROM instruments WHERE layer_group IS NOT NULL",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, InstrumentId>(0)?, row.get::<_, i32>(1)?))
+        }) {
+            for result in rows {
+                if let Ok((id, group)) = result {
+                    if let Some(inst) = instruments.iter_mut().find(|s| s.id == id) {
+                        inst.layer_group = Some(group as u32);
                     }
                 }
             }

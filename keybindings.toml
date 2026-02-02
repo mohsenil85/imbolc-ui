@@ -60,6 +60,8 @@ bindings = [
   { key = "Enter", action = "edit", description = "Edit instrument" },
   { key = "w", action = "save", description = "Save" },
   { key = "o", action = "load", description = "Load" },
+  { key = "l", action = "link_layer", description = "Link layer (select target)" },
+  { key = "L", action = "unlink_layer", description = "Unlink from layer group" },
 ]
 
 [layers.mixer]

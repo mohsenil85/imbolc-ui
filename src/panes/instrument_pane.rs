@@ -29,6 +29,8 @@ pub struct InstrumentPane {
     keymap: Keymap,
     piano: PianoKeyboard,
     pad_keyboard: PadKeyboard,
+    /// When Some, we're waiting for the user to select a target instrument to link with
+    linking_from: Option<crate::state::InstrumentId>,
 }
 
 impl InstrumentPane {
@@ -37,6 +39,7 @@ impl InstrumentPane {
             keymap,
             piano: PianoKeyboard::new(),
             pad_keyboard: PadKeyboard::new(),
+            linking_from: None,
         }
     }
 
@@ -80,6 +83,41 @@ impl Pane for InstrumentPane {
     }
 
     fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+        // If we're in linking mode, intercept navigation to complete the link
+        if let Some(from_id) = self.linking_from {
+            match action {
+                "next" | "prev" | "goto_top" | "goto_bottom" => {
+                    // Find the target instrument based on navigation direction
+                    let target_id = match action {
+                        "next" => {
+                            let sel = state.instruments.selected.unwrap_or(0);
+                            let next = (sel + 1).min(state.instruments.instruments.len().saturating_sub(1));
+                            state.instruments.instruments.get(next).map(|i| i.id)
+                        }
+                        "prev" => {
+                            let sel = state.instruments.selected.unwrap_or(0);
+                            let prev = sel.saturating_sub(1);
+                            state.instruments.instruments.get(prev).map(|i| i.id)
+                        }
+                        "goto_top" => state.instruments.instruments.first().map(|i| i.id),
+                        "goto_bottom" => state.instruments.instruments.last().map(|i| i.id),
+                        _ => None,
+                    };
+                    self.linking_from = None;
+                    if let Some(target) = target_id {
+                        if target != from_id {
+                            return Action::Instrument(InstrumentAction::LinkLayer(from_id, target));
+                        }
+                    }
+                    return Action::None;
+                }
+                _ => {
+                    // Any other action cancels linking mode
+                    self.linking_from = None;
+                }
+            }
+        }
+
         match action {
             "quit" => Action::Quit,
             "next" => Action::Instrument(InstrumentAction::SelectNext),
@@ -103,6 +141,19 @@ impl Pane for InstrumentPane {
             }
             "save" => Action::Session(SessionAction::Save),
             "load" => Action::Session(SessionAction::Load),
+            "link_layer" => {
+                if let Some(instrument) = state.instruments.selected_instrument() {
+                    self.linking_from = Some(instrument.id);
+                }
+                Action::None
+            }
+            "unlink_layer" => {
+                if let Some(instrument) = state.instruments.selected_instrument() {
+                    Action::Instrument(InstrumentAction::UnlinkLayer(instrument.id))
+                } else {
+                    Action::None
+                }
+            }
 
             // Piano layer actions
             "piano:escape" => {
@@ -222,14 +273,23 @@ impl Pane for InstrumentPane {
 
             let source_c = source_color(instrument.source);
 
-            let line = Line::from(vec![
+            let layer_str = match instrument.layer_group {
+                Some(g) => format!(" [L{}]", g),
+                None => String::new(),
+            };
+
+            let mut spans = vec![
                 Span::styled(name_str, mk_style(Color::WHITE)),
                 Span::styled(source_str, mk_style(source_c)),
                 Span::styled(filter_str, mk_style(Color::FILTER_COLOR)),
                 Span::styled(eq_str, mk_style(Color::EQ_COLOR)),
                 Span::styled(fx_str, mk_style(Color::FX_COLOR)),
                 Span::styled(level_str, mk_style(Color::LIME)),
-            ]);
+            ];
+            if !layer_str.is_empty() {
+                spans.push(Span::styled(layer_str, mk_style(Color::ORANGE)));
+            }
+            let line = Line::from(spans);
             let line_width = inner.width.saturating_sub(3);
             Paragraph::new(line).render(
                 RatatuiRect::new(content_x + 2, y, line_width, 1), buf,
@@ -275,14 +335,26 @@ impl Pane for InstrumentPane {
             ))).render(RatatuiRect::new(piano_x, rect.y, piano_str.len() as u16, 1), buf);
         }
 
+        // Link mode indicator
+        if self.linking_from.is_some() {
+            let link_str = " LINK: select target with \u{2191}/\u{2193} ";
+            let link_x = rect.x + rect.width - link_str.len() as u16 - 1;
+            Paragraph::new(Line::from(Span::styled(
+                link_str,
+                ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::ORANGE)),
+            ))).render(RatatuiRect::new(link_x, rect.y, link_str.len() as u16, 1), buf);
+        }
+
         // Help text
         let help_y = rect.y + rect.height - 2;
-        let help_text = if self.pad_keyboard.is_active() {
+        let help_text = if self.linking_from.is_some() {
+            "\u{2191}/\u{2193}: select target | any other key: cancel"
+        } else if self.pad_keyboard.is_active() {
             "R T Y U / F G H J / V B N M: trigger pads | /: cycle | Esc: exit"
         } else if self.piano.is_active() {
             "Play keys | [/]: octave | \u{2191}/\u{2193}: select instrument | /: cycle | Esc: exit"
         } else {
-            "a: add | d: delete | Enter: edit | /: piano | w: save | o: load"
+            "a: add | d: delete | Enter: edit | l: link layer | L: unlink | /: piano"
         };
         Paragraph::new(Line::from(Span::styled(
             help_text,

@@ -672,8 +672,13 @@ impl MixerPane {
                 let instrument = &state.instruments.instruments[idx];
                 let is_selected = matches!(state.session.mixer_selection, MixerSelection::Instrument(s) if s == idx);
 
+                let label = if instrument.layer_group.is_some() {
+                    format!("I{}L", instrument.id)
+                } else {
+                    format!("I{}", instrument.id)
+                };
                 Self::render_channel_buf(
-                    buf, x, &format!("I{}", instrument.id), &instrument.name,
+                    buf, x, &label, &instrument.name,
                     instrument.level, instrument.mute, instrument.solo, Some(instrument.output_target), is_selected,
                     label_y, name_y, meter_top_y, db_y, indicator_y, output_y,
                 );
