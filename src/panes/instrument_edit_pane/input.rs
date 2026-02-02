@@ -275,6 +275,14 @@ impl InstrumentEditPane {
                 self.zero_current_section();
                 self.emit_update()
             }
+            "toggle_eq" => {
+                if self.eq.is_some() {
+                    self.eq = None;
+                } else {
+                    self.eq = Some(crate::state::EqConfig::default());
+                }
+                self.emit_update()
+            }
             "toggle_lfo" => {
                 self.lfo.enabled = !self.lfo.enabled;
                 self.emit_update()

@@ -50,7 +50,19 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 arp_octaves INTEGER NOT NULL DEFAULT 1,
                 arp_gate REAL NOT NULL DEFAULT 0.5,
                 chord_shape TEXT,
-                convolution_ir_path TEXT
+                convolution_ir_path TEXT,
+                eq_enabled INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS instrument_eq_bands (
+                instrument_id INTEGER NOT NULL,
+                band_index INTEGER NOT NULL,
+                band_type TEXT NOT NULL,
+                freq REAL NOT NULL,
+                gain REAL NOT NULL,
+                q REAL NOT NULL,
+                enabled INTEGER NOT NULL,
+                PRIMARY KEY (instrument_id, band_index)
             );
 
             CREATE TABLE IF NOT EXISTS instrument_source_params (
@@ -356,6 +368,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             DELETE FROM instrument_sends;
             DELETE FROM instrument_effect_params;
             DELETE FROM instrument_effects;
+            DELETE FROM instrument_eq_bands;
             DELETE FROM instrument_source_params;
             DELETE FROM instruments;
             DELETE FROM mixer_buses;

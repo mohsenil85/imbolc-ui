@@ -151,6 +151,20 @@ impl AudioEngine {
                     }
                 }
             }
+            AutomationTarget::EqBandParam(instrument_id, band, param) => {
+                if let Some(nodes) = self.node_map.get(instrument_id) {
+                    if let Some(eq_node) = nodes.eq {
+                        let param_name = match param {
+                            0 => format!("b{}_freq", band),
+                            1 => format!("b{}_gain", band),
+                            _ => format!("b{}_q", band),
+                        };
+                        let sc_value = if *param == 2 { 1.0 / value } else { value };
+                        client.set_param(eq_node, &param_name, sc_value)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
         }
 
         Ok(())

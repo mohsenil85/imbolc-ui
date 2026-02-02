@@ -28,6 +28,7 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     )?;
 
     save::save_instruments(&conn, instruments)?;
+    save::save_eq_bands(&conn, instruments)?;
     save::save_source_params(&conn, instruments)?;
     save::save_effects(&conn, instruments)?;
     save::save_sends(&conn, instruments)?;
@@ -58,6 +59,7 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     )?;
 
     let mut instruments = load::load_instruments(&conn)?;
+    load::load_eq_bands(&conn, &mut instruments)?;
     load::load_source_params(&conn, &mut instruments)?;
     load::load_effects(&conn, &mut instruments)?;
     load::load_sends(&conn, &mut instruments)?;

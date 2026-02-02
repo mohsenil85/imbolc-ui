@@ -13,8 +13,8 @@ pub(super) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
              lfo_enabled, lfo_rate, lfo_depth, lfo_shape, lfo_target,
              amp_attack, amp_decay, amp_sustain, amp_release, polyphonic,
              level, pan, mute, solo, active, output_target, vst_state_path,
-             arp_enabled, arp_direction, arp_rate, arp_octaves, arp_gate, chord_shape, convolution_ir_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
+             arp_enabled, arp_direction, arp_rate, arp_octaves, arp_gate, chord_shape, convolution_ir_path, eq_enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
     )?;
     for (pos, inst) in instruments.instruments.iter().enumerate() {
         let source_str = match inst.source {
@@ -91,7 +91,36 @@ pub(super) fn save_instruments(conn: &SqlConnection, instruments: &InstrumentSta
             inst.arpeggiator.gate as f64,
             inst.chord_shape.as_ref().map(|s| s.name()),
             inst.convolution_ir_path.as_deref(),
+            inst.eq.as_ref().map(|_| 1i32),
         ])?;
+    }
+    Ok(())
+}
+
+pub(super) fn save_eq_bands(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO instrument_eq_bands (instrument_id, band_index, band_type, freq, gain, q, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+    for inst in &instruments.instruments {
+        if let Some(ref eq) = inst.eq {
+            for (i, band) in eq.bands.iter().enumerate() {
+                let band_type_str = match band.band_type {
+                    EqBandType::LowShelf => "lowshelf",
+                    EqBandType::Peaking => "peaking",
+                    EqBandType::HighShelf => "highshelf",
+                };
+                stmt.execute(rusqlite::params![
+                    inst.id,
+                    i as i32,
+                    band_type_str,
+                    band.freq as f64,
+                    band.gain as f64,
+                    band.q as f64,
+                    band.enabled,
+                ])?;
+            }
+        }
     }
     Ok(())
 }

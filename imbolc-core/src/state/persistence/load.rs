@@ -154,6 +154,7 @@ pub(super) fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument
             id, name, source,
             source_params: source.default_params(),
             filter,
+            eq: None,
             effects: Vec::new(),
             lfo: LfoConfig {
                 enabled: lfo_enabled,
@@ -181,6 +182,79 @@ pub(super) fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument
         });
     }
     Ok(instruments)
+}
+
+pub(super) fn load_eq_bands(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    // First, check if instruments have eq_enabled flag and create default EQ configs
+    let has_eq_col = conn
+        .prepare("SELECT eq_enabled FROM instruments LIMIT 0")
+        .is_ok();
+    if has_eq_col {
+        let mut eq_stmt = conn.prepare(
+            "SELECT id, eq_enabled FROM instruments WHERE eq_enabled IS NOT NULL",
+        )?;
+        let eq_instruments: Vec<InstrumentId> = eq_stmt
+            .query_map([], |row| {
+                let id: InstrumentId = row.get(0)?;
+                Ok(id)
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        for inst in instruments.iter_mut() {
+            if eq_instruments.contains(&inst.id) {
+                inst.eq = Some(EqConfig::default());
+            }
+        }
+    }
+
+    // Load band data from instrument_eq_bands table
+    let has_table = conn
+        .prepare("SELECT 1 FROM instrument_eq_bands LIMIT 0")
+        .is_ok();
+    if !has_table {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT band_index, band_type, freq, gain, q, enabled
+         FROM instrument_eq_bands WHERE instrument_id = ?1 ORDER BY band_index",
+    )?;
+    for inst in instruments {
+        if let Some(ref mut eq) = inst.eq {
+            let rows: Vec<(i32, String, f64, f64, f64, bool)> = stmt
+                .query_map([&inst.id], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for (band_idx, band_type_str, freq, gain, q, enabled) in rows {
+                let idx = band_idx as usize;
+                if idx < eq.bands.len() {
+                    let band_type = match band_type_str.as_str() {
+                        "lowshelf" => EqBandType::LowShelf,
+                        "highshelf" => EqBandType::HighShelf,
+                        _ => EqBandType::Peaking,
+                    };
+                    eq.bands[idx] = EqBand {
+                        band_type,
+                        freq: freq as f32,
+                        gain: gain as f32,
+                        q: q as f32,
+                        enabled,
+                    };
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn load_source_params(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {

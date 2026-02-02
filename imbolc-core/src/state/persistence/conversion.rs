@@ -26,6 +26,9 @@ pub(super) fn serialize_automation_target(
         AutomationTarget::BusLevel(bus) => ("bus_level", 0, Some(*bus as i32), None),
         AutomationTarget::Bpm => ("bpm", 0, None, None),
         AutomationTarget::VstParam(id, idx) => ("vst_param", *id, Some(*idx as i32), None),
+        AutomationTarget::EqBandParam(id, band, param) => {
+            ("eq_band_param", *id, Some(*band as i32), Some(*param as i32))
+        }
     }
 }
 
@@ -65,6 +68,11 @@ pub(super) fn deserialize_automation_target(
         "vst_param" => {
             let idx = effect_idx.unwrap_or(0) as u32;
             Some(AutomationTarget::VstParam(instrument_id, idx))
+        }
+        "eq_band_param" => {
+            let band = effect_idx.unwrap_or(0) as usize;
+            let param = param_idx.unwrap_or(0) as usize;
+            Some(AutomationTarget::EqBandParam(instrument_id, band, param))
         }
         _ => None,
     }

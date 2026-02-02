@@ -89,6 +89,8 @@ pub enum AutomationTarget {
     Bpm,
     /// VST plugin parameter (instrument_id, param_index, 0.0–1.0 normalized)
     VstParam(InstrumentId, u32),
+    /// EQ band parameter (instrument_id, band_index 0–11, param: 0=freq 1=gain 2=q)
+    EqBandParam(InstrumentId, usize, usize),
 }
 
 impl AutomationTarget {
@@ -112,6 +114,7 @@ impl AutomationTarget {
             AutomationTarget::BusLevel(_) => None,
             AutomationTarget::Bpm => None,
             AutomationTarget::VstParam(id, _) => Some(*id),
+            AutomationTarget::EqBandParam(id, _, _) => Some(*id),
         }
     }
 
@@ -137,6 +140,14 @@ impl AutomationTarget {
             AutomationTarget::BusLevel(bus) => format!("Bus {} Level", bus),
             AutomationTarget::Bpm => "BPM".to_string(),
             AutomationTarget::VstParam(_, idx) => format!("VST P{}", idx),
+            AutomationTarget::EqBandParam(_, band, param) => {
+                let param_name = match param {
+                    0 => "Freq",
+                    1 => "Gain",
+                    _ => "Q",
+                };
+                format!("EQ B{} {}", band + 1, param_name)
+            }
         }
     }
 
@@ -160,6 +171,7 @@ impl AutomationTarget {
             AutomationTarget::BusLevel(_) => "BusLv",
             AutomationTarget::Bpm => "BPM",
             AutomationTarget::VstParam(_, _) => "VstP",
+            AutomationTarget::EqBandParam(_, _, _) => "EqBd",
         }
     }
 
@@ -199,6 +211,11 @@ impl AutomationTarget {
             AutomationTarget::BusLevel(_) => (0.0, 1.0),
             AutomationTarget::Bpm => (30.0, 300.0),
             AutomationTarget::VstParam(_, _) => (0.0, 1.0),
+            AutomationTarget::EqBandParam(_, _, param) => match param {
+                0 => (20.0, 20000.0),  // freq
+                1 => (-24.0, 24.0),    // gain
+                _ => (0.1, 10.0),      // Q
+            },
         }
     }
 }

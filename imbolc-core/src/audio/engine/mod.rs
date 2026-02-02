@@ -62,6 +62,7 @@ pub struct InstrumentNodes {
     pub source: Option<i32>,
     pub lfo: Option<i32>,
     pub filter: Option<i32>,
+    pub eq: Option<i32>,
     pub effects: Vec<i32>,  // only enabled effects
     pub output: i32,
 }
@@ -72,6 +73,7 @@ impl InstrumentNodes {
         if let Some(id) = self.source { ids.push(id); }
         if let Some(id) = self.lfo { ids.push(id); }
         if let Some(id) = self.filter { ids.push(id); }
+        if let Some(id) = self.eq { ids.push(id); }
         ids.extend(&self.effects);
         ids.push(self.output);
         ids

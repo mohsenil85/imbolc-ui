@@ -247,6 +247,37 @@ impl AudioEngine {
                 current_bus = filter_out_bus;
             }
 
+            // EQ (12-band parametric, if present)
+            let mut eq_node: Option<i32> = None;
+            if let Some(ref eq) = instrument.eq {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let eq_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "eq_out");
+
+                let mut params: Vec<(String, f32)> = vec![
+                    ("in".to_string(), current_bus as f32),
+                    ("out".to_string(), eq_out_bus as f32),
+                ];
+
+                for (i, band) in eq.bands.iter().enumerate() {
+                    params.push((format!("b{}_freq", i), band.freq));
+                    params.push((format!("b{}_gain", i), band.gain));
+                    params.push((format!("b{}_q", i), 1.0 / band.q)); // SC expects reciprocal Q
+                    params.push((format!("b{}_on", i), if band.enabled { 1.0 } else { 0.0 }));
+                }
+
+                let client = self.client.as_ref().ok_or("Not connected")?;
+                client.create_synth_in_group(
+                    "imbolc_eq12",
+                    node_id,
+                    GROUP_PROCESSING,
+                    &params,
+                ).map_err(|e| e.to_string())?;
+
+                eq_node = Some(node_id);
+                current_bus = eq_out_bus;
+            }
+
             // Effects
             for (i, effect) in instrument.effects.iter().enumerate() {
                 if !effect.enabled {
@@ -382,6 +413,7 @@ impl AudioEngine {
                 source: source_node,
                 lfo: lfo_node,
                 filter: filter_node,
+                eq: eq_node,
                 effects: effect_nodes,
                 output: output_node_id,
             });
@@ -556,6 +588,20 @@ impl AudioEngine {
         for voice in &self.voice_chains {
             if voice.instrument_id == instrument_id {
                 let _ = client.set_param(voice.source_node, param, value);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Set an EQ parameter on an instrument in real-time.
+    pub fn set_eq_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
+        if !self.is_running { return Ok(()); }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(eq_node) = nodes.eq {
+                let _ = client.set_param(eq_node, param, value);
             }
         }
 

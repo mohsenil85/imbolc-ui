@@ -425,6 +425,19 @@ impl AudioHandle {
         })
     }
 
+    pub fn set_eq_param(
+        &self,
+        instrument_id: InstrumentId,
+        param: &str,
+        value: f32,
+    ) -> Result<(), String> {
+        self.send_cmd(AudioCmd::SetEqParam {
+            instrument_id,
+            param: param.to_string(),
+            value,
+        })
+    }
+
     // ── Voice management ──────────────────────────────────────────
 
     pub fn spawn_voice(
@@ -742,6 +755,9 @@ impl AudioThread {
             }
             AudioCmd::SetSourceParam { instrument_id, param, value } => {
                 let _ = self.engine.set_source_param(instrument_id, &param, value);
+            }
+            AudioCmd::SetEqParam { instrument_id, param, value } => {
+                let _ = self.engine.set_eq_param(instrument_id, &param, value);
             }
             AudioCmd::SpawnVoice { instrument_id, pitch, velocity, offset_secs } => {
                 let _ = self.engine.spawn_voice(instrument_id, pitch, velocity, offset_secs, &self.instruments, &self.session);

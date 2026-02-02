@@ -49,6 +49,7 @@ impl Color {
     #[allow(dead_code)]
     pub const LFO_COLOR: Color = Color::new(130, 255, 180);    // Mint - LFOs
     pub const FX_COLOR: Color = Color::new(255, 180, 220);     // Pink - effects
+    pub const EQ_COLOR: Color = Color::new(100, 200, 255);     // Light blue - EQ
     #[allow(dead_code)]
     pub const OUTPUT_COLOR: Color = Color::new(255, 220, 100); // Gold - output
     pub const AUDIO_IN_COLOR: Color = Color::new(100, 255, 200); // Teal/Cyan - audio input

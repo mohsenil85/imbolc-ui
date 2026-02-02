@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use audio::AudioHandle;
 use audio::commands::{AudioCmd, AudioFeedback};
 use action::{AudioDirty, IoFeedback};
-use panes::{AddEffectPane, AddPane, AutomationPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, DispatchResult, Frame, InputSource, KeyCode, Keymap, LayerResult,
@@ -74,6 +74,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(TrackPane::new(pane_keymap(&mut keymaps, "track"))));
     panes.add_pane(Box::new(WaveformPane::new(pane_keymap(&mut keymaps, "waveform"))));
     panes.add_pane(Box::new(AutomationPane::new(pane_keymap(&mut keymaps, "automation"))));
+    panes.add_pane(Box::new(EqPane::new(pane_keymap(&mut keymaps, "eq"))));
     panes.add_pane(Box::new(VstParamPane::new(pane_keymap(&mut keymaps, "vst_params"))));
 
     // Create layer stack
@@ -714,6 +715,9 @@ fn handle_global_action(
         "switch:automation" => {
             switch_to_pane("automation", panes, state, app_frame, layer_stack);
         }
+        "switch:eq" => {
+            switch_to_pane("eq", panes, state, app_frame, layer_stack);
+        }
         "switch:frame_edit" => {
             if panes.active().id() == "frame_edit" {
                 panes.pop(&*state);
@@ -786,6 +790,7 @@ fn handle_global_action(
                     "track" => "Track",
                     "waveform" => "Waveform",
                     "automation" => "Automation",
+                    "eq" => "Parametric EQ",
                     _ => current_id,
                 };
                 if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {

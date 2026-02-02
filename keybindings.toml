@@ -13,6 +13,7 @@ bindings = [
   { key = "F5", action = "switch:server", description = "Audio server" },
   { key = "F6", action = "switch:logo", description = "Logo" },
   { key = "F7", action = "switch:automation", description = "Automation" },
+  { key = "F8", action = "switch:eq", description = "Parametric EQ" },
   { key = "Ctrl+f", action = "switch:frame_edit", description = "Frame edit" },
   { key = "`", action = "nav_back", description = "Back / Forward" },
   { key = "~", action = "nav_forward", description = "Forward" },
@@ -147,6 +148,7 @@ bindings = [
   { key = "p", action = "toggle_poly", description = "Toggle polyphonic" },
   { key = "\\", action = "zero_param", description = "Set param to zero" },
   { key = "|", action = "zero_section", description = "Zero all params in section" },
+  { key = "e", action = "toggle_eq", description = "Toggle EQ on/off" },
   { key = "l", action = "toggle_lfo", description = "Toggle LFO on/off" },
   { key = "s", action = "cycle_lfo_shape", description = "Cycle LFO shape" },
   { key = "m", action = "cycle_lfo_target", description = "Cycle LFO target" },
@@ -298,6 +300,22 @@ bindings = [
   { key = "Home", action = "home", description = "Jump to start" },
   { key = "End", action = "end", description = "Jump to end" },
   { key = "Space", action = "play_stop", description = "Play / Stop" },
+]
+
+[layers.eq]
+bindings = [
+  { key = "Left", action = "prev_band", description = "Previous band" },
+  { key = "Right", action = "next_band", description = "Next band" },
+  { key = "Tab", action = "next_param", description = "Next parameter" },
+  { key = "Shift+Tab", action = "prev_param", description = "Previous parameter" },
+  { key = "Up", action = "increase", description = "Increase value" },
+  { key = "Down", action = "decrease", description = "Decrease value" },
+  { key = "PageUp", action = "increase_big", description = "Big increase" },
+  { key = "PageDown", action = "decrease_big", description = "Big decrease" },
+  { key = "Ctrl+Up", action = "increase_tiny", description = "Fine increase" },
+  { key = "Ctrl+Down", action = "decrease_tiny", description = "Fine decrease" },
+  { key = "e", action = "toggle_eq", description = "Toggle EQ on/off" },
+  { key = "b", action = "toggle_band", description = "Toggle band on/off" },
 ]
 
 [layers.track]

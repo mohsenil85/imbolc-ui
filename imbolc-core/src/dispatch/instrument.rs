@@ -39,6 +39,7 @@ pub(super) fn dispatch_instrument(
                 instrument.source = update.source.clone();
                 instrument.source_params = update.source_params.clone();
                 instrument.filter = update.filter.clone();
+                instrument.eq = update.eq.clone();
                 instrument.effects = update.effects.clone();
                 instrument.amp_envelope = update.amp_envelope.clone();
                 instrument.polyphonic = update.polyphonic;
@@ -285,6 +286,50 @@ pub(super) fn dispatch_instrument(
         }
         InstrumentAction::OpenVstEffectParams(instrument_id, effect_idx) => {
             DispatchResult::with_nav(NavIntent::OpenVstParams(*instrument_id, VstTarget::Effect(*effect_idx)))
+        }
+        InstrumentAction::SetEqParam(instrument_id, band_idx, ref param_name, value) => {
+            let instrument_id = *instrument_id;
+            let band_idx = *band_idx;
+            let value = *value;
+
+            if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
+                if let Some(ref mut eq) = instrument.eq {
+                    if let Some(band) = eq.bands.get_mut(band_idx) {
+                        match param_name.as_str() {
+                            "freq" => band.freq = value.clamp(20.0, 20000.0),
+                            "gain" => band.gain = value.clamp(-24.0, 24.0),
+                            "q" => band.q = value.clamp(0.1, 10.0),
+                            "on" => band.enabled = value > 0.5,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // Send real-time param update to audio engine
+            if audio.is_running() {
+                let sc_param = format!("b{}_{}", band_idx, param_name);
+                let sc_value = if param_name == "q" { 1.0 / value } else { value };
+                let _ = audio.set_eq_param(instrument_id, &sc_param, sc_value);
+            }
+
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result
+        }
+        InstrumentAction::ToggleEq(instrument_id) => {
+            let instrument_id = *instrument_id;
+            if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
+                if instrument.eq.is_some() {
+                    instrument.eq = None;
+                } else {
+                    instrument.eq = Some(crate::state::EqConfig::default());
+                }
+            }
+            let mut result = DispatchResult::none();
+            result.audio_dirty.instruments = true;
+            result.audio_dirty.routing = true;
+            result
         }
     }
 }

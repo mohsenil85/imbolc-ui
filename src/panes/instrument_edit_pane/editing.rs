@@ -165,6 +165,7 @@ impl InstrumentEditPane {
                 source: self.source,
                 source_params: self.source_params.clone(),
                 filter: self.filter.clone(),
+                eq: self.eq.clone(),
                 effects: self.effects.clone(),
                 amp_envelope: self.amp_envelope.clone(),
                 polyphonic: self.polyphonic,

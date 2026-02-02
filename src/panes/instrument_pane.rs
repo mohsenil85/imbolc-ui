@@ -47,6 +47,10 @@ impl InstrumentPane {
         }
     }
 
+    fn format_eq(instrument: &crate::state::instrument::Instrument) -> &'static str {
+        if instrument.eq.is_some() { "[EQ]" } else { "" }
+    }
+
     fn format_effects(instrument: &crate::state::instrument::Instrument) -> String {
         if instrument.effects.is_empty() {
             return "---".to_string();
@@ -211,6 +215,7 @@ impl Pane for InstrumentPane {
             let name_str = format!("{:14}", &instrument.name[..instrument.name.len().min(14)]);
             let source_str = format!(" {:10}", instrument.source.name());
             let filter_str = format!(" {:12}", Self::format_filter(instrument));
+            let eq_str = format!(" {:4}", Self::format_eq(instrument));
             let fx_raw = Self::format_effects(instrument);
             let fx_str = format!(" {:18}", &fx_raw[..fx_raw.len().min(18)]);
             let level_str = format!(" {}", Self::format_level(instrument.level));
@@ -221,6 +226,7 @@ impl Pane for InstrumentPane {
                 Span::styled(name_str, mk_style(Color::WHITE)),
                 Span::styled(source_str, mk_style(source_c)),
                 Span::styled(filter_str, mk_style(Color::FILTER_COLOR)),
+                Span::styled(eq_str, mk_style(Color::EQ_COLOR)),
                 Span::styled(fx_str, mk_style(Color::FX_COLOR)),
                 Span::styled(level_str, mk_style(Color::LIME)),
             ]);

@@ -8,7 +8,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 
 use crate::state::{
-    AppState, EffectSlot, EnvConfig, FilterConfig, Instrument, InstrumentId, LfoConfig,
+    AppState, EffectSlot, EnvConfig, EqConfig, FilterConfig, Instrument, InstrumentId, LfoConfig,
     Param, SourceType,
 };
 use crate::ui::widgets::TextInput;
@@ -32,6 +32,7 @@ pub struct InstrumentEditPane {
     source_params: Vec<Param>,
     sample_name: Option<String>,
     filter: Option<FilterConfig>,
+    eq: Option<EqConfig>,
     effects: Vec<EffectSlot>,
     lfo: LfoConfig,
     amp_envelope: EnvConfig,
@@ -55,6 +56,7 @@ impl InstrumentEditPane {
             source_params: Vec::new(),
             sample_name: None,
             filter: None,
+            eq: None,
             effects: Vec::new(),
             lfo: LfoConfig::default(),
             amp_envelope: EnvConfig::default(),
@@ -76,6 +78,7 @@ impl InstrumentEditPane {
         self.source_params = instrument.source_params.clone();
         self.sample_name = instrument.sampler_config.as_ref().and_then(|c| c.sample_name.clone());
         self.filter = instrument.filter.clone();
+        self.eq = instrument.eq.clone();
         self.effects = instrument.effects.clone();
         self.lfo = instrument.lfo.clone();
         self.amp_envelope = instrument.amp_envelope.clone();
@@ -94,6 +97,7 @@ impl InstrumentEditPane {
         self.source_params = instrument.source_params.clone();
         self.sample_name = instrument.sampler_config.as_ref().and_then(|c| c.sample_name.clone());
         self.filter = instrument.filter.clone();
+        self.eq = instrument.eq.clone();
         self.effects = instrument.effects.clone();
         self.lfo = instrument.lfo.clone();
         self.amp_envelope = instrument.amp_envelope.clone();

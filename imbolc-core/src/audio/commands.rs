@@ -85,6 +85,11 @@ pub enum AudioCmd {
         param: String,
         value: f32,
     },
+    SetEqParam {
+        instrument_id: InstrumentId,
+        param: String,
+        value: f32,
+    },
 
     // ── Voice management ──────────────────────────────────────────
     SpawnVoice {

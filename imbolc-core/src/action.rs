@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::audio::ServerStatus;
-use crate::state::{EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
+use crate::state::{EqConfig, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
 use crate::state::custom_synthdef::CustomSynthDef;
 use crate::state::instrument_state::InstrumentState;
@@ -22,6 +22,7 @@ pub struct InstrumentUpdate {
     pub source: SourceType,
     pub source_params: Vec<Param>,
     pub filter: Option<FilterConfig>,
+    pub eq: Option<EqConfig>,
     pub effects: Vec<EffectSlot>,
     pub amp_envelope: EnvConfig,
     pub polyphonic: bool,
@@ -93,6 +94,8 @@ pub enum InstrumentAction {
     ClearChordShape(InstrumentId),
     LoadIRResult(InstrumentId, usize, PathBuf), // instrument_id, effect_index, path
     OpenVstEffectParams(InstrumentId, usize), // instrument_id, effect_index
+    SetEqParam(InstrumentId, usize, String, f32), // instrument_id, band_index, param_name, value
+    ToggleEq(InstrumentId),
 }
 
 /// Mixer actions
