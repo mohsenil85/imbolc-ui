@@ -2,6 +2,7 @@ use crate::audio::AudioHandle;
 use crate::action::{AudioDirty, IoFeedback};
 use crate::dispatch;
 use crate::state::{self, AppState};
+use crate::state::undo::UndoHistory;
 use crate::panes::{InstrumentEditPane, PianoRollPane, ServerPane, HelpPane, FileBrowserPane, VstParamPane};
 use crate::ui::{
     self, Action, DispatchResult, Frame, LayerStack, NavIntent, PaneManager,
@@ -104,6 +105,7 @@ pub(crate) fn handle_global_action(
     action: &str,
     state: &mut AppState,
     panes: &mut PaneManager,
+    undo_history: &mut UndoHistory,
     audio: &mut AudioHandle,
     app_frame: &mut Frame,
     select_mode: &mut InstrumentSelectMode,
@@ -156,6 +158,24 @@ pub(crate) fn handle_global_action(
 
     match action {
         "quit" => return GlobalResult::Quit,
+        "undo" => {
+            if let Some(snapshot) = undo_history.undo(&state.session, &state.instruments) {
+                state.session = snapshot.session;
+                state.instruments = snapshot.instruments;
+                pending_audio_dirty.merge(AudioDirty::all());
+                sync_piano_roll_to_selection(state, panes);
+                sync_instrument_edit(state, panes);
+            }
+        }
+        "redo" => {
+            if let Some(snapshot) = undo_history.redo(&state.session, &state.instruments) {
+                state.session = snapshot.session;
+                state.instruments = snapshot.instruments;
+                pending_audio_dirty.merge(AudioDirty::all());
+                sync_piano_roll_to_selection(state, panes);
+                sync_instrument_edit(state, panes);
+            }
+        }
         "save" => {
             let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
@@ -167,6 +187,7 @@ pub(crate) fn handle_global_action(
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "master_mute" => {
+            undo_history.push(&state.session, &state.instruments);
             let r = dispatch::dispatch_action(
                 &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
@@ -336,6 +357,7 @@ pub(crate) fn handle_global_action(
         }
         "delete_instrument" => {
             if let Some(instrument) = state.instruments.selected_instrument() {
+                undo_history.push(&state.session, &state.instruments);
                 let id = instrument.id;
                 let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);

@@ -11,6 +11,7 @@ pub mod persistence;
 pub mod piano_roll;
 pub mod sampler;
 pub mod session;
+pub mod undo;
 pub mod vst_plugin;
 
 pub use automation::AutomationTarget;

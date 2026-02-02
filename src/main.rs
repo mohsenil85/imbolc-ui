@@ -19,6 +19,7 @@ use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
 use panes::{AddEffectPane, AddPane, AutomationPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
+use state::undo::{UndoHistory, is_undoable};
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult,
     LayerStack, PaneManager, RatatuiBackend, keybindings,
@@ -82,6 +83,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut audio = AudioHandle::new();
     audio.sync_state(&state);
     let mut app_frame = Frame::new();
+    let mut undo_history = UndoHistory::new(500);
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
     let mut pending_audio_dirty = AudioDirty::default();
@@ -143,6 +145,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 action,
                                 &mut state,
                                 &mut panes,
+                                &mut undo_history,
                                 &mut audio,
                                 &mut app_frame,
                                 &mut select_mode,
@@ -206,6 +209,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 sync_pane_layer(&mut panes, &mut layer_stack);
             }
 
+            if is_undoable(&pane_action) {
+                undo_history.push(&state.session, &state.instruments);
+            }
             let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
             if dispatch_result.quit {
                 break;
@@ -243,6 +249,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     }
                      match result {
                          Ok((new_session, new_instruments, name)) => {
+                             undo_history.clear();
                              state.session = new_session;
                              state.instruments = new_instruments;
                              app_frame.set_project_name(name);
