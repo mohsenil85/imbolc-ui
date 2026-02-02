@@ -33,6 +33,18 @@ impl UndoHistory {
         self.redo_stack.clear();
     }
 
+    /// Push a snapshot from owned values (avoids borrow conflicts when called from dispatch)
+    pub fn push_from(&mut self, session: SessionState, instruments: InstrumentState) {
+        if self.undo_stack.len() >= self.max_depth {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(UndoSnapshot {
+            session,
+            instruments,
+        });
+        self.redo_stack.clear();
+    }
+
     pub fn undo(
         &mut self,
         current_session: &SessionState,
@@ -112,6 +124,7 @@ pub fn is_undoable(action: &Action) -> bool {
             | crate::action::PianoRollAction::AdjustSwing(_)
             | crate::action::PianoRollAction::DeleteNotesInRegion { .. }
             | crate::action::PianoRollAction::PasteNotes { .. } => true,
+            crate::action::PianoRollAction::CopyNotes { .. } => false,
             _ => false,
         },
         Action::Session(a) => match a {
@@ -126,7 +139,8 @@ pub fn is_undoable(action: &Action) -> bool {
         Action::Sequencer(a) => match a {
             crate::action::SequencerAction::PlayStop
             | crate::action::SequencerAction::LoadSample(_)
-            | crate::action::SequencerAction::LoadSampleResult(_, _) => false,
+            | crate::action::SequencerAction::LoadSampleResult(_, _)
+            | crate::action::SequencerAction::CopySteps { .. } => false,
             _ => true,
         },
         Action::Chopper(a) => match a {
@@ -139,7 +153,8 @@ pub fn is_undoable(action: &Action) -> bool {
         },
         Action::Automation(a) => match a {
             crate::action::AutomationAction::SelectLane(_)
-            | crate::action::AutomationAction::ToggleRecording => false,
+            | crate::action::AutomationAction::ToggleRecording
+            | crate::action::AutomationAction::CopyPoints(_, _, _) => false,
             _ => true,
         },
         Action::Arrangement(a) => match a {
@@ -157,6 +172,7 @@ pub fn is_undoable(action: &Action) -> bool {
             | crate::action::VstParamAction::ResetParam(_, _, _) => true,
             _ => false,
         },
+        Action::Undo | Action::Redo => false,
         _ => false,
     }
 }

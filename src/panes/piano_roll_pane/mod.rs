@@ -85,6 +85,27 @@ impl PianoRollPane {
         self.scroll_to_cursor();
     }
 
+    /// Returns the selection region as (track, start_tick, end_tick, start_pitch, end_pitch),
+    /// or a single-cell region at the cursor if no selection is active.
+    pub(crate) fn selection_region(&self) -> (usize, u32, u32, u8, u8) {
+        if let Some((anchor_tick, anchor_pitch)) = self.selection_anchor {
+            let (t0, t1) = if anchor_tick <= self.cursor_tick {
+                (anchor_tick, self.cursor_tick + self.ticks_per_cell())
+            } else {
+                (self.cursor_tick, anchor_tick + self.ticks_per_cell())
+            };
+            let (p0, p1) = if anchor_pitch <= self.cursor_pitch {
+                (anchor_pitch, self.cursor_pitch)
+            } else {
+                (self.cursor_pitch, anchor_pitch)
+            };
+            (self.current_track, t0, t1, p0, p1)
+        } else {
+            // No selection: single cell at cursor
+            (self.current_track, self.cursor_tick, self.cursor_tick + 1, self.cursor_pitch, self.cursor_pitch)
+        }
+    }
+
     /// Ticks per grid cell based on zoom level
     pub(crate) fn ticks_per_cell(&self) -> u32 {
         match self.zoom_level {

@@ -16,7 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::audio::AudioHandle;
 use crate::state::AppState;
-use crate::action::{Action, DispatchResult, IoFeedback};
+use crate::action::{Action, AudioDirty, DispatchResult, IoFeedback};
+use crate::state::undo::is_undoable;
 
 pub use helpers::compute_waveform_peaks;
 
@@ -44,12 +45,22 @@ fn recording_path(prefix: &str) -> PathBuf {
 
 /// Dispatch an action. Returns a DispatchResult describing side effects for the UI layer.
 /// Dispatch no longer takes panes or app_frame — it operates purely on state and audio engine.
+///
+/// Automatically pushes undo snapshots for undoable actions before mutating state.
 pub fn dispatch_action(
     action: &Action,
     state: &mut AppState,
     audio: &mut AudioHandle,
     io_tx: &Sender<IoFeedback>,
 ) -> DispatchResult {
+    // Auto-push undo snapshot for undoable actions
+    if is_undoable(action) {
+        let s = state.session.clone();
+        let i = state.instruments.clone();
+        state.undo_history.push_from(s, i);
+        state.dirty = true;
+    }
+
     let result = match action {
         Action::Quit => DispatchResult::with_quit(),
         Action::Nav(_) => DispatchResult::none(), // Handled by PaneManager
@@ -67,6 +78,30 @@ pub fn dispatch_action(
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),
+        Action::Undo => {
+            if let Some(snapshot) = state.undo_history.undo(&state.session, &state.instruments) {
+                state.session = snapshot.session;
+                state.instruments = snapshot.instruments;
+                state.dirty = true;
+                let mut r = DispatchResult::none();
+                r.audio_dirty = AudioDirty::all();
+                r
+            } else {
+                DispatchResult::none()
+            }
+        }
+        Action::Redo => {
+            if let Some(snapshot) = state.undo_history.redo(&state.session, &state.instruments) {
+                state.session = snapshot.session;
+                state.instruments = snapshot.instruments;
+                state.dirty = true;
+                let mut r = DispatchResult::none();
+                r.audio_dirty = AudioDirty::all();
+                r
+            } else {
+                DispatchResult::none()
+            }
+        }
     };
 
     result

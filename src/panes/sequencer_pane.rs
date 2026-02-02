@@ -30,6 +30,26 @@ impl SequencerPane {
         }
     }
 
+    /// Returns the selection region as (start_pad, end_pad, start_step, end_step),
+    /// or a single cell at the cursor if no selection is active.
+    pub(crate) fn selection_region(&self) -> (usize, usize, usize, usize) {
+        if let Some((anchor_pad, anchor_step)) = self.selection_anchor {
+            let (p0, p1) = if anchor_pad <= self.cursor_pad {
+                (anchor_pad, self.cursor_pad)
+            } else {
+                (self.cursor_pad, anchor_pad)
+            };
+            let (s0, s1) = if anchor_step <= self.cursor_step {
+                (anchor_step, self.cursor_step)
+            } else {
+                (self.cursor_step, anchor_step)
+            };
+            (p0, p1, s0, s1)
+        } else {
+            (self.cursor_pad, self.cursor_pad, self.cursor_step, self.cursor_step)
+        }
+    }
+
     fn visible_steps(&self, box_width: u16) -> usize {
         // Pad label column: 11 chars, box borders: 4 chars, step columns: 3 chars each
         let available = (box_width as usize).saturating_sub(15);

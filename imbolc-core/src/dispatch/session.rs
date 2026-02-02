@@ -105,11 +105,17 @@ pub(super) fn dispatch_session(
             result.push_nav(NavIntent::ConditionalPop("project_browser"));
         }
         SessionAction::NewProject => {
-            // Signal main loop to handle the full reset (undo history, audio sync, etc.)
-            // We set a flag via DispatchResult; main loop does the actual reset.
-            result.new_project = true;
+            let defaults = state.default_settings.clone();
+            state.session = crate::state::SessionState::new_with_defaults(defaults);
+            state.instruments = crate::state::InstrumentState::new();
+            state.project_path = None;
+            state.dirty = false;
+            state.undo_history.clear();
+            result.audio_dirty = crate::action::AudioDirty::all();
+            result.project_name = Some("untitled".to_string());
             result.push_nav(NavIntent::ConditionalPop("confirm"));
             result.push_nav(NavIntent::ConditionalPop("project_browser"));
+            result.push_nav(NavIntent::SwitchTo("add"));
         }
         SessionAction::UpdateSession(ref settings) => {
             state.session.apply_musical_settings(settings);

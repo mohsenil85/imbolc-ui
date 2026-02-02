@@ -1,11 +1,11 @@
 use crate::audio::AudioHandle;
 use crate::action::{
-    AudioDirty, IoFeedback, PianoRollAction, SequencerAction,
+    AudioDirty, IoFeedback, MixerAction, PianoRollAction, SequencerAction,
     AutomationAction, Action
 };
+use crate::state::MixerSelection;
 use crate::dispatch;
-use crate::state::{self, AppState, ClipboardContents, ClipboardNote};
-use crate::state::undo::UndoHistory;
+use crate::state::{AppState, ClipboardContents};
 use crate::panes::{
     InstrumentEditPane, PianoRollPane, SequencerPane, AutomationPane,
     ServerPane, HelpPane, FileBrowserPane, VstParamPane,
@@ -30,21 +30,39 @@ pub(crate) enum GlobalResult {
 }
 
 /// Select instrument by 1-based number (1=first, 10=tenth) and sync piano roll
-pub(crate) fn select_instrument(number: usize, state: &mut AppState, panes: &mut PaneManager) {
+pub(crate) fn select_instrument(
+    number: usize,
+    state: &mut AppState,
+    panes: &mut PaneManager,
+    audio: &mut AudioHandle,
+    io_tx: &std::sync::mpsc::Sender<IoFeedback>,
+) {
     let idx = number.saturating_sub(1); // Convert 1-based to 0-based
     if idx < state.instruments.instruments.len() {
-        state.instruments.selected = Some(idx);
-        sync_piano_roll_to_selection(state, panes);
+        dispatch::dispatch_action(
+            &Action::Instrument(ui::InstrumentAction::Select(idx)),
+            state, audio, io_tx,
+        );
+        sync_piano_roll_to_selection(state, panes, audio, io_tx);
         sync_instrument_edit(state, panes);
     }
 }
 
 /// Sync piano roll's current track to match the globally selected instrument,
 /// and re-route the active pane if on a F2-family pane (piano_roll/sequencer/waveform).
-pub(crate) fn sync_piano_roll_to_selection(state: &mut AppState, panes: &mut PaneManager) {
+pub(crate) fn sync_piano_roll_to_selection(
+    state: &mut AppState,
+    panes: &mut PaneManager,
+    audio: &mut AudioHandle,
+    io_tx: &std::sync::mpsc::Sender<IoFeedback>,
+) {
     if let Some(selected_idx) = state.instruments.selected {
-        if let Some(inst) = state.instruments.instruments.get(selected_idx) {
-            let inst_id = inst.id;
+        // Extract data from instrument before any mutable borrows
+        let inst_data = state.instruments.instruments.get(selected_idx).map(|inst| {
+            (inst.id, inst.source.is_kit(), inst.source.is_audio_input(), inst.source.is_bus_in())
+        });
+
+        if let Some((inst_id, is_kit, is_audio_in, is_bus_in)) = inst_data {
             // Find which track index corresponds to this instrument
             if let Some(track_idx) = state.session.piano_roll.track_order.iter()
                 .position(|&id| id == inst_id)
@@ -54,19 +72,22 @@ pub(crate) fn sync_piano_roll_to_selection(state: &mut AppState, panes: &mut Pan
                 }
             }
 
-            // Sync mixer selection
+            // Sync mixer selection via dispatch
             let active = panes.active().id();
             if active == "mixer" {
-                if let state::MixerSelection::Instrument(_) = state.session.mixer_selection {
-                    state.session.mixer_selection = state::MixerSelection::Instrument(selected_idx);
+                if let MixerSelection::Instrument(_) = state.session.mixer_selection {
+                    dispatch::dispatch_action(
+                        &Action::Mixer(MixerAction::SelectAt(MixerSelection::Instrument(selected_idx))),
+                        state, audio, io_tx,
+                    );
                 }
             }
 
             // Re-route if currently on a F2-family pane
             if active == "piano_roll" || active == "sequencer" || active == "waveform" {
-                let target = if inst.source.is_kit() {
+                let target = if is_kit {
                     "sequencer"
-                } else if inst.source.is_audio_input() || inst.source.is_bus_in() {
+                } else if is_audio_in || is_bus_in {
                     "waveform"
                 } else {
                     "piano_roll"
@@ -112,7 +133,6 @@ pub(crate) fn handle_global_action(
     action: &str,
     state: &mut AppState,
     panes: &mut PaneManager,
-    undo_history: &mut UndoHistory,
     audio: &mut AudioHandle,
     app_frame: &mut Frame,
     select_mode: &mut InstrumentSelectMode,
@@ -140,7 +160,7 @@ pub(crate) fn handle_global_action(
     };
 
     // Helper for pane switching with view history
-    let switch_to_pane = |target: &str, panes: &mut PaneManager, state: &mut AppState, app_frame: &mut Frame, layer_stack: &mut LayerStack| {
+    let switch_to_pane = |target: &str, panes: &mut PaneManager, state: &mut AppState, app_frame: &mut Frame, layer_stack: &mut LayerStack, audio: &mut AudioHandle, io_tx: &std::sync::mpsc::Sender<IoFeedback>| {
         let current = capture_view(panes, state);
         if app_frame.view_history.is_empty() {
             app_frame.view_history.push(current);
@@ -155,7 +175,10 @@ pub(crate) fn handle_global_action(
         // Sync mixer highlight to global instrument selection on entry
         if target == "mixer" {
             if let Some(selected_idx) = state.instruments.selected {
-                state.session.mixer_selection = state::MixerSelection::Instrument(selected_idx);
+                dispatch::dispatch_action(
+                    &Action::Mixer(MixerAction::SelectAt(MixerSelection::Instrument(selected_idx))),
+                    state, audio, io_tx,
+                );
             }
         }
         let new_view = capture_view(panes, state);
@@ -176,24 +199,18 @@ pub(crate) fn handle_global_action(
             return GlobalResult::Quit;
         }
         "undo" => {
-            if let Some(snapshot) = undo_history.undo(&state.session, &state.instruments) {
-                state.session = snapshot.session;
-                state.instruments = snapshot.instruments;
-                state.dirty = true;
-                pending_audio_dirty.merge(AudioDirty::all());
-                sync_piano_roll_to_selection(state, panes);
-                sync_instrument_edit(state, panes);
-            }
+            let r = dispatch::dispatch_action(&Action::Undo, state, audio, io_tx);
+            pending_audio_dirty.merge(r.audio_dirty);
+            apply_dispatch_result(r, state, panes, app_frame);
+            sync_piano_roll_to_selection(state, panes, audio, io_tx);
+            sync_instrument_edit(state, panes);
         }
         "redo" => {
-            if let Some(snapshot) = undo_history.redo(&state.session, &state.instruments) {
-                state.session = snapshot.session;
-                state.instruments = snapshot.instruments;
-                state.dirty = true;
-                pending_audio_dirty.merge(AudioDirty::all());
-                sync_piano_roll_to_selection(state, panes);
-                sync_instrument_edit(state, panes);
-            }
+            let r = dispatch::dispatch_action(&Action::Redo, state, audio, io_tx);
+            pending_audio_dirty.merge(r.audio_dirty);
+            apply_dispatch_result(r, state, panes, app_frame);
+            sync_piano_roll_to_selection(state, panes, audio, io_tx);
+            sync_instrument_edit(state, panes);
         }
         "save" => {
             let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
@@ -230,8 +247,6 @@ pub(crate) fn handle_global_action(
             sync_pane_layer(panes, layer_stack);
         }
         "master_mute" => {
-            undo_history.push(&state.session, &state.instruments);
-            state.dirty = true;
             let r = dispatch::dispatch_action(
                 &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
@@ -243,12 +258,10 @@ pub(crate) fn handle_global_action(
             apply_dispatch_result(r, state, panes, app_frame);
         }
         "copy" => {
-            copy_from_active_pane(state, panes);
+            copy_from_active_pane(state, panes, audio, io_tx);
         }
         "cut" => {
-            undo_history.push(&state.session, &state.instruments);
-            state.dirty = true;
-            let action = cut_from_active_pane(state, panes);
+            let action = cut_from_active_pane(state, panes, audio, io_tx);
             if let Some(action) = action {
                 let r = dispatch::dispatch_action(&action, state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
@@ -256,8 +269,6 @@ pub(crate) fn handle_global_action(
             }
         }
         "paste" => {
-            undo_history.push(&state.session, &state.instruments);
-            state.dirty = true;
             let action = paste_to_active_pane(state, panes);
             if let Some(action) = action {
                 let r = dispatch::dispatch_action(&action, state, audio, io_tx);
@@ -269,10 +280,10 @@ pub(crate) fn handle_global_action(
             select_all_in_active_pane(state, panes);
         }
         "switch:instrument" => {
-            switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack);
+            switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:instrument_list" => {
-            switch_to_pane("instrument", panes, state, app_frame, layer_stack);
+            switch_to_pane("instrument", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:piano_roll_or_sequencer" => {
             let target = if let Some(inst) = state.instruments.selected_instrument() {
@@ -286,25 +297,25 @@ pub(crate) fn handle_global_action(
             } else {
                 "piano_roll"
             };
-            switch_to_pane(target, panes, state, app_frame, layer_stack);
+            switch_to_pane(target, panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:track" => {
-            switch_to_pane("track", panes, state, app_frame, layer_stack);
+            switch_to_pane("track", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:mixer" => {
-            switch_to_pane("mixer", panes, state, app_frame, layer_stack);
+            switch_to_pane("mixer", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:server" => {
-            switch_to_pane("server", panes, state, app_frame, layer_stack);
+            switch_to_pane("server", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:logo" => {
-            switch_to_pane("logo", panes, state, app_frame, layer_stack);
+            switch_to_pane("logo", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:automation" => {
-            switch_to_pane("automation", panes, state, app_frame, layer_stack);
+            switch_to_pane("automation", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:eq" => {
-            switch_to_pane("eq", panes, state, app_frame, layer_stack);
+            switch_to_pane("eq", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "switch:frame_edit" => {
             if panes.active().id() == "frame_edit" {
@@ -390,17 +401,23 @@ pub(crate) fn handle_global_action(
         // Instrument selection by number (1-9 select instruments 1-9, 0 selects 10)
         s if s.starts_with("select:") => {
             if let Ok(n) = s[7..].parse::<usize>() {
-                select_instrument(n, state, panes);
+                select_instrument(n, state, panes, audio, io_tx);
             }
         }
         "select_prev_instrument" => {
-            state.instruments.select_prev();
-            sync_piano_roll_to_selection(state, panes);
+            dispatch::dispatch_action(
+                &Action::Instrument(ui::InstrumentAction::SelectPrev),
+                state, audio, io_tx,
+            );
+            sync_piano_roll_to_selection(state, panes, audio, io_tx);
             sync_instrument_edit(state, panes);
         }
         "select_next_instrument" => {
-            state.instruments.select_next();
-            sync_piano_roll_to_selection(state, panes);
+            dispatch::dispatch_action(
+                &Action::Instrument(ui::InstrumentAction::SelectNext),
+                state, audio, io_tx,
+            );
+            sync_piano_roll_to_selection(state, panes, audio, io_tx);
             sync_instrument_edit(state, panes);
         }
         "select_two_digit" => {
@@ -423,12 +440,10 @@ pub(crate) fn handle_global_action(
             }
         }
         "add_instrument" => {
-            switch_to_pane("add", panes, state, app_frame, layer_stack);
+            switch_to_pane("add", panes, state, app_frame, layer_stack, audio, io_tx);
         }
         "delete_instrument" => {
             if let Some(instrument) = state.instruments.selected_instrument() {
-                undo_history.push(&state.session, &state.instruments);
-                state.dirty = true;
                 let id = instrument.id;
                 let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
@@ -494,137 +509,58 @@ pub(crate) fn apply_dispatch_result(
     }
 }
 
-fn copy_from_active_pane(state: &mut AppState, panes: &mut PaneManager) {
+fn copy_from_active_pane(
+    state: &mut AppState,
+    panes: &mut PaneManager,
+    audio: &mut AudioHandle,
+    io_tx: &std::sync::mpsc::Sender<IoFeedback>,
+) {
     let pane_id = panes.active().id();
     match pane_id {
         "piano_roll" => {
             if let Some(pane) = panes.get_pane_mut::<PianoRollPane>("piano_roll") {
-                let track_idx = pane.current_track;
-                // Determine selection range
-                let (tick_start, tick_end, pitch_start, pitch_end) = if let Some((anchor_tick, anchor_pitch)) = pane.selection_anchor {
-                    let (t0, t1) = if anchor_tick <= pane.cursor_tick {
-                        (anchor_tick, pane.cursor_tick + pane.ticks_per_cell())
-                    } else {
-                        (pane.cursor_tick, anchor_tick + pane.ticks_per_cell())
-                    };
-                    let (p0, p1) = if anchor_pitch <= pane.cursor_pitch {
-                        (anchor_pitch, pane.cursor_pitch)
-                    } else {
-                        (pane.cursor_pitch, anchor_pitch)
-                    };
-                    (t0, t1, p0, p1)
-                } else {
-                    // No selection: try to copy note at cursor
-                    (pane.cursor_tick, pane.cursor_tick + 1, pane.cursor_pitch, pane.cursor_pitch)
-                };
-
-                if let Some(track) = state.session.piano_roll.track_at(track_idx) {
-                    let mut notes = Vec::new();
-                    for note in &track.notes {
-                        // Check if note overlaps with selection rect
-                        // Logic for "overlaps": note.tick < end && note.tick + duration > start
-                        // But for strict copy we might want "contained in" or "starts in"?
-                        // Plan says: "Collect all notes within rectangle".
-                        // Let's assume "starts within tick range and pitch is in range"
-                        if note.tick >= tick_start && note.tick < tick_end &&
-                           note.pitch >= pitch_start && note.pitch <= pitch_end {
-                            notes.push(ClipboardNote {
-                                tick_offset: note.tick - tick_start,
-                                pitch_offset: note.pitch as i16 - pitch_start as i16,
-                                duration: note.duration,
-                                velocity: note.velocity,
-                                probability: note.probability,
-                            });
-                        }
-                    }
-                    if !notes.is_empty() {
-                        state.clipboard.contents = Some(ClipboardContents::PianoRollNotes(notes));
-                    }
-                }
+                let (track, start_tick, end_tick, start_pitch, end_pitch) = pane.selection_region();
+                dispatch::dispatch_action(
+                    &Action::PianoRoll(PianoRollAction::CopyNotes {
+                        track, start_tick, end_tick, start_pitch, end_pitch,
+                    }),
+                    state, audio, io_tx,
+                );
             }
         }
         "sequencer" => {
             if let Some(pane) = panes.get_pane_mut::<SequencerPane>("sequencer") {
-                 if let Some(seq) = state.instruments.selected_drum_sequencer() {
-                     let (pad_start, pad_end, step_start, step_end) = if let Some((anchor_pad, anchor_step)) = pane.selection_anchor {
-                        let (p0, p1) = if anchor_pad <= pane.cursor_pad {
-                            (anchor_pad, pane.cursor_pad)
-                        } else {
-                            (pane.cursor_pad, anchor_pad)
-                        };
-                        let (s0, s1) = if anchor_step <= pane.cursor_step {
-                            (anchor_step, pane.cursor_step)
-                        } else {
-                            (pane.cursor_step, anchor_step)
-                        };
-                        (p0, p1, s0, s1)
-                     } else {
-                         // No selection: copy single step? Plan didn't specify single step copy behavior explicitly for sequencer,
-                         // but "copy single note at cursor" was for piano roll. Let's assume single step copy too.
-                         (pane.cursor_pad, pane.cursor_pad, pane.cursor_step, pane.cursor_step)
-                     };
-
-                     let pattern = seq.pattern();
-                     let mut steps = Vec::new();
-                     for pad_idx in pad_start..=pad_end {
-                         for step_idx in step_start..=step_end {
-                             if pad_idx < pattern.steps.len() && step_idx < pattern.steps[pad_idx].len() {
-                                 let step = &pattern.steps[pad_idx][step_idx];
-                                 if step.active {
-                                     steps.push((pad_idx - pad_start, step_idx - step_start, step.clone()));
-                                 }
-                             }
-                         }
-                     }
-                     if !steps.is_empty() {
-                         state.clipboard.contents = Some(ClipboardContents::DrumSteps { steps });
-                     }
-                 }
+                let (start_pad, end_pad, start_step, end_step) = pane.selection_region();
+                dispatch::dispatch_action(
+                    &Action::Sequencer(SequencerAction::CopySteps {
+                        start_pad, end_pad, start_step, end_step,
+                    }),
+                    state, audio, io_tx,
+                );
             }
         }
         "automation" => {
-             if let Some(pane) = panes.get_pane_mut::<AutomationPane>("automation") {
-                 let lane_id = pane.selected_lane_id(state);
-                 if let Some(lane_id) = lane_id {
-                     if let Some(lane) = state.session.automation.lane(lane_id) {
-                         let (tick_start, tick_end) = if let Some(anchor_tick) = pane.selection_anchor_tick {
-                             if anchor_tick <= pane.cursor_tick {
-                                 (anchor_tick, pane.cursor_tick)
-                             } else {
-                                 (pane.cursor_tick, anchor_tick)
-                             }
-                         } else {
-                             // Single point? Automation points are continuous-ish. Maybe just range?
-                             // Plan says: "Region is anchor_tick..cursor_tick".
-                             // If no anchor, maybe nothing?
-                             // Let's assume no copy without selection for now or single point at cursor?
-                             // Actually "AutomationPoints: return AutomationAction::PastePoints".
-                             // Let's copy points in range if selection exists.
-                             (0, 0)
-                         };
-
-                         if tick_start < tick_end {
-                             let mut points = Vec::new();
-                             for point in &lane.points {
-                                 if point.tick >= tick_start && point.tick <= tick_end {
-                                     points.push((point.tick - tick_start, point.value));
-                                 }
-                             }
-                             if !points.is_empty() {
-                                 state.clipboard.contents = Some(ClipboardContents::AutomationPoints { points });
-                             }
-                         }
-                     }
-                 }
-             }
+            if let Some(pane) = panes.get_pane_mut::<AutomationPane>("automation") {
+                if let Some((lane_id, start_tick, end_tick)) = pane.selection_region(state) {
+                    dispatch::dispatch_action(
+                        &Action::Automation(AutomationAction::CopyPoints(lane_id, start_tick, end_tick)),
+                        state, audio, io_tx,
+                    );
+                }
+            }
         }
         _ => {}
     }
 }
 
-fn cut_from_active_pane(state: &mut AppState, panes: &mut PaneManager) -> Option<Action> {
+fn cut_from_active_pane(
+    state: &mut AppState,
+    panes: &mut PaneManager,
+    audio: &mut AudioHandle,
+    io_tx: &std::sync::mpsc::Sender<IoFeedback>,
+) -> Option<Action> {
     // Copy first
-    copy_from_active_pane(state, panes);
+    copy_from_active_pane(state, panes, audio, io_tx);
 
     // Then return delete action
     let pane_id = panes.active().id();

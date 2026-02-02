@@ -26,6 +26,7 @@ pub use instrument_state::InstrumentState;
 pub use param::{Param, ParamValue};
 pub use sampler::BufferId;
 pub use session::{MixerSelection, MusicalSettings, SessionState, MAX_BUSES};
+pub use undo::UndoHistory;
 pub use vst_plugin::{VstParamSpec, VstPlugin, VstPluginId, VstPluginKind, VstPluginRegistry};
 
 use std::path::PathBuf;
@@ -132,6 +133,10 @@ pub struct AppState {
     pub project_path: Option<PathBuf>,
     /// Whether state has changed since last save/load
     pub dirty: bool,
+    /// Undo/redo history (owned by state so dispatch can manage it)
+    pub undo_history: UndoHistory,
+    /// Musical defaults used when creating new projects
+    pub default_settings: MusicalSettings,
 }
 
 impl AppState {
@@ -154,12 +159,14 @@ impl AppState {
             recorded_waveform_peaks: None,
             project_path: None,
             dirty: false,
+            undo_history: UndoHistory::new(500),
+            default_settings: MusicalSettings::default(),
         }
     }
 
     pub fn new_with_defaults(defaults: MusicalSettings) -> Self {
         Self {
-            session: SessionState::new_with_defaults(defaults),
+            session: SessionState::new_with_defaults(defaults.clone()),
             instruments: InstrumentState::new(),
             clipboard: Clipboard::default(),
             pending_recording_path: None,
@@ -175,6 +182,8 @@ impl AppState {
             recorded_waveform_peaks: None,
             project_path: None,
             dirty: false,
+            undo_history: UndoHistory::new(500),
+            default_settings: defaults,
         }
     }
 

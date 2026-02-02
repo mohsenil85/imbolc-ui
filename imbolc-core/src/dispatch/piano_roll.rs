@@ -1,6 +1,7 @@
 use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::state::piano_roll::Note;
+use crate::state::{ClipboardContents, ClipboardNote};
 use crate::action::{DispatchResult, PianoRollAction};
 
 pub(super) fn dispatch_piano_roll(
@@ -373,6 +374,28 @@ pub(super) fn dispatch_piano_roll(
                 );
                 result.audio_dirty.piano_roll = true;
                 return result;
+            }
+            return DispatchResult::none();
+        }
+        PianoRollAction::CopyNotes { track, start_tick, end_tick, start_pitch, end_pitch } => {
+            if let Some(t) = state.session.piano_roll.track_at(*track) {
+                let mut notes = Vec::new();
+                for note in &t.notes {
+                    if note.tick >= *start_tick && note.tick < *end_tick
+                        && note.pitch >= *start_pitch && note.pitch <= *end_pitch
+                    {
+                        notes.push(ClipboardNote {
+                            tick_offset: note.tick - start_tick,
+                            pitch_offset: note.pitch as i16 - *start_pitch as i16,
+                            duration: note.duration,
+                            velocity: note.velocity,
+                            probability: note.probability,
+                        });
+                    }
+                }
+                if !notes.is_empty() {
+                    state.clipboard.contents = Some(ClipboardContents::PianoRollNotes(notes));
+                }
             }
             return DispatchResult::none();
         }

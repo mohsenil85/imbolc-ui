@@ -1,6 +1,6 @@
 use crate::audio::AudioHandle;
 use crate::state::automation::AutomationTarget;
-use crate::state::AppState;
+use crate::state::{AppState, ClipboardContents};
 use crate::action::{AutomationAction, DispatchResult};
 
 /// Minimum value change threshold for recording (0.5%)
@@ -92,6 +92,21 @@ pub(super) fn dispatch_automation(
             if let Some(lane) = state.session.automation.lane_mut(*lane_id) {
                 lane.points.retain(|p| p.tick < *start_tick || p.tick >= *end_tick);
                 result.audio_dirty.automation = true;
+            }
+        }
+        AutomationAction::CopyPoints(lane_id, start_tick, end_tick) => {
+            if *start_tick < *end_tick {
+                if let Some(lane) = state.session.automation.lane(*lane_id) {
+                    let mut points = Vec::new();
+                    for point in &lane.points {
+                        if point.tick >= *start_tick && point.tick <= *end_tick {
+                            points.push((point.tick - start_tick, point.value));
+                        }
+                    }
+                    if !points.is_empty() {
+                        state.clipboard.contents = Some(ClipboardContents::AutomationPoints { points });
+                    }
+                }
             }
         }
         AutomationAction::PastePoints(lane_id, anchor_tick, points) => {

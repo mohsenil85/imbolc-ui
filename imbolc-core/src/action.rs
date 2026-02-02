@@ -69,6 +69,8 @@ pub enum SequencerAction {
         anchor_step: usize,
         steps: Vec<(usize, usize, DrumStep)>,
     },
+    /// Copy steps within a region to the clipboard
+    CopySteps { start_pad: usize, end_pad: usize, start_step: usize, end_step: usize },
 }
 
 /// Navigation actions (pane switching, modal stack)
@@ -178,6 +180,8 @@ pub enum PianoRollAction {
     BounceToWav,
     ExportStems,
     CancelExport,
+    /// Copy notes within a region to the clipboard
+    CopyNotes { track: usize, start_tick: u32, end_tick: u32, start_pitch: u8, end_pitch: u8 },
 }
 
 /// Arrangement/timeline actions
@@ -270,6 +274,8 @@ pub enum AutomationAction {
     DeletePointsInRange(AutomationLaneId, u32, u32),
     /// Paste automation points at offset
     PastePoints(AutomationLaneId, u32, Vec<(u32, f32)>),
+    /// Copy automation points within a tick range to the clipboard
+    CopyPoints(AutomationLaneId, u32, u32),
 }
 
 /// Session/file actions
@@ -313,6 +319,10 @@ pub enum Action {
     PushLayer(&'static str),
     /// Pop a named layer from the layer stack
     PopLayer(&'static str),
+    /// Undo the last undoable state change
+    Undo,
+    /// Redo the last undone state change
+    Redo,
 }
 
 /// Result of toggling performance mode (piano/pad keyboard)
@@ -375,8 +385,6 @@ pub struct DispatchResult {
     pub status: Vec<StatusEvent>,
     pub project_name: Option<String>,
     pub audio_dirty: AudioDirty,
-    /// Signal main loop to reset to a blank project
-    pub new_project: bool,
 }
 
 impl Default for DispatchResult {
@@ -387,7 +395,6 @@ impl Default for DispatchResult {
             status: Vec::new(),
             project_name: None,
             audio_dirty: AudioDirty::default(),
-            new_project: false,
         }
     }
 }

@@ -19,7 +19,6 @@ use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
 use panes::{AddEffectPane, AddPane, AutomationPane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
-use state::undo::{UndoHistory, is_undoable};
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult,
     LayerStack, PaneManager, RatatuiBackend, keybindings,
@@ -86,7 +85,6 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut audio = AudioHandle::new();
     audio.sync_state(&state);
     let mut app_frame = Frame::new();
-    let mut undo_history = UndoHistory::new(500);
     let mut recent_projects = state::recent_projects::RecentProjects::load();
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
@@ -157,7 +155,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 if let Some(d) = c.to_digit(10) {
                                     let combined = first * 10 + d as u8;
                                     let target = if combined == 0 { 10 } else { combined };
-                                    select_instrument(target as usize, &mut state, &mut panes);
+                                    select_instrument(target as usize, &mut state, &mut panes, &mut audio, &io_tx);
                                     select_mode = InstrumentSelectMode::Normal;
                                     continue;
                                 }
@@ -176,7 +174,6 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                 action,
                                 &mut state,
                                 &mut panes,
-                                &mut undo_history,
                                 &mut audio,
                                 &mut app_frame,
                                 &mut select_mode,
@@ -252,25 +249,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 }
             }
 
-            if is_undoable(&pane_action) {
-                undo_history.push(&state.session, &state.instruments);
-                state.dirty = true;
-            }
             let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
             if dispatch_result.quit {
                 break;
-            }
-            if dispatch_result.new_project {
-                let defaults = config.defaults();
-                state.session = state::SessionState::new_with_defaults(defaults);
-                state.instruments = state::InstrumentState::new();
-                state.project_path = None;
-                state.dirty = false;
-                undo_history.clear();
-                pending_audio_dirty.merge(action::AudioDirty::all());
-                app_frame.set_project_name("untitled".to_string());
-                panes.switch_to("add", &state);
-                sync_pane_layer(&mut panes, &mut layer_stack);
             }
             pending_audio_dirty.merge(dispatch_result.audio_dirty);
             apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame);
@@ -309,7 +290,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     }
                      match result {
                          Ok((new_session, new_instruments, name)) => {
-                             undo_history.clear();
+                             state.undo_history.clear();
                              state.session = new_session;
                              state.instruments = new_instruments;
                              state.project_path = Some(path.clone());

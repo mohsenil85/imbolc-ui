@@ -1,7 +1,7 @@
 use crate::audio::AudioHandle;
 use crate::state::drum_sequencer::{DrumPattern, DrumStep, euclidean_rhythm};
 use crate::state::sampler::Slice;
-use crate::state::AppState;
+use crate::state::{AppState, ClipboardContents};
 use crate::action::{ChopperAction, DispatchResult, NavIntent, SequencerAction};
 
 use super::helpers::compute_waveform_peaks;
@@ -289,6 +289,26 @@ pub(super) fn dispatch_sequencer(
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
             return result;
+        }
+        SequencerAction::CopySteps { start_pad, end_pad, start_step, end_step } => {
+            if let Some(seq) = state.instruments.selected_drum_sequencer() {
+                let pattern = seq.pattern();
+                let mut steps = Vec::new();
+                for pad_idx in *start_pad..=*end_pad {
+                    for step_idx in *start_step..=*end_step {
+                        if pad_idx < pattern.steps.len() && step_idx < pattern.steps[pad_idx].len() {
+                            let step = &pattern.steps[pad_idx][step_idx];
+                            if step.active {
+                                steps.push((pad_idx - start_pad, step_idx - start_step, step.clone()));
+                            }
+                        }
+                    }
+                }
+                if !steps.is_empty() {
+                    state.clipboard.contents = Some(ClipboardContents::DrumSteps { steps });
+                }
+            }
+            return DispatchResult::none();
         }
         SequencerAction::PasteSteps { anchor_pad, anchor_step, steps } => {
             if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
