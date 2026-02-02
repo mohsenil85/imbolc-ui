@@ -152,6 +152,20 @@ impl PianoRollPane {
             "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
             "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode(self.current_track)),
             "render_to_wav" => Action::PianoRoll(PianoRollAction::RenderToWav(self.current_instrument_id(state))),
+            "bounce_to_wav" => {
+                if state.pending_export.is_some() {
+                    Action::PianoRoll(PianoRollAction::CancelExport)
+                } else {
+                    Action::PianoRoll(PianoRollAction::BounceToWav)
+                }
+            }
+            "export_stems" => {
+                if state.pending_export.is_some() {
+                    Action::PianoRoll(PianoRollAction::CancelExport)
+                } else {
+                    Action::PianoRoll(PianoRollAction::ExportStems)
+                }
+            }
             "toggle_automation" => {
                 self.automation_overlay_visible = !self.automation_overlay_visible;
                 Action::None

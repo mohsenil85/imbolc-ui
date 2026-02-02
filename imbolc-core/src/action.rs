@@ -140,6 +140,9 @@ pub enum PianoRollAction {
     PlayStopRecord,
     AdjustSwing(f32),               // delta for swing amount
     RenderToWav(InstrumentId),
+    BounceToWav,
+    ExportStems,
+    CancelExport,
 }
 
 /// Sample chopper actions

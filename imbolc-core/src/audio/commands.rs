@@ -151,6 +151,15 @@ pub enum AudioCmd {
         path: PathBuf,
         reply: Sender<Result<(), String>>,
     },
+    StartMasterBounce {
+        path: PathBuf,
+        reply: Sender<Result<(), String>>,
+    },
+    StartStemExport {
+        stems: Vec<(InstrumentId, PathBuf)>,
+        reply: Sender<Result<(), String>>,
+    },
+    CancelExport,
 
     // ── Automation ────────────────────────────────────────────────
     ApplyAutomation {
@@ -223,4 +232,18 @@ pub enum AudioFeedback {
         target: VstTarget,
         path: PathBuf,
     },
+    ExportComplete {
+        kind: ExportKind,
+        paths: Vec<PathBuf>,
+    },
+    ExportProgress {
+        progress: f32,
+    },
+}
+
+/// Export operation type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportKind {
+    MasterBounce,
+    StemExport,
 }

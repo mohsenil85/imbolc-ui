@@ -103,6 +103,8 @@ bindings = [
   { key = "Ctrl+Up", action = "automation_lane_prev", description = "Previous automation lane" },
   { key = "Ctrl+Down", action = "automation_lane_next", description = "Next automation lane" },
   { key = "R", action = "render_to_wav", description = "Render track to WAV" },
+  { key = "B", action = "bounce_to_wav", description = "Bounce master to WAV" },
+  { key = "Ctrl+b", action = "export_stems", description = "Export stems to WAV" },
 ]
 
 [layers.sequencer]
