@@ -114,8 +114,8 @@ impl AudioHandle {
             return;
         }
 
-        let needs_state = dirty.instruments || dirty.session || dirty.routing || dirty.mixer_params;
-        if needs_state {
+        let needs_full_state = dirty.instruments || dirty.session || dirty.routing;
+        if needs_full_state {
             self.update_state(&state.instruments, &state.session);
         }
         if dirty.piano_roll {
@@ -128,8 +128,32 @@ impl AudioHandle {
             let _ = self.send_cmd(AudioCmd::RebuildRouting);
         }
         if dirty.mixer_params {
-            let _ = self.send_cmd(AudioCmd::UpdateMixerParams);
+            if needs_full_state {
+                // Full state already sent — just trigger the engine update
+                let _ = self.send_cmd(AudioCmd::UpdateMixerParams);
+            } else {
+                // Mixer-only change: send targeted updates (no full clone)
+                self.send_mixer_params_incremental(state);
+            }
         }
+    }
+
+    fn send_mixer_params_incremental(&self, state: &AppState) {
+        let _ = self.send_cmd(AudioCmd::SetMasterParams {
+            level: state.session.master_level,
+            mute: state.session.master_mute,
+        });
+        for inst in &state.instruments.instruments {
+            let _ = self.send_cmd(AudioCmd::SetInstrumentMixerParams {
+                instrument_id: inst.id,
+                level: inst.level,
+                pan: inst.pan,
+                mute: inst.mute,
+                solo: inst.solo,
+            });
+        }
+        // After all fields are updated on the audio thread, trigger engine apply
+        let _ = self.send_cmd(AudioCmd::UpdateMixerParams);
     }
 
     pub fn update_state(&mut self, instruments: &InstrumentSnapshot, session: &SessionSnapshot) {

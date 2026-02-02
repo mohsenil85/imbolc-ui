@@ -90,6 +90,17 @@ pub enum AudioCmd {
         param: String,
         value: f32,
     },
+    SetInstrumentMixerParams {
+        instrument_id: InstrumentId,
+        level: f32,
+        pan: f32,
+        mute: bool,
+        solo: bool,
+    },
+    SetMasterParams {
+        level: f32,
+        mute: bool,
+    },
 
     // ── Voice management ──────────────────────────────────────────
     SpawnVoice {
