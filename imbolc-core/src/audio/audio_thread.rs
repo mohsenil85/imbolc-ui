@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::commands::{AudioCmd, AudioFeedback};
+use super::commands::{AudioCmd, AudioFeedback, ExportKind};
 use super::engine::AudioEngine;
 use super::osc_client::AudioMonitor;
 use super::ServerStatus;
@@ -17,6 +17,14 @@ struct RenderState {
     instrument_id: InstrumentId,
     loop_end: u32,
     tail_ticks: u32,
+}
+
+struct ExportState {
+    kind: ExportKind,
+    loop_end: u32,
+    tail_ticks: u32,
+    #[allow(dead_code)]
+    paths: Vec<PathBuf>,
 }
 
 pub(crate) struct AudioThread {
@@ -38,6 +46,10 @@ pub(crate) struct AudioThread {
     arp_states: HashMap<u32, ArpPlayState>,
     /// Active render-to-WAV state
     render_state: Option<RenderState>,
+    /// Active export state (master bounce or stem export)
+    export_state: Option<ExportState>,
+    /// Last export progress sent (for throttling)
+    last_export_progress: f32,
 }
 
 fn config_synthdefs_dir() -> PathBuf {
@@ -73,6 +85,8 @@ impl AudioThread {
             rng_state: 12345,
             arp_states: HashMap::new(),
             render_state: None,
+            export_state: None,
+            last_export_progress: 0.0,
         }
     }
 
@@ -281,6 +295,58 @@ impl AudioThread {
                 let path = self.engine.stop_recording();
                 let _ = reply.send(path);
             }
+            AudioCmd::StartMasterBounce { path, reply } => {
+                let result = self.engine.start_export_master(&path).map(|_| {
+                    let ticks_per_second = (self.piano_roll.bpm / 60.0)
+                        * self.piano_roll.ticks_per_beat as f32;
+                    self.export_state = Some(ExportState {
+                        kind: ExportKind::MasterBounce,
+                        loop_end: self.piano_roll.loop_end,
+                        tail_ticks: ticks_per_second as u32,
+                        paths: vec![path],
+                    });
+                    self.last_export_progress = 0.0;
+                });
+                let _ = reply.send(result);
+            }
+            AudioCmd::StartStemExport { stems, reply } => {
+                let instrument_buses: Vec<(u32, i32, PathBuf)> = stems
+                    .iter()
+                    .filter_map(|(inst_id, path)| {
+                        self.engine
+                            .instrument_final_buses
+                            .get(inst_id)
+                            .map(|&bus| (*inst_id, bus, path.clone()))
+                    })
+                    .collect();
+
+                if instrument_buses.is_empty() {
+                    let _ = reply.send(Err("No instrument buses available".to_string()));
+                } else {
+                    let paths: Vec<PathBuf> =
+                        stems.iter().map(|(_, p)| p.clone()).collect();
+                    let result = self.engine.start_export_stems(&instrument_buses).map(|_| {
+                        let ticks_per_second = (self.piano_roll.bpm / 60.0)
+                            * self.piano_roll.ticks_per_beat as f32;
+                        self.export_state = Some(ExportState {
+                            kind: ExportKind::StemExport,
+                            loop_end: self.piano_roll.loop_end,
+                            tail_ticks: ticks_per_second as u32,
+                            paths,
+                        });
+                        self.last_export_progress = 0.0;
+                    });
+                    let _ = reply.send(result);
+                }
+            }
+            AudioCmd::CancelExport => {
+                if self.export_state.is_some() {
+                    let _ = self.engine.stop_export();
+                    self.export_state = None;
+                    self.piano_roll.playing = false;
+                    self.engine.release_all_voices();
+                }
+            }
             AudioCmd::ApplyAutomation { target, value } => {
                 let _ = self.engine.apply_automation(&target, value, &self.instruments, &self.session);
             }
@@ -473,6 +539,37 @@ impl AudioThread {
             }
         }
 
+        // Check if export should stop
+        let mut export_finished = false;
+        if let Some(export) = &self.export_state {
+            if self.piano_roll.playhead >= export.loop_end + export.tail_ticks {
+                export_finished = true;
+            } else {
+                // Send progress feedback (throttled to ~2% increments)
+                let total = export.loop_end + export.tail_ticks;
+                if total > 0 {
+                    let progress = self.piano_roll.playhead as f32 / total as f32;
+                    if (progress - self.last_export_progress).abs() > 0.02 {
+                        self.last_export_progress = progress;
+                        let _ = self
+                            .feedback_tx
+                            .send(AudioFeedback::ExportProgress { progress });
+                    }
+                }
+            }
+        }
+        if export_finished {
+            let paths = self.engine.stop_export();
+            self.piano_roll.playing = false;
+            self.engine.release_all_voices();
+            if let Some(export) = self.export_state.take() {
+                let _ = self.feedback_tx.send(AudioFeedback::ExportComplete {
+                    kind: export.kind,
+                    paths,
+                });
+            }
+        }
+
         super::drum_tick::tick_drum_sequencer(
             &mut self.instruments,
             &self.session,
@@ -532,6 +629,7 @@ impl AudioThread {
         if self.engine.poll_pending_buffer_free() {
             let _ = self.feedback_tx.send(AudioFeedback::PendingBufferFreed);
         }
+        self.engine.poll_pending_export_buffer_frees();
 
         let is_recording = self.engine.is_recording();
         let elapsed_secs = self

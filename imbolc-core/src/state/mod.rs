@@ -35,6 +35,14 @@ pub struct PendingRender {
     pub was_looping: bool,
 }
 
+/// State for an export operation in progress (master bounce or stem export)
+#[derive(Debug, Clone)]
+pub struct PendingExport {
+    pub kind: crate::audio::commands::ExportKind,
+    pub was_looping: bool,
+    pub paths: Vec<PathBuf>,
+}
+
 /// Keyboard layout configuration for key translation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeyboardLayout {
@@ -105,6 +113,10 @@ pub struct AppState {
     pub pending_recording_path: Option<std::path::PathBuf>,
     /// Pending render-to-WAV operation
     pub pending_render: Option<PendingRender>,
+    /// Pending export operation (master bounce or stem export)
+    pub pending_export: Option<PendingExport>,
+    /// Export progress (0.0 to 1.0)
+    pub export_progress: f32,
     pub keyboard_layout: KeyboardLayout,
     pub recording: bool,
     pub recording_secs: u64,
@@ -124,6 +136,8 @@ impl AppState {
             clipboard: Clipboard::default(),
             pending_recording_path: None,
             pending_render: None,
+            pending_export: None,
+            export_progress: 0.0,
             keyboard_layout: KeyboardLayout::default(),
             recording: false,
             recording_secs: 0,
@@ -141,6 +155,8 @@ impl AppState {
             clipboard: Clipboard::default(),
             pending_recording_path: None,
             pending_render: None,
+            pending_export: None,
+            export_progress: 0.0,
             keyboard_layout: KeyboardLayout::default(),
             recording: false,
             recording_secs: 0,

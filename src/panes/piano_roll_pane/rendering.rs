@@ -223,6 +223,29 @@ impl PianoRollPane {
             }
         }
 
+        // Export progress indicator
+        if let Some(export) = &state.pending_export {
+            let progress = state.export_progress;
+            let bar_width: usize = 20;
+            let filled = (progress * bar_width as f32) as usize;
+            let empty = bar_width.saturating_sub(filled);
+            let label = match export.kind {
+                imbolc_core::audio::commands::ExportKind::MasterBounce => "BOUNCING",
+                imbolc_core::audio::commands::ExportKind::StemExport => "STEMS",
+            };
+            let text = format!(
+                " {} [{}{}] {:.0}% ",
+                label,
+                "\u{2588}".repeat(filled),
+                "\u{2591}".repeat(empty),
+                progress * 100.0,
+            );
+            let style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::new(200, 120, 0)));
+            let x = rect.x + rect.width - text.len() as u16 - 2;
+            Paragraph::new(Line::from(Span::styled(&text, style)))
+                .render(RatatuiRect::new(x, header_y, text.len() as u16, 1), buf);
+        }
+
         // Piano keys column + grid rows
         for row in 0..grid_height {
             let pitch = self.view_bottom_pitch.saturating_add((grid_height - 1 - row) as u8);

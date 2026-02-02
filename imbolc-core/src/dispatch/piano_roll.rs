@@ -16,6 +16,10 @@ pub(super) fn dispatch_piano_roll(
             return result;
         }
         PianoRollAction::PlayStop => {
+            // Ignore play/stop while exporting — user must cancel first
+            if state.pending_export.is_some() || state.pending_render.is_some() {
+                return DispatchResult::none();
+            }
             let pr = &mut state.session.piano_roll;
             pr.playing = !pr.playing;
             audio.set_playing(pr.playing);
@@ -173,8 +177,8 @@ pub(super) fn dispatch_piano_roll(
         }
         PianoRollAction::RenderToWav(instrument_id) => {
             let instrument_id = *instrument_id;
-            if state.pending_render.is_some() {
-                return DispatchResult::with_status(crate::audio::ServerStatus::Running, "Already rendering");
+            if state.pending_render.is_some() || state.pending_export.is_some() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Running, "Already rendering or exporting");
             }
             if !audio.is_running() {
                 return DispatchResult::with_status(crate::audio::ServerStatus::Stopped, "Audio engine not running");
@@ -244,6 +248,133 @@ pub(super) fn dispatch_piano_roll(
             let mut result = DispatchResult::none();
             result.audio_dirty.piano_roll = true;
             return result;
+        }
+        PianoRollAction::BounceToWav => {
+            if state.pending_render.is_some() || state.pending_export.is_some() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Running, "Already rendering or exporting");
+            }
+            if !audio.is_running() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Stopped, "Audio engine not running");
+            }
+            if state.instruments.instruments.is_empty() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Stopped, "No instruments");
+            }
+
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let export_dir = std::path::Path::new(&home).join(".config/imbolc/exports");
+            let _ = std::fs::create_dir_all(&export_dir);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let path = export_dir.join(format!("bounce_{}.wav", timestamp));
+
+            let pr = &mut state.session.piano_roll;
+            state.pending_export = Some(crate::state::PendingExport {
+                kind: crate::audio::commands::ExportKind::MasterBounce,
+                was_looping: pr.looping,
+                paths: vec![path.clone()],
+            });
+
+            pr.playhead = pr.loop_start;
+            pr.playing = true;
+            pr.looping = false;
+
+            if let Err(e) = audio.start_master_bounce(&path) {
+                state.pending_export = None;
+                state.session.piano_roll.playing = false;
+                return DispatchResult::with_status(
+                    crate::audio::ServerStatus::Error,
+                    format!("Bounce failed: {}", e),
+                );
+            }
+
+            let mut result = DispatchResult::with_status(
+                crate::audio::ServerStatus::Running,
+                "Bouncing to WAV...",
+            );
+            result.audio_dirty.piano_roll = true;
+            return result;
+        }
+        PianoRollAction::ExportStems => {
+            if state.pending_render.is_some() || state.pending_export.is_some() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Running, "Already rendering or exporting");
+            }
+            if !audio.is_running() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Stopped, "Audio engine not running");
+            }
+            if state.instruments.instruments.is_empty() {
+                return DispatchResult::with_status(crate::audio::ServerStatus::Stopped, "No instruments");
+            }
+
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let export_dir = std::path::Path::new(&home).join(".config/imbolc/exports");
+            let _ = std::fs::create_dir_all(&export_dir);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let mut stems = Vec::new();
+            let mut paths = Vec::new();
+            for inst in &state.instruments.instruments {
+                let safe_name: String = inst
+                    .name
+                    .replace(' ', "_")
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                    .collect();
+                let path = export_dir.join(format!("stem_{}_{}.wav", safe_name, timestamp));
+                stems.push((inst.id, path.clone()));
+                paths.push(path);
+            }
+
+            let pr = &mut state.session.piano_roll;
+            state.pending_export = Some(crate::state::PendingExport {
+                kind: crate::audio::commands::ExportKind::StemExport,
+                was_looping: pr.looping,
+                paths,
+            });
+
+            pr.playhead = pr.loop_start;
+            pr.playing = true;
+            pr.looping = false;
+
+            if let Err(e) = audio.start_stem_export(&stems) {
+                state.pending_export = None;
+                state.session.piano_roll.playing = false;
+                return DispatchResult::with_status(
+                    crate::audio::ServerStatus::Error,
+                    format!("Stem export failed: {}", e),
+                );
+            }
+
+            let mut result = DispatchResult::with_status(
+                crate::audio::ServerStatus::Running,
+                format!("Exporting {} stems...", stems.len()),
+            );
+            result.audio_dirty.piano_roll = true;
+            return result;
+        }
+        PianoRollAction::CancelExport => {
+            if state.pending_export.is_some() {
+                let _ = audio.cancel_export();
+                let pr = &mut state.session.piano_roll;
+                if let Some(export) = state.pending_export.take() {
+                    pr.looping = export.was_looping;
+                }
+                pr.playing = false;
+                pr.playhead = 0;
+                state.export_progress = 0.0;
+                audio.reset_playhead();
+                let mut result = DispatchResult::with_status(
+                    crate::audio::ServerStatus::Running,
+                    "Export cancelled",
+                );
+                result.audio_dirty.piano_roll = true;
+                return result;
+            }
+            return DispatchResult::none();
         }
         PianoRollAction::MoveCursor(_, _)
         | PianoRollAction::SetBpm(_)

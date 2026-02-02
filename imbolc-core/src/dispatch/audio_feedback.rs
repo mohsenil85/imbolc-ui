@@ -112,6 +112,29 @@ pub fn dispatch_audio_feedback(
                 }
             }
         }
+        AudioFeedback::ExportComplete { kind, paths } => {
+            state.session.piano_roll.playing = false;
+            state.session.piano_roll.playhead = 0;
+            if let Some(export) = state.pending_export.take() {
+                state.session.piano_roll.looping = export.was_looping;
+            }
+            state.export_progress = 0.0;
+            audio.set_playing(false);
+            audio.reset_playhead();
+
+            let message = match kind {
+                crate::audio::commands::ExportKind::MasterBounce => {
+                    format!("Bounce complete: {}", paths.first().map(|p| p.display().to_string()).unwrap_or_default())
+                }
+                crate::audio::commands::ExportKind::StemExport => {
+                    format!("Stem export complete: {} files", paths.len())
+                }
+            };
+            result.push_status(audio.status(), message);
+        }
+        AudioFeedback::ExportProgress { progress } => {
+            state.export_progress = *progress;
+        }
         AudioFeedback::VstStateSaved { instrument_id, target, path } => {
             if let Some(instrument) = state.instruments.instrument_mut(*instrument_id) {
                 match target {

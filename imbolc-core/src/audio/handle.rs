@@ -103,6 +103,8 @@ impl AudioHandle {
             AudioFeedback::PendingBufferFreed => {}
             AudioFeedback::VstParamsDiscovered { .. } => {}
             AudioFeedback::VstStateSaved { .. } => {}
+            AudioFeedback::ExportComplete { .. } => {}
+            AudioFeedback::ExportProgress { .. } => {}
         }
     }
 
@@ -574,6 +576,39 @@ impl AudioHandle {
             }
             Err(_) => None,
         }
+    }
+
+    // ── Export (bounce / stems) ──────────────────────────────────
+
+    pub fn start_master_bounce(&mut self, path: &Path) -> Result<(), String> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.send_cmd(AudioCmd::StartMasterBounce {
+            path: path.to_path_buf(),
+            reply: reply_tx,
+        })?;
+        match reply_rx.recv() {
+            Ok(result) => result,
+            Err(_) => Err("Audio thread disconnected".to_string()),
+        }
+    }
+
+    pub fn start_stem_export(
+        &mut self,
+        stems: &[(InstrumentId, PathBuf)],
+    ) -> Result<(), String> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.send_cmd(AudioCmd::StartStemExport {
+            stems: stems.to_vec(),
+            reply: reply_tx,
+        })?;
+        match reply_rx.recv() {
+            Ok(result) => result,
+            Err(_) => Err("Audio thread disconnected".to_string()),
+        }
+    }
+
+    pub fn cancel_export(&mut self) -> Result<(), String> {
+        self.send_cmd(AudioCmd::CancelExport)
     }
 
     // ── Automation ────────────────────────────────────────────────

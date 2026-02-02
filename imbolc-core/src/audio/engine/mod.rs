@@ -15,7 +15,7 @@ use super::bus_allocator::BusAllocator;
 use super::osc_client::OscClientLike;
 use crate::state::{BufferId, InstrumentId};
 
-use recording::RecordingState;
+use recording::{ExportRecordingState, RecordingState};
 
 #[allow(dead_code)]
 pub type ModuleId = u32;
@@ -120,6 +120,10 @@ pub struct AudioEngine {
     recording: Option<RecordingState>,
     /// Buffer pending free after recording stop (bufnum, when to free)
     pending_buffer_free: Option<(i32, Instant)>,
+    /// Active export session (master bounce or stem export)
+    export_state: Option<ExportRecordingState>,
+    /// Buffers pending free after export stop
+    pending_export_buffer_frees: Vec<(i32, Instant)>,
 }
 
 impl AudioEngine {
@@ -149,6 +153,8 @@ impl AudioEngine {
             wavetables_initialized: false,
             recording: None,
             pending_buffer_free: None,
+            export_state: None,
+            pending_export_buffer_frees: Vec::new(),
         }
     }
 

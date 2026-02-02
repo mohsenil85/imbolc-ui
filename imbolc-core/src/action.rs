@@ -170,6 +170,9 @@ pub enum PianoRollAction {
         anchor_pitch: u8,
         notes: Vec<ClipboardNote>,
     },
+    BounceToWav,
+    ExportStems,
+    CancelExport,
 }
 
 /// Sample chopper actions
