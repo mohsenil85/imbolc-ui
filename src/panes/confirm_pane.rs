@@ -7,6 +7,7 @@ use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, NavAction, P
 
 /// What to do when the user confirms the dialog
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // NewProject and LoadFrom are wired in confirm_action() but not yet constructed externally
 pub enum PendingAction {
     Quit,
     NewProject,

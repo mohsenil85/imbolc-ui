@@ -82,6 +82,13 @@ impl AudioHandle {
             .map_err(|_| "Audio thread disconnected".to_string())
     }
 
+    /// Fire-and-forget: send a command and log if the audio thread is disconnected.
+    fn send(&self, cmd: AudioCmd) {
+        if let Err(e) = self.send_cmd(cmd) {
+            eprintln!("[audio] command dropped: {}", e);
+        }
+    }
+
     pub fn drain_feedback(&mut self) -> Vec<AudioFeedback> {
         let mut out = Vec::new();
         while let Ok(msg) = self.feedback_rx.try_recv() {
@@ -163,7 +170,7 @@ impl AudioHandle {
             self.update_automation_lanes(&state.session.automation.lanes);
         }
         if dirty.routing {
-            let _ = self.send_cmd(AudioCmd::RebuildRouting);
+            self.send(AudioCmd::RebuildRouting);
         } else if let Some(instrument_id) = dirty.routing_instrument {
             // Targeted single-instrument rebuild (no full teardown)
             if needs_full_state {
@@ -171,12 +178,12 @@ impl AudioHandle {
             } else {
                 self.update_state(&state.instruments, &state.session);
             }
-            let _ = self.send_cmd(AudioCmd::RebuildInstrumentRouting { instrument_id });
+            self.send(AudioCmd::RebuildInstrumentRouting { instrument_id });
         }
         if dirty.mixer_params {
             if needs_full_state {
                 // Full state already sent — just trigger the engine update
-                let _ = self.send_cmd(AudioCmd::UpdateMixerParams);
+                self.send(AudioCmd::UpdateMixerParams);
             } else {
                 // Mixer-only change: send targeted updates (no full clone)
                 self.send_mixer_params_incremental(state);
@@ -185,30 +192,36 @@ impl AudioHandle {
 
         // ── Targeted param updates (bypass full state clone + rebuild) ──
         if let Some((instrument_id, param_kind, value)) = dirty.filter_param {
-            let _ = self.set_filter_param(instrument_id, param_kind.as_str(), value);
+            if let Err(e) = self.set_filter_param(instrument_id, param_kind.as_str(), value) {
+                eprintln!("[audio] set_filter_param dropped: {}", e);
+            }
         }
         if let Some((instrument_id, effect_id, param_idx, value)) = dirty.effect_param {
             // Resolve param name from instrument state
             if let Some(inst) = state.instruments.instrument(instrument_id) {
                 if let Some(effect) = inst.effect_by_id(effect_id) {
                     if let Some(param) = effect.params.get(param_idx) {
-                        let _ = self.set_effect_param(instrument_id, effect_id, &param.name, value);
+                        if let Err(e) = self.set_effect_param(instrument_id, effect_id, &param.name, value) {
+                            eprintln!("[audio] set_effect_param dropped: {}", e);
+                        }
                     }
                 }
             }
         }
         if let Some((instrument_id, param_kind, value)) = dirty.lfo_param {
-            let _ = self.set_lfo_param(instrument_id, param_kind.as_str(), value);
+            if let Err(e) = self.set_lfo_param(instrument_id, param_kind.as_str(), value) {
+                eprintln!("[audio] set_lfo_param dropped: {}", e);
+            }
         }
     }
 
     fn send_mixer_params_incremental(&self, state: &AppState) {
-        let _ = self.send_cmd(AudioCmd::SetMasterParams {
+        self.send(AudioCmd::SetMasterParams {
             level: state.session.master_level,
             mute: state.session.master_mute,
         });
         for inst in &state.instruments.instruments {
-            let _ = self.send_cmd(AudioCmd::SetInstrumentMixerParams {
+            self.send(AudioCmd::SetInstrumentMixerParams {
                 instrument_id: inst.id,
                 level: inst.level,
                 pan: inst.pan,
@@ -217,38 +230,38 @@ impl AudioHandle {
             });
         }
         // After all fields are updated on the audio thread, trigger engine apply
-        let _ = self.send_cmd(AudioCmd::UpdateMixerParams);
+        self.send(AudioCmd::UpdateMixerParams);
     }
 
     pub fn update_state(&mut self, instruments: &InstrumentSnapshot, session: &SessionSnapshot) {
-        let _ = self.send_cmd(AudioCmd::UpdateState {
+        self.send(AudioCmd::UpdateState {
             instruments: instruments.clone(),
             session: session.clone(),
         });
     }
 
     pub fn update_piano_roll_data(&mut self, piano_roll: &PianoRollSnapshot) {
-        let _ = self.send_cmd(AudioCmd::UpdatePianoRollData {
+        self.send(AudioCmd::UpdatePianoRollData {
             piano_roll: piano_roll.clone(),
         });
     }
 
     pub fn update_automation_lanes(&mut self, lanes: &AutomationSnapshot) {
-        let _ = self.send_cmd(AudioCmd::UpdateAutomationLanes {
+        self.send(AudioCmd::UpdateAutomationLanes {
             lanes: lanes.clone(),
         });
     }
 
     pub fn set_playing(&mut self, playing: bool) {
-        let _ = self.send_cmd(AudioCmd::SetPlaying { playing });
+        self.send(AudioCmd::SetPlaying { playing });
     }
 
     pub fn reset_playhead(&mut self) {
-        let _ = self.send_cmd(AudioCmd::ResetPlayhead);
+        self.send(AudioCmd::ResetPlayhead);
     }
 
     pub fn set_bpm(&mut self, bpm: f32) {
-        let _ = self.send_cmd(AudioCmd::SetBpm { bpm });
+        self.send(AudioCmd::SetBpm { bpm });
     }
 
     // ── State accessors ───────────────────────────────────────────
@@ -366,7 +379,7 @@ impl AudioHandle {
     }
 
     pub fn disconnect(&mut self) {
-        let _ = self.send_cmd(AudioCmd::Disconnect);
+        self.send(AudioCmd::Disconnect);
         self.is_running = false;
         self.audio_state.server_status = if self.audio_state.server_running {
             ServerStatus::Running
@@ -401,7 +414,7 @@ impl AudioHandle {
     }
 
     pub fn stop_server(&mut self) {
-        let _ = self.send_cmd(AudioCmd::StopServer);
+        self.send(AudioCmd::StopServer);
         self.audio_state.server_status = ServerStatus::Stopped;
         self.audio_state.server_running = false;
         self.is_running = false;
@@ -592,7 +605,7 @@ impl AudioHandle {
     }
 
     pub fn push_active_note(&mut self, instrument_id: u32, pitch: u8, duration_ticks: u32) {
-        let _ = self.send_cmd(AudioCmd::RegisterActiveNote {
+        self.send(AudioCmd::RegisterActiveNote {
             instrument_id,
             pitch,
             duration_ticks,
@@ -600,11 +613,11 @@ impl AudioHandle {
     }
 
     pub fn clear_active_notes(&mut self) {
-        let _ = self.send_cmd(AudioCmd::ClearActiveNotes);
+        self.send(AudioCmd::ClearActiveNotes);
     }
 
     pub fn release_all_voices(&mut self) {
-        let _ = self.send_cmd(AudioCmd::ReleaseAllVoices);
+        self.send(AudioCmd::ReleaseAllVoices);
     }
 
     pub fn play_drum_hit_to_instrument(

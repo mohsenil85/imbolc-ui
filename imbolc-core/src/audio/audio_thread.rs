@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use super::commands::{AudioCmd, AudioFeedback, ExportKind};
@@ -91,24 +90,38 @@ impl AudioThread {
     }
 
     pub(crate) fn run(mut self) {
+        const TICK_INTERVAL: Duration = Duration::from_millis(1);
+
         loop {
-            if self.drain_commands() {
-                break;
+            // Block until a command arrives OR the tick interval elapses.
+            // This avoids busy-waiting while still responding immediately to commands.
+            let remaining = TICK_INTERVAL.saturating_sub(self.last_tick.elapsed());
+            match self.cmd_rx.recv_timeout(remaining) {
+                Ok(cmd) => {
+                    if self.handle_cmd(cmd) {
+                        break;
+                    }
+                    // Drain any additional queued commands
+                    if self.drain_remaining_commands() {
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
 
             let now = Instant::now();
             let elapsed = now.duration_since(self.last_tick);
-            if elapsed >= Duration::from_millis(1) {
+            if elapsed >= TICK_INTERVAL {
                 self.last_tick = now;
                 self.tick(elapsed);
             }
 
             self.poll_engine();
-            thread::sleep(Duration::from_millis(1));
         }
     }
 
-    fn drain_commands(&mut self) -> bool {
+    fn drain_remaining_commands(&mut self) -> bool {
         loop {
             match self.cmd_rx.try_recv() {
                 Ok(cmd) => {

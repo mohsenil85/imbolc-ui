@@ -54,6 +54,7 @@ pub fn to_crossterm_key_event(event: &InputEvent) -> CtEvent {
 }
 
 /// Convert our MouseEvent to a crossterm Event for rat-widget consumption.
+#[allow(dead_code)]
 pub fn to_crossterm_mouse_event(event: &MouseEvent) -> CtEvent {
     let convert_button = |btn: MouseButton| match btn {
         MouseButton::Left => CtMouseButton::Left,

@@ -36,10 +36,12 @@ impl Config {
 
         if let Some(path) = user_config_path() {
             if path.exists() {
-                if let Ok(contents) = std::fs::read_to_string(&path) {
-                    if let Ok(user) = toml::from_str::<ConfigFile>(&contents) {
-                        merge_defaults(&mut base.defaults, user.defaults);
-                    }
+                match std::fs::read_to_string(&path) {
+                    Ok(contents) => match toml::from_str::<ConfigFile>(&contents) {
+                        Ok(user) => merge_defaults(&mut base.defaults, user.defaults),
+                        Err(e) => eprintln!("Warning: ignoring malformed config {}: {}", path.display(), e),
+                    },
+                    Err(e) => eprintln!("Warning: could not read config {}: {}", path.display(), e),
                 }
             }
         }

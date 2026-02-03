@@ -96,12 +96,14 @@ pub(super) fn dispatch_vst_param(
                 }
             }
             if audio.is_running() {
-                let _ = audio.send_cmd(AudioCmd::SetVstParam {
+                if let Err(e) = audio.send_cmd(AudioCmd::SetVstParam {
                     instrument_id: *instrument_id,
                     target: *target,
                     param_index: *param_index,
                     value,
-                });
+                }) {
+                    eprintln!("[audio] SetVstParam dropped: {}", e);
+                }
             }
             DispatchResult::none()
         }
@@ -148,10 +150,12 @@ pub(super) fn dispatch_vst_param(
         }
         VstParamAction::DiscoverParams(instrument_id, target) => {
             if audio.is_running() {
-                let _ = audio.send_cmd(AudioCmd::QueryVstParams {
+                if let Err(e) = audio.send_cmd(AudioCmd::QueryVstParams {
                     instrument_id: *instrument_id,
                     target: *target,
-                });
+                }) {
+                    eprintln!("[audio] QueryVstParams dropped: {}", e);
+                }
             }
             DispatchResult::none()
         }
@@ -186,11 +190,13 @@ pub(super) fn dispatch_vst_param(
                     }
                 }
                 if audio.is_running() {
-                    let _ = audio.send_cmd(AudioCmd::SaveVstState {
+                    if let Err(e) = audio.send_cmd(AudioCmd::SaveVstState {
                         instrument_id: *instrument_id,
                         target: *target,
                         path,
-                    });
+                    }) {
+                        eprintln!("[audio] SaveVstState dropped: {}", e);
+                    }
                 }
             }
             DispatchResult::none()

@@ -50,52 +50,49 @@ fn intern(s: String) -> &'static str {
 /// - `"Ctrl+Left"` → CtrlKey(KeyCode::Left)
 /// - `"Shift+Right"` → ShiftKey(KeyCode::Right)
 /// - `"F1"` → Key(KeyCode::F(1))
-fn parse_key(s: &str) -> KeyPattern {
+///
+/// Returns `None` for unrecognised key names (e.g. from a malformed user config).
+fn parse_key(s: &str) -> Option<KeyPattern> {
     // Check for modifier prefixes
     if let Some(rest) = s.strip_prefix("Ctrl+") {
         if rest.len() == 1 {
-            KeyPattern::Ctrl(rest.chars().next().unwrap())
+            Some(KeyPattern::Ctrl(rest.chars().next().unwrap()))
         } else {
-            KeyPattern::CtrlKey(parse_named_key(rest))
+            parse_named_key(rest).map(KeyPattern::CtrlKey)
         }
     } else if let Some(rest) = s.strip_prefix("Alt+") {
-        KeyPattern::Alt(rest.chars().next().unwrap())
+        Some(KeyPattern::Alt(rest.chars().next().unwrap()))
     } else if let Some(rest) = s.strip_prefix("Shift+") {
-        KeyPattern::ShiftKey(parse_named_key(rest))
+        parse_named_key(rest).map(KeyPattern::ShiftKey)
     } else if s.len() == 1 {
-        KeyPattern::Char(s.chars().next().unwrap())
+        Some(KeyPattern::Char(s.chars().next().unwrap()))
     } else if s == "Space" {
-        KeyPattern::Char(' ')
+        Some(KeyPattern::Char(' '))
     } else {
-        KeyPattern::Key(parse_named_key(s))
+        parse_named_key(s).map(KeyPattern::Key)
     }
 }
 
-/// Parse a named key string (e.g., "Up", "Enter", "F1") into a KeyCode
-fn parse_named_key(s: &str) -> KeyCode {
+/// Parse a named key string (e.g., "Up", "Enter", "F1") into a KeyCode.
+/// Returns `None` for unrecognised key names.
+fn parse_named_key(s: &str) -> Option<KeyCode> {
     match s {
-        "Up" => KeyCode::Up,
-        "Down" => KeyCode::Down,
-        "Left" => KeyCode::Left,
-        "Right" => KeyCode::Right,
-        "Enter" => KeyCode::Enter,
-        "Escape" => KeyCode::Escape,
-        "Backspace" => KeyCode::Backspace,
-        "Tab" => KeyCode::Tab,
-        "Home" => KeyCode::Home,
-        "End" => KeyCode::End,
-        "PageUp" => KeyCode::PageUp,
-        "PageDown" => KeyCode::PageDown,
-        "Insert" => KeyCode::Insert,
-        "Delete" => KeyCode::Delete,
-        _ if s.starts_with('F') => {
-            if let Ok(n) = s[1..].parse::<u8>() {
-                KeyCode::F(n)
-            } else {
-                panic!("Unknown key: {}", s);
-            }
-        }
-        _ => panic!("Unknown key: {}", s),
+        "Up" => Some(KeyCode::Up),
+        "Down" => Some(KeyCode::Down),
+        "Left" => Some(KeyCode::Left),
+        "Right" => Some(KeyCode::Right),
+        "Enter" => Some(KeyCode::Enter),
+        "Escape" => Some(KeyCode::Escape),
+        "Backspace" => Some(KeyCode::Backspace),
+        "Tab" => Some(KeyCode::Tab),
+        "Home" => Some(KeyCode::Home),
+        "End" => Some(KeyCode::End),
+        "PageUp" => Some(KeyCode::PageUp),
+        "PageDown" => Some(KeyCode::PageDown),
+        "Insert" => Some(KeyCode::Insert),
+        "Delete" => Some(KeyCode::Delete),
+        _ if s.starts_with('F') => s[1..].parse::<u8>().ok().map(KeyCode::F),
+        _ => None,
     }
 }
 
@@ -143,10 +140,18 @@ fn merge_config(base: &mut KeybindingConfig, user: KeybindingConfig) {
 
 fn build_bindings(raw: &[RawBinding]) -> Vec<KeyBinding> {
     raw.iter()
-        .map(|b| KeyBinding {
-            pattern: parse_key(&b.key),
-            action: intern(b.action.clone()),
-            description: intern(b.description.clone()),
+        .filter_map(|b| {
+            match parse_key(&b.key) {
+                Some(pattern) => Some(KeyBinding {
+                    pattern,
+                    action: intern(b.action.clone()),
+                    description: intern(b.description.clone()),
+                }),
+                None => {
+                    eprintln!("Warning: ignoring unknown key '{}' in keybindings", b.key);
+                    None
+                }
+            }
         })
         .collect()
 }
@@ -182,29 +187,36 @@ mod tests {
 
     #[test]
     fn test_parse_key_char() {
-        assert_eq!(parse_key("q"), KeyPattern::Char('q'));
-        assert_eq!(parse_key("+"), KeyPattern::Char('+'));
+        assert_eq!(parse_key("q"), Some(KeyPattern::Char('q')));
+        assert_eq!(parse_key("+"), Some(KeyPattern::Char('+')));
     }
 
     #[test]
     fn test_parse_key_named() {
-        assert_eq!(parse_key("Up"), KeyPattern::Key(KeyCode::Up));
-        assert_eq!(parse_key("Enter"), KeyPattern::Key(KeyCode::Enter));
-        assert_eq!(parse_key("Space"), KeyPattern::Char(' '));
+        assert_eq!(parse_key("Up"), Some(KeyPattern::Key(KeyCode::Up)));
+        assert_eq!(parse_key("Enter"), Some(KeyPattern::Key(KeyCode::Enter)));
+        assert_eq!(parse_key("Space"), Some(KeyPattern::Char(' ')));
     }
 
     #[test]
     fn test_parse_key_modifiers() {
-        assert_eq!(parse_key("Ctrl+s"), KeyPattern::Ctrl('s'));
-        assert_eq!(parse_key("Alt+x"), KeyPattern::Alt('x'));
-        assert_eq!(parse_key("Ctrl+Left"), KeyPattern::CtrlKey(KeyCode::Left));
-        assert_eq!(parse_key("Shift+Right"), KeyPattern::ShiftKey(KeyCode::Right));
+        assert_eq!(parse_key("Ctrl+s"), Some(KeyPattern::Ctrl('s')));
+        assert_eq!(parse_key("Alt+x"), Some(KeyPattern::Alt('x')));
+        assert_eq!(parse_key("Ctrl+Left"), Some(KeyPattern::CtrlKey(KeyCode::Left)));
+        assert_eq!(parse_key("Shift+Right"), Some(KeyPattern::ShiftKey(KeyCode::Right)));
     }
 
     #[test]
     fn test_parse_key_f_keys() {
-        assert_eq!(parse_key("F1"), KeyPattern::Key(KeyCode::F(1)));
-        assert_eq!(parse_key("F12"), KeyPattern::Key(KeyCode::F(12)));
+        assert_eq!(parse_key("F1"), Some(KeyPattern::Key(KeyCode::F(1))));
+        assert_eq!(parse_key("F12"), Some(KeyPattern::Key(KeyCode::F(12))));
+    }
+
+    #[test]
+    fn test_parse_key_unknown() {
+        assert_eq!(parse_key("Bogus"), None);
+        assert_eq!(parse_key("Ctrl+Bogus"), None);
+        assert_eq!(parse_key("Shift+Bogus"), None);
     }
 
     #[test]

@@ -78,16 +78,18 @@ pub(super) fn dispatch_piano_roll(
             return result;
         }
         PianoRollAction::CycleTimeSig => {
-            let pr = &mut state.session.piano_roll;
-            pr.time_signature = match pr.time_signature {
+            let new_ts = match state.session.time_signature {
                 (4, 4) => (3, 4),
                 (3, 4) => (6, 8),
                 (6, 8) => (5, 4),
                 (5, 4) => (7, 8),
                 _ => (4, 4),
             };
+            state.session.time_signature = new_ts;
+            state.session.piano_roll.time_signature = new_ts;
             let mut result = DispatchResult::none();
             result.audio_dirty.piano_roll = true;
+            result.audio_dirty.session = true;
             return result;
         }
         PianoRollAction::TogglePolyMode(track_idx) => {
