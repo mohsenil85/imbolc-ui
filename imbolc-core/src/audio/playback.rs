@@ -15,7 +15,7 @@ fn next_random(state: &mut u64) -> f32 {
 
 pub fn tick_playback(
     piano_roll: &mut PianoRollSnapshot,
-    instruments: &InstrumentSnapshot,
+    instruments: &mut InstrumentSnapshot,
     session: &SessionSnapshot,
     automation_lanes: &AutomationSnapshot,
     engine: &mut AudioEngine,

@@ -156,7 +156,7 @@ impl Pane for AutomationPane {
         self.render_timeline(buf, timeline_area, state);
 
         // Render target picker overlay (if active)
-        self.render_target_picker(buf, rect);
+        self.render_target_picker(buf, rect, state);
     }
 
     fn keymap(&self) -> &Keymap {

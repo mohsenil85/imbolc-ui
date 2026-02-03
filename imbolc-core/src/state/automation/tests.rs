@@ -232,4 +232,61 @@ mod tests {
         state.recalculate_next_lane_id();
         assert_eq!(state.next_lane_id, id3 + 1);
     }
+
+    #[test]
+    fn targets_for_instrument_context_plain_oscillator() {
+        use crate::state::instrument::{Instrument, SourceType};
+        use crate::state::vst_plugin::VstPluginRegistry;
+
+        let inst = Instrument::new(1, SourceType::Saw);
+        let vst_registry = VstPluginRegistry::new();
+        let targets = AutomationTarget::targets_for_instrument_context(&inst, &vst_registry);
+        // Plain oscillator: only the 10 static targets
+        assert_eq!(targets.len(), 10);
+    }
+
+    #[test]
+    fn targets_for_instrument_context_with_effects() {
+        use crate::state::instrument::{EffectType, Instrument, SourceType};
+        use crate::state::vst_plugin::VstPluginRegistry;
+
+        let mut inst = Instrument::new(1, SourceType::Saw);
+        inst.add_effect(EffectType::Delay); // 3 params: time, feedback, mix
+        inst.add_effect(EffectType::Reverb); // 3 params: room, damp, mix
+        let vst_registry = VstPluginRegistry::new();
+        let targets = AutomationTarget::targets_for_instrument_context(&inst, &vst_registry);
+        // 10 static + 3 (Delay params) + 3 (Reverb params) = 16
+        assert_eq!(targets.len(), 16);
+        // Verify some EffectParam targets exist
+        assert!(targets.iter().any(|t| matches!(t, AutomationTarget::EffectParam(1, _, 0))));
+    }
+
+    #[test]
+    fn targets_for_instrument_context_pitched_sampler() {
+        use crate::state::instrument::{Instrument, SourceType};
+        use crate::state::vst_plugin::VstPluginRegistry;
+
+        let inst = Instrument::new(1, SourceType::PitchedSampler);
+        let vst_registry = VstPluginRegistry::new();
+        let targets = AutomationTarget::targets_for_instrument_context(&inst, &vst_registry);
+        // 10 static + SampleRate + SampleAmp = 12
+        assert_eq!(targets.len(), 12);
+        assert!(targets.iter().any(|t| matches!(t, AutomationTarget::SampleRate(1))));
+        assert!(targets.iter().any(|t| matches!(t, AutomationTarget::SampleAmp(1))));
+    }
+
+    #[test]
+    fn targets_for_instrument_context_with_eq() {
+        use crate::state::instrument::{Instrument, SourceType, EqConfig};
+        use crate::state::vst_plugin::VstPluginRegistry;
+
+        let mut inst = Instrument::new(1, SourceType::Saw);
+        inst.eq = Some(EqConfig::default());
+        let vst_registry = VstPluginRegistry::new();
+        let targets = AutomationTarget::targets_for_instrument_context(&inst, &vst_registry);
+        // 10 static + 36 EQ band params (12 bands x 3 params) = 46
+        assert_eq!(targets.len(), 46);
+        assert!(targets.iter().any(|t| matches!(t, AutomationTarget::EqBandParam(1, 0, 0))));
+        assert!(targets.iter().any(|t| matches!(t, AutomationTarget::EqBandParam(1, 11, 2))));
+    }
 }

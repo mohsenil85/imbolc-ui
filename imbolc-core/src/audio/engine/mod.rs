@@ -320,7 +320,7 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::InstrumentLevel(inst_id),
                 0.5,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
@@ -328,7 +328,7 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::InstrumentPan(inst_id),
                 -0.25,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
@@ -336,7 +336,7 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::FilterCutoff(inst_id),
                 800.0,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
@@ -344,7 +344,7 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::FilterResonance(inst_id),
                 0.5,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
@@ -352,7 +352,7 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::EffectParam(inst_id, 1, 0),
                 0.7,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
@@ -360,7 +360,7 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::SampleRate(inst_id),
                 1.2,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
@@ -368,10 +368,50 @@ mod tests {
             .apply_automation(
                 &AutomationTarget::SampleAmp(inst_id),
                 0.8,
-                &state.instruments,
+                &mut state.instruments,
                 &state.session,
             )
             .unwrap();
+        // Envelope targets — update state and active voices
+        engine
+            .apply_automation(
+                &AutomationTarget::EnvelopeAttack(inst_id),
+                0.05,
+                &mut state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::EnvelopeDecay(inst_id),
+                0.2,
+                &mut state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::EnvelopeSustain(inst_id),
+                0.7,
+                &mut state.instruments,
+                &state.session,
+            )
+            .unwrap();
+        engine
+            .apply_automation(
+                &AutomationTarget::EnvelopeRelease(inst_id),
+                1.5,
+                &mut state.instruments,
+                &state.session,
+            )
+            .unwrap();
+
+        // Verify envelope state was mutated
+        let env = &state.instruments.instrument(inst_id).unwrap().amp_envelope;
+        assert!((env.attack - 0.05).abs() < f32::EPSILON);
+        assert!((env.decay - 0.2).abs() < f32::EPSILON);
+        assert!((env.sustain - 0.7).abs() < f32::EPSILON);
+        assert!((env.release - 1.5).abs() < f32::EPSILON);
     }
 
     #[test]

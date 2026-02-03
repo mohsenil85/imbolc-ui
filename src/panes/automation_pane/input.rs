@@ -61,16 +61,14 @@ impl AutomationPane {
 
             // Add lane
             "add_lane" => {
-                let inst_id = state.instruments.selected_instrument().map(|i| i.id);
                 let editing_clip = state.session.arrangement.editing_clip.is_some();
                 let mut options: Vec<AutomationTarget> = Vec::new();
-                if let Some(id) = inst_id {
-                    options = AutomationTarget::targets_for_instrument(id);
+                if let Some(inst) = state.instruments.selected_instrument() {
+                    options = AutomationTarget::targets_for_instrument_context(inst, &state.session.vst_plugins);
                     // Add send targets
-                    if let Some(inst) = state.instruments.selected_instrument() {
-                        for (idx, _send) in inst.sends.iter().enumerate() {
-                            options.push(AutomationTarget::SendLevel(id, idx));
-                        }
+                    let id = inst.id;
+                    for (idx, _send) in inst.sends.iter().enumerate() {
+                        options.push(AutomationTarget::SendLevel(id, idx));
                     }
                 }
                 // Add global targets (skip when editing a clip — only instrument targets apply)

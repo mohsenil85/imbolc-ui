@@ -4,7 +4,7 @@ use crate::state::{AutomationTarget, InstrumentState, SessionState};
 impl AudioEngine {
     /// Apply an automation value to a target parameter
     /// This updates the appropriate synth node in real-time
-    pub fn apply_automation(&self, target: &AutomationTarget, value: f32, state: &InstrumentState, session: &SessionState) -> Result<(), String> {
+    pub fn apply_automation(&self, target: &AutomationTarget, value: f32, state: &mut InstrumentState, session: &SessionState) -> Result<(), String> {
         if !self.is_running {
             return Ok(());
         }
@@ -87,24 +87,47 @@ impl AudioEngine {
                 }
             }
             AutomationTarget::EnvelopeAttack(instrument_id) => {
-                // Update state — affects newly spawned voices only
-                if let Some(inst) = state.instrument(*instrument_id) {
-                    let _ = inst; // envelope params are read at voice spawn time
+                if let Some(inst) = state.instrument_mut(*instrument_id) {
+                    inst.amp_envelope.attack = value;
+                }
+                for voice in self.voice_allocator.chains() {
+                    if voice.instrument_id == *instrument_id {
+                        client.set_param(voice.source_node, "attack", value)
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
             }
             AutomationTarget::EnvelopeDecay(instrument_id) => {
-                if let Some(inst) = state.instrument(*instrument_id) {
-                    let _ = inst;
+                if let Some(inst) = state.instrument_mut(*instrument_id) {
+                    inst.amp_envelope.decay = value;
+                }
+                for voice in self.voice_allocator.chains() {
+                    if voice.instrument_id == *instrument_id {
+                        client.set_param(voice.source_node, "decay", value)
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
             }
             AutomationTarget::EnvelopeSustain(instrument_id) => {
-                if let Some(inst) = state.instrument(*instrument_id) {
-                    let _ = inst;
+                if let Some(inst) = state.instrument_mut(*instrument_id) {
+                    inst.amp_envelope.sustain = value;
+                }
+                for voice in self.voice_allocator.chains() {
+                    if voice.instrument_id == *instrument_id {
+                        client.set_param(voice.source_node, "sustain", value)
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
             }
             AutomationTarget::EnvelopeRelease(instrument_id) => {
-                if let Some(inst) = state.instrument(*instrument_id) {
-                    let _ = inst;
+                if let Some(inst) = state.instrument_mut(*instrument_id) {
+                    inst.amp_envelope.release = value;
+                }
+                for voice in self.voice_allocator.chains() {
+                    if voice.instrument_id == *instrument_id {
+                        client.set_param(voice.source_node, "release", value)
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
             }
             AutomationTarget::SendLevel(instrument_id, send_idx) => {

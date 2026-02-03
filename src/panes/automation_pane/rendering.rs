@@ -276,9 +276,9 @@ impl AutomationPane {
         }
     }
 
-    pub(super) fn render_target_picker(&self, buf: &mut RenderBuf, area: Rect) {
+    pub(super) fn render_target_picker(&self, buf: &mut RenderBuf, area: Rect, state: &AppState) {
         if let TargetPickerState::Active { ref options, cursor } = self.target_picker {
-            let picker_width = 30u16.min(area.width.saturating_sub(4));
+            let picker_width = 40u16.min(area.width.saturating_sub(4));
             let picker_height = (options.len() as u16 + 2).min(area.height.saturating_sub(2));
             let picker_rect = center_rect(area, picker_width, picker_height);
 
@@ -294,15 +294,28 @@ impl AutomationPane {
             let title_style = Style::new().fg(Color::CYAN);
             let inner = buf.draw_block(picker_rect, " Add Lane ", border_style, title_style);
 
-            for (i, target) in options.iter().enumerate() {
-                let y = inner.y + i as u16;
+            let inst = state.instruments.selected_instrument();
+            let vst_registry = &state.session.vst_plugins;
+
+            // Scroll offset: keep cursor visible within the inner area
+            let visible_rows = inner.height as usize;
+            let scroll_offset = if cursor >= visible_rows {
+                cursor - visible_rows + 1
+            } else {
+                0
+            };
+
+            for (vi, target) in options.iter().enumerate().skip(scroll_offset) {
+                let row = vi - scroll_offset;
+                let y = inner.y + row as u16;
                 if y >= inner.y + inner.height { break; }
 
-                let is_selected = i == cursor;
+                let is_selected = vi == cursor;
+                let display_name = target.name_with_context(inst, vst_registry);
                 let text = format!(
                     "{} {}",
                     if is_selected { ">" } else { " " },
-                    target.name()
+                    display_name
                 );
                 let style = if is_selected {
                     Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()

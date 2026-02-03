@@ -373,7 +373,7 @@ impl AudioThread {
                 }
             }
             AudioCmd::ApplyAutomation { target, value } => {
-                let _ = self.engine.apply_automation(&target, value, &self.instruments, &self.session);
+                let _ = self.engine.apply_automation(&target, value, &mut self.instruments, &self.session);
             }
             AudioCmd::QueryVstParams { instrument_id, target } => {
                 if let Some(node_id) = self.resolve_vst_node_id(instrument_id, target) {
@@ -523,7 +523,7 @@ impl AudioThread {
     fn tick(&mut self, elapsed: Duration) {
         super::playback::tick_playback(
             &mut self.piano_roll,
-            &self.instruments,
+            &mut self.instruments,
             &self.session,
             &self.automation_lanes,
             &mut self.engine,
