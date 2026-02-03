@@ -7,7 +7,8 @@ imbolc is a terminal-based digital audio workstation (DAW) written in Rust. The 
 ## Quick start
 
 - Install Rust (edition 2021) and SuperCollider (scsynth on PATH; sclang needed for synthdef compilation).
-- Run: `cargo run --release`
+- Compile synthdefs: `bin/compile-synthdefs`
+- Run: `cargo run --release` (or use `bin/imbolc`)
 - Use number keys `1`-`5` to switch panes, `F5` for server controls, and `?` for context help.
 
 Developer mode (UI only):
@@ -22,9 +23,12 @@ IMBOLC_NO_AUDIO=1 cargo run
 - **Sources:** classic waves + noise, sync, FM/phase mod, pluck, formant, gendy, chaos, additive, wavetable; audio in/bus in; polyphonic sampler; drum kit; custom SynthDefs; VST instruments (experimental).
 - **Filters:** low-pass, high-pass, band-pass.
 - **Effects:** delay, reverb, gate, tape/sidechain comp, chorus, flanger, phaser, tremolo, distortion, bitcrusher, wavefolder, saturator, tilt EQ, stereo widener, freq shifter, limiter, pitch shifter, vinyl, cabinet, granular delay/freeze, convolution reverb.
-- **Sequencing:** multi-track piano roll with per-note velocity, probability, and swing; 16-step drum sequencer; sample chopper for slice-based beat making.
+- **Sequencing:** multi-track piano roll with per-note velocity, probability, and swing.
+- **Drum Machine:** 16-step drum sequencer with per-step velocity and sample selection.
+- **Sampler:** Polyphonic sampler and a "Chopper" for slice-based beat making.
 - **Mixer:** channel/bus levels, pan, mute/solo, 8 buses, sends, master control.
 - **Automation:** per-track automation lanes for parameters (including VST params).
+- **Productivity:** Full Undo/Redo history, Clipboard (copy/paste notes and steps), and a Command Palette (`Ctrl+p`) for quick actions.
 - **Analysis:** Real-time master level meter, spectrum analyzer, oscilloscope, and waveform view for audio input.
 - **Low-latency playback:** Dedicated audio thread (~1ms tick) using **OSC bundles with NTP timetags** for sample-accurate scheduling, decoupled from UI jitter.
 - **Smart Voice Stealing:** Advanced polyphony management with multi-criteria scoring (prioritizing released voices, then lower velocity and older notes), optimized same-pitch retriggering, 5ms anti-click fades for stolen voices, and intelligent lifecycle cleanup.
@@ -38,8 +42,10 @@ IMBOLC_NO_AUDIO=1 cargo run
 - `5` **Server:** scsynth status, device selection, synthdef build/load, recording.
 - `?` **Help:** Context-sensitive help for the active pane.
 - `/` **Performance:** Toggle performance mode (piano/pad keyboard).
+- `Ctrl+p` **Command Palette:** Search and execute commands.
 - `Ctrl+f` **Frame Edit:** BPM, time signature, tuning, key/scale, snap.
 - `Ctrl+s` / `Ctrl+l` Save/load default project.
+- `u` / `Ctrl+r` Undo / Redo.
 - `` ` `` / `~` Navigate back/forward through pane history.
 
 The canonical keybinding list lives in `keybindings.toml` and is surfaced in-app via `?`.

@@ -1,6 +1,7 @@
-> **Status: Implemented**
+> **Status: Phase 1 Implemented (Import & Playback)**
 >
 > Custom SynthDef support lives in `imbolc-core/src/state/custom_synthdef.rs`, `imbolc-core/src/scd_parser.rs`, and `imbolc-core/src/audio/engine/voices.rs`/`routing.rs`.
+> Phase 1 (Data structures, Parser, Import flow) is complete. Phase 2 (Embedded SCLang Editor) is future work.
 > This plan predates the imbolc-core split; paths below use current names.
 
 Current paths:

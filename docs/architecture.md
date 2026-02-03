@@ -128,7 +128,7 @@ is called only when the layer stack resolves a key to an action string; otherwis
 | `sequencer` | `SequencerPane` | `F2` (context) | Drum sequencer / song structure |
 | `mixer` | `MixerPane` | `F4` | Mixer channels, buses, master |
 | `server` | `ServerPane` | `F5` | SuperCollider server status/control |
-| `track` | `TrackPane` | `F3` | Timeline overview (WIP) |
+| `track` | `TrackPane` | `F3` | Timeline overview (Arrangement view) |
 | `logo` | `LogoPane` | `F6` | Logo splash |
 | `automation` | `AutomationPane` | `F7` | Automation lanes and point editing |
 | `waveform` | `WaveformPane` | `F2` (context) | Recorded/input waveform view |
@@ -140,6 +140,12 @@ is called only when the layer stack resolves a key to an action string; otherwis
 | `frame_edit` | `FrameEditPane` | `Ctrl+f` | Session settings (BPM, key, etc.) |
 | `file_browser` | `FileBrowserPane` | — | File selection for imports |
 | `sample_chopper` | `SampleChopperPane` | — | Slice audio and assign pads |
+| `command_palette` | `CommandPalettePane` | `Ctrl+p` | Search and execute commands |
+| `confirm` | `ConfirmPane` | — | Confirmation dialog |
+| `midi_settings` | `MidiSettingsPane` | — | Configure MIDI input devices |
+| `project_browser` | `ProjectBrowserPane` | — | Open/manage projects |
+| `save_as` | `SaveAsPane` | — | Save project as new file |
+| `eq` | `EqPane` | — | Graphic EQ editor |
 | `help` | `HelpPane` | `?` | Context-sensitive keybinding help |
 
 ### Pane Communication
@@ -273,3 +279,18 @@ Comprehensive — the full state survives save/load:
 - Playback position
 - Audio engine state (rebuilt on connect)
 - Audio monitor waveforms (regenerated on load/record)
+
+## Undo/Redo & Clipboard
+
+### Undo System
+The undo system (`imbolc-core/src/state/undo.rs`) uses a command pattern. Actions that modify state return an `UndoableAction` enum variant, which captures enough information to reverse the change.
+- **Stacks:** `undo_stack` and `redo_stack` in `AppState`.
+- **Capture:** State snapshots or delta-based inversion.
+- **Scope:** Covers note edits, instrument parameters, mixer changes, and sequencer edits.
+
+### Clipboard
+The clipboard (`imbolc-core/src/state/clipboard.rs`) supports typed data:
+- `Notes`: List of `MidiNote` (piano roll).
+- `Steps`: List of sequencer steps.
+- `Pattern`: Full sequencer pattern.
+- `Automation`: Points and curve data.

@@ -414,39 +414,7 @@ bool`, `countdown_beats: u8`
 
 ---
 
-### Arrangement view
 
-**Sources:** R2 #28
-
-GarageBand-style timeline view showing all tracks with zoomed-out
-regions (colored blocks where MIDI data exists). Separate pane from
-piano roll. Toggle between arrangement and piano roll with `'` key.
-
-**Data model:** MIDI regions as first-class stored objects (not
-derived from notes). `MidiRegion` with id, strip_id, start_tick,
-end_tick, name, color, muted, notes. SQLite table for regions. Notes
-get `region_id` foreign key. Migration: auto-wrap existing notes into
-one region per track.
-
-**Track layout:** Left sidebar (10 chars, strip name), timeline area
-with bar ruler, 2 lines per track (regions +
-automation). Vertical/horizontal scrolling.
-
-**Zoom levels:** 1 char = 1/4 beat, 1 beat, 1 bar, 4 bars. Zoom with
-z/x.
-
-**Keybindings:** `'` toggle to piano roll, arrows scroll, j/k select
-track, z/x zoom, Space play/stop, L loop, [/] set loop bounds, Enter
-jump to piano roll, </> move region across tracks.
-
-**Phases:** (1) Read-only view with regions, playhead, scrolling. (2)
-Waveforms and automation display. (3) Interactive editing — selection,
-cross-track moves, copy/duplicate.
-
-**Files:** New `src/panes/arrangement_pane.rs`, `src/panes/mod.rs`,
-`src/main.rs`, `src/ui/pane.rs`, `src/panes/piano_roll_pane.rs`
-
----
 
 ### LFO modulation targets
 
@@ -471,24 +439,7 @@ remaining.
 
 ---
 
-### MIDI Input
 
-**Sources:** NEXT_STEPS #2, UNWIRED #1-2 (midi_recording module
-unwired)
-
-Connect hardware MIDI controllers. Requires `midir` crate.
-
-| Need | Status |
-|------|--------|
-| MIDI device input | Partially implemented (`src/midi/mod.rs`), not wired into app |
-| Note triggering | Voice allocation exists — hook to spawn_voice |
-| CC mapping | Not implemented — `MidiRecordingState`, `MidiCcMapping` defined but unwired |
-| Pitch bend | Not implemented — map to sampler rate (scratching) |
-
-Note: `SessionState.midi_recording` exists but is never
-read. `src/midi/mod.rs` is not integrated into the main loop or UI.
-
----
 
 ### Automation Recording
 
@@ -535,14 +486,7 @@ render status.
 
 ---
 
-### Undo/Redo
 
-**Sources:** NEXT_STEPS #6
-
-Command history with undo stack and redo stack. Command pattern with
-inverses. `u` to undo, `Ctrl+r` to redo.
-
----
 
 ### Sequencer: Note Duration Grid Selection
 
@@ -589,70 +533,7 @@ Proposed widgets:
 
 ---
 
-### Audio I/O Management Pane (partial)
 
-**Sources:** User request
-
-Pane for selecting and configuring audio hardware devices — choose
-DAC, set headphones as output, configure input devices, sample rate,
-and block size.
-
-**Status:** Output/input device selection UI exists in `ServerPane`,
-and `AudioEngine` starts scsynth with selected devices. Device config
-is persisted to `~/.config/imbolc/audio_devices.json`.
-
-**Device enumeration options:**
-1. **scsynth -H ?** — prints available devices to stdout. Parse
-   output. No new deps.
-2. **cpal crate** — cross-platform device enumeration. More control,
-   but adds a dependency.
-
-**Remaining work:**
-- Add sample rate + block size selection, and pass `-S`/`-Z` to
-  scsynth
-- Show device capabilities (sample rates, channel counts)
-- Persist device preferences in SQLite (currently JSON)
-
-**Implementation notes:**
-- Pass `-H <device>`, `-S <sample_rate>`, `-Z <block_size>`, `-i
-  <num_inputs>`, `-o <num_outputs>` to scsynth on startup
-- Device change requires server restart — warn user, stop playback
-- Store preferences in a `device_config` SQLite table
-- Enumerate devices at pane open time (run `scsynth -H ?` or use cpal)
-- Assign a number key for navigation (e.g., `6`)
-
-**Pane layout:**
-
-```
-+-------------------- Audio I/O -------------------------------------------+
-|                                                                           |
-|  Output Device                                                            |
-|  > Built-in Output (MacBook Pro Speakers)                                 |
-|    External Headphones                                                    |
-|    Scarlett 2i2 USB                                                       |
-|                                                                           |
-|  Input Device                                                             |
-|  > Built-in Microphone                                                    |
-|    Scarlett 2i2 USB                                                       |
-|                                                                           |
-|  Sample Rate     48000 Hz                                                 |
-|  Block Size      128                                                      |
-|  Output Channels 2                                                        |
-|  Input Channels  2                                                        |
-|                                                                           |
-|  Server: Running (restart required to apply changes)                      |
-|                                                                           |
-+--------------------------------------------------------------------------+
-```
-
-**Key bindings:** j/k or Up/Down: navigate, Enter: select device,
-Left/Right: adjust sample rate/block size, r: restart server with new
-settings, Escape: back.
-
-**Files:** `src/panes/server_pane.rs`, `src/audio/devices.rs`,
-`src/audio/engine.rs`, `src/state/persistence.rs` (for SQLite prefs)
-
----
 
 ## Long-term
 
