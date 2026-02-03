@@ -32,21 +32,10 @@ impl AudioEngine {
             return self.spawn_sampler_voice(instrument_id, pitch, velocity, offset_secs, state, session);
         }
 
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        // Smart voice stealing (must precede client borrow)
+        self.steal_voice_if_needed(instrument_id, pitch, velocity)?;
 
-        // Voice-steal: if at limit, free oldest by spawn_time
-        let count = self.voice_chains.iter().filter(|v| v.instrument_id == instrument_id).count();
-        if count >= MAX_VOICES_PER_INSTRUMENT {
-            if let Some(pos) = self.voice_chains.iter()
-                .enumerate()
-                .filter(|(_, v)| v.instrument_id == instrument_id)
-                .min_by_key(|(_, v)| v.spawn_time)
-                .map(|(i, _)| i)
-            {
-                let old = self.voice_chains.remove(pos);
-                let _ = client.free_node(old.group_id);
-            }
-        }
+        let client = self.client.as_ref().ok_or("Not connected")?;
 
         // Get the audio bus where voices should write their output
         let source_out_bus = self.bus_allocator.get_audio_bus(instrument_id, "source_out").unwrap_or(16);
@@ -193,10 +182,12 @@ impl AudioEngine {
         self.voice_chains.push(VoiceChain {
             instrument_id,
             pitch,
+            velocity,
             group_id,
             midi_node_id,
             source_node: source_node_id,
             spawn_time: Instant::now(),
+            release_state: None,
         });
 
         Ok(())
@@ -230,21 +221,10 @@ impl AudioEngine {
             .map(|s| (s.start, s.end))
             .unwrap_or((0.0, 1.0));
 
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        // Smart voice stealing (must precede client borrow)
+        self.steal_voice_if_needed(instrument_id, pitch, velocity)?;
 
-        // Voice-steal: if at limit, free oldest by spawn_time
-        let count = self.voice_chains.iter().filter(|v| v.instrument_id == instrument_id).count();
-        if count >= MAX_VOICES_PER_INSTRUMENT {
-            if let Some(pos) = self.voice_chains.iter()
-                .enumerate()
-                .filter(|(_, v)| v.instrument_id == instrument_id)
-                .min_by_key(|(_, v)| v.spawn_time)
-                .map(|(i, _)| i)
-            {
-                let old = self.voice_chains.remove(pos);
-                let _ = client.free_node(old.group_id);
-            }
-        }
+        let client = self.client.as_ref().ok_or("Not connected")?;
 
         // Get the audio bus where voices should write their output
         let source_out_bus = self.bus_allocator.get_audio_bus(instrument_id, "source_out").unwrap_or(16);
@@ -413,16 +393,20 @@ impl AudioEngine {
         self.voice_chains.push(VoiceChain {
             instrument_id,
             pitch,
+            velocity,
             group_id,
             midi_node_id,
             source_node: sampler_node_id,
             spawn_time: Instant::now(),
+            release_state: None,
         });
 
         Ok(())
     }
 
-    /// Release a specific voice by instrument and pitch (note-off)
+    /// Release a specific voice by instrument and pitch (note-off).
+    /// Marks the voice as released instead of removing it, so it remains
+    /// available as a steal candidate while its envelope fades out.
     pub fn release_voice(
         &mut self,
         instrument_id: InstrumentId,
@@ -439,32 +423,46 @@ impl AudioEngine {
 
         let client = self.client.as_ref().ok_or("Not connected")?;
 
+        // Find an active (non-released) voice matching this instrument and pitch
         if let Some(pos) = self
             .voice_chains
             .iter()
-            .position(|v| v.instrument_id == instrument_id && v.pitch == pitch)
+            .position(|v| {
+                v.instrument_id == instrument_id
+                    && v.pitch == pitch
+                    && v.release_state.is_none()
+            })
         {
-            let chain = self.voice_chains.remove(pos);
-            let time = super::super::osc_client::osc_time_from_now(offset_secs);
-            client
-                .set_params_bundled(chain.midi_node_id, &[("gate", 0.0)], time)
-                .map_err(|e| e.to_string())?;
-            // Schedule group free after envelope release completes (+1s margin)
             let release_time = state.instrument(instrument_id)
                 .map(|s| s.amp_envelope.release)
                 .unwrap_or(1.0);
+
+            // Send gate=0 to begin envelope release
+            let time = super::super::osc_client::osc_time_from_now(offset_secs);
+            client
+                .set_params_bundled(
+                    self.voice_chains[pos].midi_node_id,
+                    &[("gate", 0.0)],
+                    time,
+                )
+                .map_err(|e| e.to_string())?;
+
+            // Schedule deferred /n_free after envelope completes (+1s margin)
             let cleanup_time = super::super::osc_client::osc_time_from_now(
-                offset_secs + release_time as f64 + 1.0
+                offset_secs + release_time as f64 + 1.0,
             );
             client
                 .send_bundle(
                     vec![rosc::OscMessage {
                         addr: "/n_free".to_string(),
-                        args: vec![rosc::OscType::Int(chain.group_id)],
+                        args: vec![rosc::OscType::Int(self.voice_chains[pos].group_id)],
                     }],
                     cleanup_time,
                 )
                 .map_err(|e| e.to_string())?;
+
+            // Mark as released (keep in voice_chains for steal scoring)
+            self.voice_chains[pos].release_state = Some((Instant::now(), release_time));
         }
         Ok(())
     }
@@ -476,6 +474,133 @@ impl AudioEngine {
                 let _ = client.free_node(chain.group_id);
             }
         }
+    }
+
+    /// Remove voices whose release envelope has fully expired.
+    /// Called periodically from the audio thread to prevent unbounded growth.
+    pub fn cleanup_expired_voices(&mut self) {
+        let now = Instant::now();
+        self.voice_chains.retain(|v| {
+            if let Some((released_at, release_dur)) = v.release_state {
+                // Keep if still within release + 1.5s safety margin
+                now.duration_since(released_at).as_secs_f32() < release_dur + 1.5
+            } else {
+                true // active voice, keep
+            }
+        });
+    }
+
+    /// Find the best steal candidate for a given instrument.
+    /// Returns the index of the voice with the lowest score (best target).
+    ///
+    /// Scoring:
+    /// - Released voices: 0–999 (further into release = lower score)
+    /// - Active voices: 1000+ (lower velocity = lower; older = lower tiebreaker)
+    fn find_steal_candidate(&self, instrument_id: InstrumentId) -> Option<usize> {
+        let now = Instant::now();
+
+        self.voice_chains
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.instrument_id == instrument_id)
+            .min_by(|(_, a), (_, b)| {
+                let score_a = Self::steal_score(a, now);
+                let score_b = Self::steal_score(b, now);
+                score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
+    }
+
+    /// Compute a steal priority score for a voice. Lower = better steal target.
+    fn steal_score(voice: &VoiceChain, now: Instant) -> f64 {
+        if let Some((released_at, release_dur)) = voice.release_state {
+            // Released voice: score 0–999
+            // Further into release (closer to silent) = lower score
+            let elapsed = now.duration_since(released_at).as_secs_f64();
+            let progress = if release_dur > 0.0 {
+                (elapsed / release_dur as f64).min(1.0)
+            } else {
+                1.0
+            };
+            // progress 1.0 (fully released) -> score 0, progress 0.0 (just released) -> score 999
+            (1.0 - progress) * 999.0
+        } else {
+            // Active voice: score 1000+
+            // Lower velocity = lower score (steal quieter voices first)
+            let velocity_score = voice.velocity as f64 * 500.0; // 0–500
+            // Older = lower score (tiebreaker)
+            let age_secs = now.duration_since(voice.spawn_time).as_secs_f64();
+            let age_score = 500.0 / (1.0 + age_secs); // older -> smaller value
+            1000.0 + velocity_score + age_score
+        }
+    }
+
+    /// Steal a voice if needed before spawning a new one.
+    /// 1. Same-pitch retrigger: always steal matching pitch
+    /// 2. If active voice count is at the limit, steal the best candidate
+    /// Uses a brief anti-click fade (gate=0 then /n_free after 5ms) instead of hard cut.
+    pub(crate) fn steal_voice_if_needed(
+        &mut self,
+        instrument_id: InstrumentId,
+        pitch: u8,
+        _velocity: f32,
+    ) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        // 1. Same-pitch retrigger: steal any voice (active or released) with the same pitch
+        if let Some(pos) = self.voice_chains.iter().position(|v| {
+            v.instrument_id == instrument_id && v.pitch == pitch
+        }) {
+            let old = self.voice_chains.remove(pos);
+            Self::anti_click_free(client.as_ref(), &old)?;
+            // After removing the retrigger target, still check if we're at the limit
+        }
+
+        // 2. Count active (non-released) voices for this instrument
+        let active_count = self
+            .voice_chains
+            .iter()
+            .filter(|v| v.instrument_id == instrument_id && v.release_state.is_none())
+            .count();
+
+        if active_count >= MAX_VOICES_PER_INSTRUMENT {
+            if let Some(pos) = self.find_steal_candidate(instrument_id) {
+                let old = self.voice_chains.remove(pos);
+                Self::anti_click_free(client.as_ref(), &old)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Free a voice with a brief anti-click fade: send gate=0, then /n_free after 5ms.
+    /// For already-released voices, skip gate=0 (already fading) and free immediately.
+    fn anti_click_free(
+        client: &dyn super::super::osc_client::OscClientLike,
+        voice: &VoiceChain,
+    ) -> Result<(), String> {
+        if voice.release_state.is_some() {
+            // Already releasing — just free immediately (deferred /n_free already scheduled,
+            // but SC silently ignores double-frees)
+            client.free_node(voice.group_id).map_err(|e| e.to_string())?;
+        } else {
+            // Active voice: send gate=0 for a brief fade, then free after 5ms
+            let now = super::super::osc_client::osc_time_from_now(0.0);
+            client
+                .set_params_bundled(voice.midi_node_id, &[("gate", 0.0)], now)
+                .map_err(|e| e.to_string())?;
+            let free_time = super::super::osc_client::osc_time_from_now(0.005);
+            client
+                .send_bundle(
+                    vec![rosc::OscMessage {
+                        addr: "/n_free".to_string(),
+                        args: vec![rosc::OscType::Int(voice.group_id)],
+                    }],
+                    free_time,
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     /// Play a one-shot drum sample routed through an instrument's signal chain

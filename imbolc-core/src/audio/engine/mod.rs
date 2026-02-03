@@ -51,10 +51,13 @@ const VST_UGEN_INDEX: i32 = 0;
 pub struct VoiceChain {
     pub instrument_id: InstrumentId,
     pub pitch: u8,
+    pub velocity: f32,
     pub group_id: i32,
     pub midi_node_id: i32,
     pub source_node: i32,
     pub spawn_time: Instant,
+    /// If set, voice has been released: (released_at, release_duration_secs)
+    pub release_state: Option<(Instant, f32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -293,10 +296,12 @@ mod tests {
         engine.voice_chains.push(VoiceChain {
             instrument_id: inst_id,
             pitch: 60,
+            velocity: 0.8,
             group_id: 0,
             midi_node_id: 0,
             source_node: 1234,
             spawn_time: Instant::now(),
+            release_state: None,
         });
 
         engine
@@ -385,5 +390,153 @@ mod tests {
         engine
             .set_bus_mixer_params(1, 0.5, false, 0.0)
             .expect("set_bus_mixer_params");
+    }
+
+    fn make_voice(inst_id: InstrumentId, pitch: u8, velocity: f32, age_ms: u64) -> VoiceChain {
+        VoiceChain {
+            instrument_id: inst_id,
+            pitch,
+            velocity,
+            group_id: 0,
+            midi_node_id: 0,
+            source_node: 0,
+            spawn_time: Instant::now() - std::time::Duration::from_millis(age_ms),
+            release_state: None,
+        }
+    }
+
+    fn make_released_voice(
+        inst_id: InstrumentId,
+        pitch: u8,
+        velocity: f32,
+        released_ago_ms: u64,
+        release_dur: f32,
+    ) -> VoiceChain {
+        VoiceChain {
+            instrument_id: inst_id,
+            pitch,
+            velocity,
+            group_id: 0,
+            midi_node_id: 0,
+            source_node: 0,
+            spawn_time: Instant::now() - std::time::Duration::from_millis(released_ago_ms + 100),
+            release_state: Some((
+                Instant::now() - std::time::Duration::from_millis(released_ago_ms),
+                release_dur,
+            )),
+        }
+    }
+
+    #[test]
+    fn test_same_pitch_retrigger() {
+        let mut engine = connect_engine();
+        let inst_id = 1;
+
+        // Add a voice at pitch 60
+        engine.voice_chains.push(make_voice(inst_id, 60, 0.8, 100));
+
+        // Steal for a new note at the same pitch
+        engine
+            .steal_voice_if_needed(inst_id, 60, 0.9)
+            .expect("steal");
+
+        // The old voice should be removed
+        assert!(
+            engine.voice_chains.iter().all(|v| !(v.instrument_id == inst_id && v.pitch == 60)),
+            "same-pitch voice should have been stolen"
+        );
+    }
+
+    #[test]
+    fn test_released_voices_stolen_first() {
+        let mut engine = connect_engine();
+        let inst_id = 1;
+
+        // Fill to limit with active voices
+        for i in 0..MAX_VOICES_PER_INSTRUMENT {
+            engine.voice_chains.push(make_voice(inst_id, 40 + i as u8, 0.8, 100));
+        }
+        // Add an extra released voice (active count is already at limit)
+        engine.voice_chains.push(make_released_voice(inst_id, 80, 0.8, 500, 1.0));
+
+        // Trigger steal
+        engine
+            .steal_voice_if_needed(inst_id, 90, 0.8)
+            .expect("steal");
+
+        // The released voice should be gone, not any active voice
+        assert!(
+            !engine.voice_chains.iter().any(|v| v.pitch == 80 && v.instrument_id == inst_id),
+            "released voice should be stolen before active voices"
+        );
+        // All original active voices should still be present
+        assert_eq!(
+            engine.voice_chains.iter().filter(|v| v.instrument_id == inst_id).count(),
+            MAX_VOICES_PER_INSTRUMENT,
+        );
+    }
+
+    #[test]
+    fn test_lowest_velocity_stolen() {
+        let mut engine = connect_engine();
+        let inst_id = 1;
+
+        // Fill to limit — all same age, varying velocity
+        for i in 0..MAX_VOICES_PER_INSTRUMENT {
+            let vel = 0.2 + (i as f32 * 0.05); // 0.2, 0.25, 0.30, ...
+            engine.voice_chains.push(make_voice(inst_id, 40 + i as u8, vel, 100));
+        }
+        let quietest_pitch = engine.voice_chains[0].pitch; // velocity 0.2
+
+        engine
+            .steal_voice_if_needed(inst_id, 90, 0.8)
+            .expect("steal");
+
+        assert!(
+            !engine.voice_chains.iter().any(|v| v.pitch == quietest_pitch && v.instrument_id == inst_id),
+            "lowest velocity voice should be stolen"
+        );
+    }
+
+    #[test]
+    fn test_age_tiebreaker() {
+        let mut engine = connect_engine();
+        let inst_id = 1;
+
+        // Fill to limit — all same velocity, varying age
+        for i in 0..MAX_VOICES_PER_INSTRUMENT {
+            let age = 1000 - (i as u64 * 50); // oldest first: 1000, 950, 900, ...
+            engine.voice_chains.push(make_voice(inst_id, 40 + i as u8, 0.5, age));
+        }
+        let oldest_pitch = engine.voice_chains[0].pitch; // age 1000ms
+
+        engine
+            .steal_voice_if_needed(inst_id, 90, 0.5)
+            .expect("steal");
+
+        assert!(
+            !engine.voice_chains.iter().any(|v| v.pitch == oldest_pitch && v.instrument_id == inst_id),
+            "oldest voice should be stolen as tiebreaker"
+        );
+    }
+
+    #[test]
+    fn test_cleanup_expired_voices() {
+        let mut engine = connect_engine();
+        let inst_id = 1;
+
+        // Add a voice released long ago (should be cleaned up)
+        engine.voice_chains.push(make_released_voice(inst_id, 60, 0.5, 5000, 0.5));
+        // Add a voice released recently (should be kept)
+        engine.voice_chains.push(make_released_voice(inst_id, 72, 0.5, 100, 1.0));
+        // Add an active voice (should be kept)
+        engine.voice_chains.push(make_voice(inst_id, 48, 0.8, 200));
+
+        engine.cleanup_expired_voices();
+
+        assert_eq!(engine.voice_chains.len(), 2);
+        assert!(engine.voice_chains.iter().any(|v| v.pitch == 72));
+        assert!(engine.voice_chains.iter().any(|v| v.pitch == 48));
+        assert!(!engine.voice_chains.iter().any(|v| v.pitch == 60));
     }
 }

@@ -591,6 +591,8 @@ impl AudioThread {
     }
 
     fn poll_engine(&mut self) {
+        self.engine.cleanup_expired_voices();
+
         if let Some(result) = self.engine.poll_compile_result() {
             let result = match result {
                 Ok(msg) => {
