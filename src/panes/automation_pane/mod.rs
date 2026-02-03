@@ -53,20 +53,12 @@ impl AutomationPane {
     }
 
     fn ticks_per_cell(&self) -> u32 {
-        match self.zoom_level {
-            1 => 60,   // 1/8 beat
-            2 => 120,  // 1/4 beat (sixteenth)
-            3 => 240,  // 1/2 beat (eighth)
-            4 => 480,  // 1 beat
-            5 => 960,  // 2 beats
-            _ => 480,
-        }
+        crate::state::grid::ticks_per_cell(self.zoom_level)
     }
 
     fn snap_tick(&self, tick: u32) -> u32 {
         if self.snap_to_grid {
-            let grid = self.ticks_per_cell();
-            (tick / grid) * grid
+            crate::state::grid::snap_to_grid(tick, self.zoom_level)
         } else {
             tick
         }

@@ -106,20 +106,12 @@ impl PianoRollPane {
 
     /// Ticks per grid cell based on zoom level
     pub(crate) fn ticks_per_cell(&self) -> u32 {
-        match self.zoom_level {
-            1 => 60,   // 1/8 beat
-            2 => 120,  // 1/4 beat
-            3 => 240,  // 1/2 beat
-            4 => 480,  // 1 beat
-            5 => 960,  // 2 beats
-            _ => 240,
-        }
+        crate::state::grid::ticks_per_cell(self.zoom_level)
     }
 
     /// Snap cursor tick to grid
     fn snap_tick(&self, tick: u32) -> u32 {
-        let grid = self.ticks_per_cell();
-        (tick / grid) * grid
+        crate::state::grid::snap_to_grid(tick, self.zoom_level)
     }
 
     /// Ensure cursor is visible by adjusting view

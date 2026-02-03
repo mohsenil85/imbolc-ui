@@ -4,6 +4,7 @@ pub mod arrangement;
 pub mod clipboard;
 pub mod custom_synthdef;
 pub mod drum_sequencer;
+pub mod grid;
 pub mod instrument;
 pub mod instrument_state;
 pub mod midi_recording;
