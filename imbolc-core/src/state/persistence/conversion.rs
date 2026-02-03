@@ -118,6 +118,7 @@ pub(super) fn parse_source_type(s: &str) -> SourceType {
         "chaos" => SourceType::Chaos,
         "additive" => SourceType::Additive,
         "wavetable" => SourceType::Wavetable,
+        "granular" => SourceType::Granular,
         "audio_in" => SourceType::AudioIn,
         "sample" | "sampler" | "pitched_sampler" => SourceType::PitchedSampler,
         "kit" | "drum" => SourceType::Kit,

@@ -22,6 +22,7 @@ pub enum SourceType {
     Chaos,
     Additive,
     Wavetable,
+    Granular,
     AudioIn,
     BusIn,
     PitchedSampler,
@@ -51,6 +52,7 @@ impl SourceType {
             SourceType::Chaos => "Chaos",
             SourceType::Additive => "Additive",
             SourceType::Wavetable => "Wavetable",
+            SourceType::Granular => "Granular",
             SourceType::AudioIn => "Audio In",
             SourceType::BusIn => "Bus In",
             SourceType::PitchedSampler => "Pitched Sampler",
@@ -102,6 +104,7 @@ impl SourceType {
             SourceType::Chaos => "chaos",
             SourceType::Additive => "additive",
             SourceType::Wavetable => "wavetable",
+            SourceType::Granular => "granular",
             SourceType::AudioIn => "audio_in",
             SourceType::BusIn => "bus_in",
             SourceType::PitchedSampler => "sample",
@@ -154,6 +157,7 @@ impl SourceType {
             SourceType::Chaos => "imbolc_chaos",
             SourceType::Additive => "imbolc_additive",
             SourceType::Wavetable => "imbolc_wavetable",
+            SourceType::Granular => "imbolc_granular",
             SourceType::AudioIn => "imbolc_audio_in",
             SourceType::BusIn => "imbolc_bus_in",
             SourceType::PitchedSampler => "imbolc_sampler",
@@ -256,6 +260,14 @@ impl SourceType {
                 Param { name: "freq".to_string(), value: ParamValue::Float(440.0), min: 20.0, max: 20000.0 },
                 Param { name: "amp".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
                 Param { name: "position".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 1.0 },
+            ],
+            SourceType::Granular => vec![
+                Param { name: "freq".to_string(), value: ParamValue::Float(440.0), min: 20.0, max: 20000.0 },
+                Param { name: "amp".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "grain_size".to_string(), value: ParamValue::Float(0.05), min: 0.001, max: 0.5 },
+                Param { name: "density".to_string(), value: ParamValue::Float(20.0), min: 1.0, max: 100.0 },
+                Param { name: "spread".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 1.0 },
+                Param { name: "pitch_rnd".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 1.0 },
             ],
             SourceType::AudioIn => vec![
                 Param {
@@ -407,7 +419,7 @@ impl SourceType {
             SourceType::Noise, SourceType::Pulse, SourceType::SuperSaw, SourceType::Sync,
             SourceType::Ring, SourceType::FBSin, SourceType::FM, SourceType::PhaseMod,
             SourceType::Pluck, SourceType::Formant, SourceType::Gendy, SourceType::Chaos,
-            SourceType::Additive, SourceType::Wavetable,
+            SourceType::Additive, SourceType::Wavetable, SourceType::Granular,
             SourceType::AudioIn, SourceType::BusIn, SourceType::PitchedSampler, SourceType::Kit,
         ]
     }

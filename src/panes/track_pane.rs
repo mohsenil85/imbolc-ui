@@ -16,7 +16,7 @@ fn source_color(source: SourceType) -> Color {
         | SourceType::Noise | SourceType::Pulse | SourceType::SuperSaw | SourceType::Sync
         | SourceType::Ring | SourceType::FBSin | SourceType::FM | SourceType::PhaseMod
         | SourceType::Pluck | SourceType::Formant | SourceType::Gendy | SourceType::Chaos
-        | SourceType::Additive | SourceType::Wavetable => Color::OSC_COLOR,
+        | SourceType::Additive | SourceType::Wavetable | SourceType::Granular => Color::OSC_COLOR,
         SourceType::AudioIn => Color::AUDIO_IN_COLOR,
         SourceType::PitchedSampler => Color::SAMPLE_COLOR,
         SourceType::Kit => Color::KIT_COLOR,
