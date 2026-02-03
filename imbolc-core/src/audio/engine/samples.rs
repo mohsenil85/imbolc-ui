@@ -1,30 +1,31 @@
 use std::path::Path;
 
+use super::backend::RawArg;
 use super::AudioEngine;
 use crate::state::BufferId;
 
 impl AudioEngine {
     pub fn load_synthdefs(&self, dir: &Path) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         let abs_dir = dir.canonicalize().map_err(|e| format!("Cannot resolve synthdef dir {:?}: {}", dir, e))?;
         let dir_str = abs_dir.to_str().ok_or_else(|| "Synthdef dir path is not valid UTF-8".to_string())?;
 
-        client
-            .send_message("/d_loadDir", vec![rosc::OscType::String(dir_str.to_string())])
+        backend
+            .send_raw("/d_loadDir", vec![RawArg::Str(dir_str.to_string())])
             .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Load a single .scsyndef file into the server
     pub fn load_synthdef_file(&self, path: &Path) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         let abs_path = path.canonicalize().map_err(|e| format!("Cannot resolve synthdef file {:?}: {}", path, e))?;
         let path_str = abs_path.to_str().ok_or_else(|| "Synthdef file path is not valid UTF-8".to_string())?;
 
-        client
-            .send_message("/d_load", vec![rosc::OscType::String(path_str.to_string())])
+        backend
+            .send_raw("/d_load", vec![RawArg::Str(path_str.to_string())])
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -40,7 +41,7 @@ impl AudioEngine {
             return Ok(());
         }
 
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         // Harmonic amplitude tables: index 0 = pure sine, 7 = full spectrum
         let tables: Vec<Vec<f32>> = vec![
@@ -69,29 +70,29 @@ impl AudioEngine {
             let bufnum = super::WAVETABLE_BUFNUM_START + i as i32;
 
             // /b_alloc bufnum 2048 1
-            client
-                .send_message(
+            backend
+                .send_raw(
                     "/b_alloc",
                     vec![
-                        rosc::OscType::Int(bufnum),
-                        rosc::OscType::Int(2048),
-                        rosc::OscType::Int(1),
+                        RawArg::Int(bufnum),
+                        RawArg::Int(2048),
+                        RawArg::Int(1),
                     ],
                 )
                 .map_err(|e| format!("b_alloc buf {}: {}", bufnum, e))?;
 
             // /b_gen bufnum "sine1" 7 amp1 amp2 ...
             // flags 7 = normalize(1) + wavetable(2) + clear(4)
-            let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::Int(bufnum),
-                rosc::OscType::String("sine1".to_string()),
-                rosc::OscType::Int(7),
+            let mut args: Vec<RawArg> = vec![
+                RawArg::Int(bufnum),
+                RawArg::Str("sine1".to_string()),
+                RawArg::Int(7),
             ];
             for &amp in harmonics {
-                args.push(rosc::OscType::Float(amp));
+                args.push(RawArg::Float(amp));
             }
-            client
-                .send_message("/b_gen", args)
+            backend
+                .send_raw("/b_gen", args)
                 .map_err(|e| format!("b_gen buf {}: {}", bufnum, e))?;
         }
 
@@ -107,7 +108,7 @@ impl AudioEngine {
     /// Returns the SC buffer number on success
     #[allow(dead_code)]
     pub fn load_sample(&mut self, buffer_id: BufferId, path: &str) -> Result<i32, String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         // Check if already loaded
         if let Some(&bufnum) = self.buffer_map.get(&buffer_id) {
@@ -117,7 +118,7 @@ impl AudioEngine {
         let bufnum = self.next_bufnum;
         self.next_bufnum += 1;
 
-        client.load_buffer(bufnum, path).map_err(|e| e.to_string())?;
+        backend.load_buffer(bufnum, Path::new(path)).map_err(|e| e.to_string())?;
 
         self.buffer_map.insert(buffer_id, bufnum);
         Ok(bufnum)
@@ -126,10 +127,10 @@ impl AudioEngine {
     /// Free a sample buffer from SuperCollider
     #[allow(dead_code)]
     pub fn free_sample(&mut self, buffer_id: BufferId) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         if let Some(bufnum) = self.buffer_map.remove(&buffer_id) {
-            client.free_buffer(bufnum).map_err(|e| e.to_string())?;
+            backend.free_buffer(bufnum).map_err(|e| e.to_string())?;
         }
         Ok(())
     }

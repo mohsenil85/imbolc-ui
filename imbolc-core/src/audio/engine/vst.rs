@@ -1,3 +1,4 @@
+use super::backend::RawArg;
 use super::AudioEngine;
 use super::VST_UGEN_INDEX;
 use crate::state::InstrumentId;
@@ -5,17 +6,17 @@ use crate::state::InstrumentId;
 impl AudioEngine {
     /// Send MIDI note-on to a VSTi persistent source node
     pub(super) fn send_vsti_note_on(&self, instrument_id: InstrumentId, pitch: u8, velocity: f32) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(source_node) = nodes.source {
                 let vel = (velocity * 127.0).round().min(127.0) as u8;
                 // MIDI note-on: status 0x90, note, velocity as raw bytes
                 let midi_msg: Vec<u8> = vec![0x90, pitch, vel];
-                client.send_unit_cmd(
+                backend.send_unit_cmd(
                     source_node,
                     VST_UGEN_INDEX,
                     "/midi_msg",
-                    vec![rosc::OscType::Blob(midi_msg)],
+                    vec![RawArg::Blob(midi_msg)],
                 ).map_err(|e| e.to_string())?;
             }
         }
@@ -24,16 +25,16 @@ impl AudioEngine {
 
     /// Send MIDI note-off to a VSTi persistent source node
     pub(super) fn send_vsti_note_off(&self, instrument_id: InstrumentId, pitch: u8) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(source_node) = nodes.source {
                 // MIDI note-off: status 0x80, note, velocity 0
                 let midi_msg: Vec<u8> = vec![0x80, pitch, 0];
-                client.send_unit_cmd(
+                backend.send_unit_cmd(
                     source_node,
                     VST_UGEN_INDEX,
                     "/midi_msg",
-                    vec![rosc::OscType::Blob(midi_msg)],
+                    vec![RawArg::Blob(midi_msg)],
                 ).map_err(|e| e.to_string())?;
             }
         }
@@ -43,8 +44,8 @@ impl AudioEngine {
     /// Query VST parameter count from a VST node
     #[allow(dead_code)]
     pub(crate) fn query_vst_param_count_node(&self, node_id: i32) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        client.send_unit_cmd(
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_unit_cmd(
             node_id,
             VST_UGEN_INDEX,
             "/param_count",
@@ -56,48 +57,48 @@ impl AudioEngine {
     /// Query VST parameter info for a specific index
     #[allow(dead_code)] // Reserved for future SC reply handling
     pub(crate) fn query_vst_param_info_node(&self, node_id: i32, index: u32) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        client.send_unit_cmd(
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_unit_cmd(
             node_id,
             VST_UGEN_INDEX,
             "/param_info",
-            vec![rosc::OscType::Int(index as i32)],
+            vec![RawArg::Int(index as i32)],
         ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Set a VST parameter value on a resolved node
     pub(crate) fn set_vst_param_node(&self, node_id: i32, param_index: u32, value: f32) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        client.send_unit_cmd(
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_unit_cmd(
             node_id,
             VST_UGEN_INDEX,
             "/set",
-            vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+            vec![RawArg::Int(param_index as i32), RawArg::Float(value)],
         ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Save VST plugin state to a file from a resolved node
     pub(crate) fn save_vst_state_node(&self, node_id: i32, path: &std::path::Path) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        client.send_unit_cmd(
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_unit_cmd(
             node_id,
             VST_UGEN_INDEX,
             "/program_write",
-            vec![rosc::OscType::String(path.to_string_lossy().to_string())],
+            vec![RawArg::Str(path.to_string_lossy().to_string())],
         ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Load VST plugin state from a file into a resolved node
     pub(crate) fn load_vst_state_node(&self, node_id: i32, path: &std::path::Path) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        client.send_unit_cmd(
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_unit_cmd(
             node_id,
             VST_UGEN_INDEX,
             "/program_read",
-            vec![rosc::OscType::String(path.to_string_lossy().to_string())],
+            vec![RawArg::Str(path.to_string_lossy().to_string())],
         ).map_err(|e| e.to_string())?;
         Ok(())
     }

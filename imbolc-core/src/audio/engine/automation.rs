@@ -1,5 +1,4 @@
-use rosc::OscMessage;
-
+use super::backend::{BackendMessage, RawArg, build_n_set_message};
 use super::AudioEngine;
 use crate::state::{AutomationTarget, InstrumentState, SessionState};
 
@@ -10,26 +9,26 @@ impl AudioEngine {
         if !self.is_running {
             return Ok(());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         match target {
             AutomationTarget::InstrumentLevel(instrument_id) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     let effective_level = value * session.master_level;
-                    client.set_param(nodes.output, "level", effective_level)
+                    backend.set_param(nodes.output, "level", effective_level)
                         .map_err(|e| e.to_string())?;
                 }
             }
             AutomationTarget::InstrumentPan(instrument_id) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
-                    client.set_param(nodes.output, "pan", value)
+                    backend.set_param(nodes.output, "pan", value)
                         .map_err(|e| e.to_string())?;
                 }
             }
             AutomationTarget::FilterCutoff(instrument_id) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     if let Some(filter_node) = nodes.filter {
-                        client.set_param(filter_node, "cutoff", value)
+                        backend.set_param(filter_node, "cutoff", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -37,7 +36,7 @@ impl AudioEngine {
             AutomationTarget::FilterResonance(instrument_id) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     if let Some(filter_node) = nodes.filter {
-                        client.set_param(filter_node, "resonance", value)
+                        backend.set_param(filter_node, "resonance", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -48,7 +47,7 @@ impl AudioEngine {
                         if let Some(instrument) = state.instrument(*instrument_id) {
                             if let Some(effect) = instrument.effect_by_id(*effect_id) {
                                 if let Some(param) = effect.params.get(*param_idx) {
-                                    client.set_param(effect_node, &param.name, value)
+                                    backend.set_param(effect_node, &param.name, value)
                                         .map_err(|e| e.to_string())?;
                                 }
                             }
@@ -59,7 +58,7 @@ impl AudioEngine {
             AutomationTarget::SampleRate(instrument_id) => {
                 for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
-                        client.set_param(voice.source_node, "rate", value)
+                        backend.set_param(voice.source_node, "rate", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -67,7 +66,7 @@ impl AudioEngine {
             AutomationTarget::SampleAmp(instrument_id) => {
                 for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
-                        client.set_param(voice.source_node, "amp", value)
+                        backend.set_param(voice.source_node, "amp", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -75,7 +74,7 @@ impl AudioEngine {
             AutomationTarget::LfoRate(instrument_id) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     if let Some(lfo_node) = nodes.lfo {
-                        client.set_param(lfo_node, "rate", value)
+                        backend.set_param(lfo_node, "rate", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -83,7 +82,7 @@ impl AudioEngine {
             AutomationTarget::LfoDepth(instrument_id) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     if let Some(lfo_node) = nodes.lfo {
-                        client.set_param(lfo_node, "depth", value)
+                        backend.set_param(lfo_node, "depth", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -94,7 +93,7 @@ impl AudioEngine {
                 }
                 for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
-                        client.set_param(voice.source_node, "attack", value)
+                        backend.set_param(voice.source_node, "attack", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -105,7 +104,7 @@ impl AudioEngine {
                 }
                 for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
-                        client.set_param(voice.source_node, "decay", value)
+                        backend.set_param(voice.source_node, "decay", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -116,7 +115,7 @@ impl AudioEngine {
                 }
                 for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
-                        client.set_param(voice.source_node, "sustain", value)
+                        backend.set_param(voice.source_node, "sustain", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -127,7 +126,7 @@ impl AudioEngine {
                 }
                 for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
-                        client.set_param(voice.source_node, "release", value)
+                        backend.set_param(voice.source_node, "release", value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -136,7 +135,7 @@ impl AudioEngine {
                 if let Some(inst) = state.instrument(*instrument_id) {
                     if let Some(send) = inst.sends.get(*send_idx) {
                         if let Some(&node_id) = self.send_node_map.get(&(*instrument_id, send.bus_id)) {
-                            client.set_param(node_id, "level", value)
+                            backend.set_param(node_id, "level", value)
                                 .map_err(|e| e.to_string())?;
                         }
                     }
@@ -144,7 +143,7 @@ impl AudioEngine {
             }
             AutomationTarget::BusLevel(bus_id) => {
                 if let Some(&node_id) = self.bus_node_map.get(bus_id) {
-                    client.set_param(node_id, "level", value)
+                    backend.set_param(node_id, "level", value)
                         .map_err(|e| e.to_string())?;
                 }
             }
@@ -154,12 +153,11 @@ impl AudioEngine {
             AutomationTarget::VstParam(instrument_id, param_index) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     if let Some(source_node) = nodes.source {
-                        use rosc::OscType;
-                        client.send_unit_cmd(
+                        backend.send_unit_cmd(
                             source_node,
                             super::VST_UGEN_INDEX,
                             "/set",
-                            vec![OscType::Int(*param_index as i32), OscType::Float(value)],
+                            vec![RawArg::Int(*param_index as i32), RawArg::Float(value)],
                         ).map_err(|e| e.to_string())?;
                     }
                 }
@@ -173,7 +171,7 @@ impl AudioEngine {
                             _ => format!("b{}_q", band),
                         };
                         let sc_value = if *param == 2 { 1.0 / value } else { value };
-                        client.set_param(eq_node, &param_name, sc_value)
+                        backend.set_param(eq_node, &param_name, sc_value)
                             .map_err(|e| e.to_string())?;
                     }
                 }
@@ -183,7 +181,7 @@ impl AudioEngine {
         Ok(())
     }
 
-    /// Build OSC messages for an automation target without sending them.
+    /// Build backend messages for an automation target without sending them.
     /// Also applies any required state-side mutations (e.g. envelope values).
     /// Returns messages to be batched into a single bundle.
     pub fn collect_automation_messages(
@@ -192,8 +190,7 @@ impl AudioEngine {
         value: f32,
         state: &mut InstrumentState,
         session: &SessionState,
-    ) -> Vec<OscMessage> {
-        use super::super::osc_client::build_n_set_message;
+    ) -> Vec<BackendMessage> {
         let mut msgs = Vec::new();
 
         match target {
@@ -324,13 +321,12 @@ impl AudioEngine {
                 // /u_cmd doesn't use /n_set — fall back to direct send via apply_automation
                 if let Some(nodes) = self.node_map.get(instrument_id) {
                     if let Some(source_node) = nodes.source {
-                        use rosc::OscType;
-                        if let Some(client) = self.client.as_ref() {
-                            let _ = client.send_unit_cmd(
+                        if let Some(backend) = self.backend.as_ref() {
+                            let _ = backend.send_unit_cmd(
                                 source_node,
                                 super::VST_UGEN_INDEX,
                                 "/set",
-                                vec![OscType::Int(*param_index as i32), OscType::Float(value)],
+                                vec![RawArg::Int(*param_index as i32), RawArg::Float(value)],
                             );
                         }
                     }
@@ -355,12 +351,11 @@ impl AudioEngine {
     }
 
     /// Send a batch of automation messages as a single timestamped bundle.
-    pub fn send_automation_bundle(&self, messages: Vec<OscMessage>) -> Result<(), String> {
+    pub fn send_automation_bundle(&self, messages: Vec<BackendMessage>) -> Result<(), String> {
         if messages.is_empty() {
             return Ok(());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        let time = super::super::osc_client::osc_time_from_now(0.0);
-        client.send_bundle(messages, time).map_err(|e| e.to_string())
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_bundle(messages, 0.0).map_err(|e| e.to_string())
     }
 }

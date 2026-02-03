@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use super::backend::{BackendMessage, RawArg, BUNDLE_IMMEDIATE};
 use super::{AudioEngine, GROUP_RECORD};
-use crate::audio::osc_client::osc_time_immediate;
 use crate::state::InstrumentId;
 
 /// State for an active disk recording session
@@ -30,7 +30,7 @@ impl AudioEngine {
         if self.recording.is_some() {
             return Err("Already recording".to_string());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         let path_str = path.to_string_lossy().to_string();
         let node_id = self.next_node_id;
@@ -39,41 +39,41 @@ impl AudioEngine {
         // Send all three commands as a single bundle for atomic execution:
         // 1. Allocate ring buffer  2. Open for disk write  3. Create DiskOut synth
         let messages = vec![
-            rosc::OscMessage {
+            BackendMessage {
                 addr: "/b_alloc".to_string(),
                 args: vec![
-                    rosc::OscType::Int(Self::RECORD_BUFNUM),
-                    rosc::OscType::Int(131072),
-                    rosc::OscType::Int(2),
+                    RawArg::Int(Self::RECORD_BUFNUM),
+                    RawArg::Int(131072),
+                    RawArg::Int(2),
                 ],
             },
-            rosc::OscMessage {
+            BackendMessage {
                 addr: "/b_write".to_string(),
                 args: vec![
-                    rosc::OscType::Int(Self::RECORD_BUFNUM),
-                    rosc::OscType::String(path_str),
-                    rosc::OscType::String("wav".to_string()),
-                    rosc::OscType::String("float".to_string()),
-                    rosc::OscType::Int(0),
-                    rosc::OscType::Int(0),
-                    rosc::OscType::Int(1),
+                    RawArg::Int(Self::RECORD_BUFNUM),
+                    RawArg::Str(path_str),
+                    RawArg::Str("wav".to_string()),
+                    RawArg::Str("float".to_string()),
+                    RawArg::Int(0),
+                    RawArg::Int(0),
+                    RawArg::Int(1),
                 ],
             },
-            rosc::OscMessage {
+            BackendMessage {
                 addr: "/s_new".to_string(),
                 args: vec![
-                    rosc::OscType::String("imbolc_disk_record".to_string()),
-                    rosc::OscType::Int(node_id),
-                    rosc::OscType::Int(1), // addToTail
-                    rosc::OscType::Int(GROUP_RECORD),
-                    rosc::OscType::String("bufnum".to_string()),
-                    rosc::OscType::Float(Self::RECORD_BUFNUM as f32),
-                    rosc::OscType::String("in".to_string()),
-                    rosc::OscType::Float(bus as f32),
+                    RawArg::Str("imbolc_disk_record".to_string()),
+                    RawArg::Int(node_id),
+                    RawArg::Int(1), // addToTail
+                    RawArg::Int(GROUP_RECORD),
+                    RawArg::Str("bufnum".to_string()),
+                    RawArg::Float(Self::RECORD_BUFNUM as f32),
+                    RawArg::Str("in".to_string()),
+                    RawArg::Float(bus as f32),
                 ],
             },
         ];
-        client.send_bundle(messages, osc_time_immediate())
+        backend.send_bundle(messages, BUNDLE_IMMEDIATE)
             .map_err(|e| e.to_string())?;
 
         self.recording = Some(RecordingState {
@@ -91,19 +91,19 @@ impl AudioEngine {
     /// main loop to free it after SuperCollider has flushed the file to disk.
     pub fn stop_recording(&mut self) -> Option<PathBuf> {
         let rec = self.recording.take()?;
-        if let Some(ref client) = self.client {
+        if let Some(ref backend) = self.backend {
             // Bundle node free + buffer close for atomic execution
             let messages = vec![
-                rosc::OscMessage {
+                BackendMessage {
                     addr: "/n_free".to_string(),
-                    args: vec![rosc::OscType::Int(rec.node_id)],
+                    args: vec![RawArg::Int(rec.node_id)],
                 },
-                rosc::OscMessage {
+                BackendMessage {
                     addr: "/b_close".to_string(),
-                    args: vec![rosc::OscType::Int(rec.bufnum)],
+                    args: vec![RawArg::Int(rec.bufnum)],
                 },
             ];
-            let _ = client.send_bundle(messages, osc_time_immediate());
+            let _ = backend.send_bundle(messages, BUNDLE_IMMEDIATE);
             // Defer buffer free to give scsynth time to flush the file
             self.pending_buffer_free = Some((rec.bufnum, Instant::now()));
         }
@@ -115,8 +115,8 @@ impl AudioEngine {
     pub fn poll_pending_buffer_free(&mut self) -> bool {
         if let Some((bufnum, when)) = self.pending_buffer_free {
             if when.elapsed() >= Duration::from_millis(500) {
-                if let Some(ref client) = self.client {
-                    let _ = client.free_buffer(bufnum);
+                if let Some(ref backend) = self.backend {
+                    let _ = backend.free_buffer(bufnum);
                 }
                 self.pending_buffer_free = None;
                 return true;
@@ -147,7 +147,7 @@ impl AudioEngine {
         if self.recording.is_some() {
             return Err("Already recording".to_string());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         let path_str = path.to_string_lossy().to_string();
         let node_id = self.next_node_id;
@@ -155,41 +155,41 @@ impl AudioEngine {
         let bufnum = Self::EXPORT_BUFNUM_START;
 
         let messages = vec![
-            rosc::OscMessage {
+            BackendMessage {
                 addr: "/b_alloc".to_string(),
                 args: vec![
-                    rosc::OscType::Int(bufnum),
-                    rosc::OscType::Int(131072),
-                    rosc::OscType::Int(2),
+                    RawArg::Int(bufnum),
+                    RawArg::Int(131072),
+                    RawArg::Int(2),
                 ],
             },
-            rosc::OscMessage {
+            BackendMessage {
                 addr: "/b_write".to_string(),
                 args: vec![
-                    rosc::OscType::Int(bufnum),
-                    rosc::OscType::String(path_str),
-                    rosc::OscType::String("wav".to_string()),
-                    rosc::OscType::String("float".to_string()),
-                    rosc::OscType::Int(0),
-                    rosc::OscType::Int(0),
-                    rosc::OscType::Int(1),
+                    RawArg::Int(bufnum),
+                    RawArg::Str(path_str),
+                    RawArg::Str("wav".to_string()),
+                    RawArg::Str("float".to_string()),
+                    RawArg::Int(0),
+                    RawArg::Int(0),
+                    RawArg::Int(1),
                 ],
             },
-            rosc::OscMessage {
+            BackendMessage {
                 addr: "/s_new".to_string(),
                 args: vec![
-                    rosc::OscType::String("imbolc_disk_record".to_string()),
-                    rosc::OscType::Int(node_id),
-                    rosc::OscType::Int(1),
-                    rosc::OscType::Int(GROUP_RECORD),
-                    rosc::OscType::String("bufnum".to_string()),
-                    rosc::OscType::Float(bufnum as f32),
-                    rosc::OscType::String("in".to_string()),
-                    rosc::OscType::Float(0.0),
+                    RawArg::Str("imbolc_disk_record".to_string()),
+                    RawArg::Int(node_id),
+                    RawArg::Int(1),
+                    RawArg::Int(GROUP_RECORD),
+                    RawArg::Str("bufnum".to_string()),
+                    RawArg::Float(bufnum as f32),
+                    RawArg::Str("in".to_string()),
+                    RawArg::Float(0.0),
                 ],
             },
         ];
-        client.send_bundle(messages, osc_time_immediate())
+        backend.send_bundle(messages, BUNDLE_IMMEDIATE)
             .map_err(|e| e.to_string())?;
 
         self.export_state = Some(ExportRecordingState {
@@ -218,7 +218,7 @@ impl AudioEngine {
         if instrument_buses.is_empty() {
             return Err("No instruments to export".to_string());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         let mut messages = Vec::new();
         let mut recordings = Vec::new();
@@ -229,37 +229,37 @@ impl AudioEngine {
             self.next_node_id += 1;
             let path_str = path.to_string_lossy().to_string();
 
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/b_alloc".to_string(),
                 args: vec![
-                    rosc::OscType::Int(bufnum),
-                    rosc::OscType::Int(131072),
-                    rosc::OscType::Int(2),
+                    RawArg::Int(bufnum),
+                    RawArg::Int(131072),
+                    RawArg::Int(2),
                 ],
             });
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/b_write".to_string(),
                 args: vec![
-                    rosc::OscType::Int(bufnum),
-                    rosc::OscType::String(path_str),
-                    rosc::OscType::String("wav".to_string()),
-                    rosc::OscType::String("float".to_string()),
-                    rosc::OscType::Int(0),
-                    rosc::OscType::Int(0),
-                    rosc::OscType::Int(1),
+                    RawArg::Int(bufnum),
+                    RawArg::Str(path_str),
+                    RawArg::Str("wav".to_string()),
+                    RawArg::Str("float".to_string()),
+                    RawArg::Int(0),
+                    RawArg::Int(0),
+                    RawArg::Int(1),
                 ],
             });
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/s_new".to_string(),
                 args: vec![
-                    rosc::OscType::String("imbolc_disk_record".to_string()),
-                    rosc::OscType::Int(node_id),
-                    rosc::OscType::Int(1),
-                    rosc::OscType::Int(GROUP_RECORD),
-                    rosc::OscType::String("bufnum".to_string()),
-                    rosc::OscType::Float(bufnum as f32),
-                    rosc::OscType::String("in".to_string()),
-                    rosc::OscType::Float(*bus as f32),
+                    RawArg::Str("imbolc_disk_record".to_string()),
+                    RawArg::Int(node_id),
+                    RawArg::Int(1),
+                    RawArg::Int(GROUP_RECORD),
+                    RawArg::Str("bufnum".to_string()),
+                    RawArg::Float(bufnum as f32),
+                    RawArg::Str("in".to_string()),
+                    RawArg::Float(*bus as f32),
                 ],
             });
 
@@ -271,7 +271,7 @@ impl AudioEngine {
             });
         }
 
-        client.send_bundle(messages, osc_time_immediate())
+        backend.send_bundle(messages, BUNDLE_IMMEDIATE)
             .map_err(|e| e.to_string())?;
 
         self.export_state = Some(ExportRecordingState { recordings });
@@ -286,19 +286,19 @@ impl AudioEngine {
         };
 
         let mut paths = Vec::new();
-        if let Some(ref client) = self.client {
+        if let Some(ref backend) = self.backend {
             for rec in export.recordings {
                 let messages = vec![
-                    rosc::OscMessage {
+                    BackendMessage {
                         addr: "/n_free".to_string(),
-                        args: vec![rosc::OscType::Int(rec.node_id)],
+                        args: vec![RawArg::Int(rec.node_id)],
                     },
-                    rosc::OscMessage {
+                    BackendMessage {
                         addr: "/b_close".to_string(),
-                        args: vec![rosc::OscType::Int(rec.bufnum)],
+                        args: vec![RawArg::Int(rec.bufnum)],
                     },
                 ];
-                let _ = client.send_bundle(messages, osc_time_immediate());
+                let _ = backend.send_bundle(messages, BUNDLE_IMMEDIATE);
                 self.pending_export_buffer_frees.push((rec.bufnum, Instant::now()));
                 paths.push(rec.path);
             }
@@ -310,8 +310,8 @@ impl AudioEngine {
     pub fn poll_pending_export_buffer_frees(&mut self) {
         self.pending_export_buffer_frees.retain(|(bufnum, when)| {
             if when.elapsed() >= Duration::from_millis(500) {
-                if let Some(ref client) = self.client {
-                    let _ = client.free_buffer(*bufnum);
+                if let Some(ref backend) = self.backend {
+                    let _ = backend.free_buffer(*bufnum);
                 }
                 false
             } else {

@@ -1,5 +1,6 @@
 use super::AudioEngine;
 use super::{InstrumentNodes, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, VST_UGEN_INDEX};
+use super::backend::RawArg;
 use std::collections::HashMap;
 use crate::state::{CustomSynthDefRegistry, EffectId, EffectType, FilterType, Instrument, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState, SourceType};
 
@@ -50,8 +51,8 @@ impl AudioEngine {
                 params.push((p.name.clone(), val));
             }
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group("imbolc_audio_in", node_id, GROUP_SOURCES, &params)
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth("imbolc_audio_in", node_id, GROUP_SOURCES, &params)
                 .map_err(|e| e.to_string())?;
             source_node = Some(node_id);
         } else if instrument.source.is_bus_in() {
@@ -81,8 +82,8 @@ impl AudioEngine {
                 ("instrument_id".to_string(), instrument.id as f32),
             ];
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group("imbolc_bus_in", node_id, GROUP_SOURCES, &params)
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth("imbolc_bus_in", node_id, GROUP_SOURCES, &params)
                 .map_err(|e| e.to_string())?;
             source_node = Some(node_id);
         } else if instrument.source.is_vst() {
@@ -93,15 +94,15 @@ impl AudioEngine {
                 ("out".to_string(), source_out_bus as f32),
             ];
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group("imbolc_vst_instrument", node_id, GROUP_SOURCES, &params)
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth("imbolc_vst_instrument", node_id, GROUP_SOURCES, &params)
                 .map_err(|e| e.to_string())?;
 
             if let SourceType::Vst(vst_id) = instrument.source {
                 if let Some(plugin) = session.vst_plugins.get(vst_id) {
                     let _ = client.send_unit_cmd(
                         node_id, VST_UGEN_INDEX, "/open",
-                        vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                        vec![RawArg::Str(plugin.plugin_path.to_string_lossy().to_string())],
                     );
                 }
             }
@@ -121,8 +122,8 @@ impl AudioEngine {
                 ("shape".to_string(), instrument.lfo.shape.index() as f32),
             ];
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group("imbolc_lfo", lfo_node_id, GROUP_SOURCES, &params)
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth("imbolc_lfo", lfo_node_id, GROUP_SOURCES, &params)
                 .map_err(|e| e.to_string())?;
 
             lfo_node = Some(lfo_node_id);
@@ -160,8 +161,8 @@ impl AudioEngine {
                 params.push((p.name.clone(), p.value.to_f32()));
             }
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group(
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth(
                 Self::filter_synth_def(filter.filter_type), node_id, GROUP_PROCESSING, &params,
             ).map_err(|e| e.to_string())?;
 
@@ -187,8 +188,8 @@ impl AudioEngine {
                 params.push((format!("b{}_on", i), if band.enabled { 1.0 } else { 0.0 }));
             }
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group("imbolc_eq12", node_id, GROUP_PROCESSING, &params)
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth("imbolc_eq12", node_id, GROUP_PROCESSING, &params)
                 .map_err(|e| e.to_string())?;
 
             eq_node = Some(node_id);
@@ -262,8 +263,8 @@ impl AudioEngine {
                 }
             }
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group(
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth(
                 Self::effect_synth_def(effect.effect_type), node_id, GROUP_PROCESSING, &params,
             ).map_err(|e| e.to_string())?;
 
@@ -272,7 +273,7 @@ impl AudioEngine {
                 if let Some(plugin) = session.vst_plugins.get(vst_id) {
                     let _ = client.send_unit_cmd(
                         node_id, VST_UGEN_INDEX, "/open",
-                        vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                        vec![RawArg::Str(plugin.plugin_path.to_string_lossy().to_string())],
                     );
                 }
             }
@@ -302,8 +303,8 @@ impl AudioEngine {
                 ("pan_mod_in".to_string(), pan_mod_bus),
             ];
 
-            let client = self.client.as_ref().ok_or("Not connected")?;
-            client.create_synth_in_group("imbolc_output", node_id, GROUP_OUTPUT, &params)
+            let client = self.backend.as_ref().ok_or("Not connected")?;
+            client.create_synth("imbolc_output", node_id, GROUP_OUTPUT, &params)
                 .map_err(|e| e.to_string())?;
             node_id
         };
@@ -357,8 +358,8 @@ impl AudioEngine {
                 if send_lfo_bus >= 0.0 {
                     params.push(("level_mod_in".to_string(), send_lfo_bus));
                 }
-                let client = self.client.as_ref().ok_or("Not connected")?;
-                client.create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)
+                let client = self.backend.as_ref().ok_or("Not connected")?;
+                client.create_synth("imbolc_send", node_id, GROUP_OUTPUT, &params)
                     .map_err(|e| e.to_string())?;
                 self.node_registry.register(node_id);
                 self.send_node_map.insert((instrument.id, send.bus_id), node_id);
@@ -373,7 +374,7 @@ impl AudioEngine {
         &self,
         instrument: &Instrument,
     ) {
-        let client = match self.client.as_ref() {
+        let client = match self.backend.as_ref() {
             Some(c) => c,
             None => return,
         };
@@ -383,7 +384,7 @@ impl AudioEngine {
                 for &(param_index, value) in &instrument.vst_param_values {
                     let _ = client.send_unit_cmd(
                         source_node, VST_UGEN_INDEX, "/set",
-                        vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+                        vec![RawArg::Int(param_index as i32), RawArg::Float(value)],
                     );
                 }
             }
@@ -396,7 +397,7 @@ impl AudioEngine {
                     for &(param_index, value) in &effect.vst_param_values {
                         let _ = client.send_unit_cmd(
                             node, VST_UGEN_INDEX, "/set",
-                            vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+                            vec![RawArg::Int(param_index as i32), RawArg::Float(value)],
                         );
                     }
                 }
@@ -422,7 +423,7 @@ impl AudioEngine {
         self.ensure_safety_limiter()?;
 
         // Free all existing synths and voices
-        if let Some(ref client) = self.client {
+        if let Some(ref client) = self.backend {
             for nodes in self.node_map.values() {
                 for node_id in nodes.all_node_ids() {
                     let _ = client.free_node(node_id);
@@ -481,9 +482,9 @@ impl AudioEngine {
                     ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
                     ("pan".to_string(), bus.pan),
                 ];
-                if let Some(ref client) = self.client {
+                if let Some(ref client) = self.backend {
                     client
-                        .create_synth_in_group("imbolc_bus_out", node_id, GROUP_OUTPUT, &params)
+                        .create_synth("imbolc_bus_out", node_id, GROUP_OUTPUT, &params)
                         .map_err(|e| e.to_string())?;
                 }
                 self.node_registry.register(node_id);
@@ -522,7 +523,7 @@ impl AudioEngine {
 
         // 1. Free existing nodes for this instrument
         {
-            let client = self.client.as_ref().ok_or("Not connected")?;
+            let client = self.backend.as_ref().ok_or("Not connected")?;
 
             if let Some(nodes) = self.node_map.remove(&instrument_id) {
                 for node_id in nodes.all_node_ids() {
@@ -571,7 +572,7 @@ impl AudioEngine {
 
     /// Set bus output mixer params (level, mute, pan) in real-time
     pub fn set_bus_mixer_params(&self, bus_id: u8, level: f32, mute: bool, pan: f32) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
         let node_id = self.bus_node_map
             .get(&bus_id)
             .ok_or_else(|| format!("No bus output node for bus{}", bus_id))?;
@@ -584,7 +585,7 @@ impl AudioEngine {
     /// Update all instrument output mixer params (level, mute, pan) in real-time without rebuilding the graph
     pub fn update_all_instrument_mixer_params(&self, state: &InstrumentState, session: &SessionState) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
         let any_solo = state.any_instrument_solo();
         for instrument in &state.instruments {
             if let Some(nodes) = self.node_map.get(&instrument.id) {
@@ -604,7 +605,7 @@ impl AudioEngine {
     /// Updates the persistent source node (AudioIn) and all active voice source nodes.
     pub fn set_source_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
 
         // BusIn "bus" param: translate bus_id (1-8) to SC audio bus number
         if param == "bus" {
@@ -639,7 +640,7 @@ impl AudioEngine {
     /// Set an EQ parameter on an instrument in real-time.
     pub fn set_eq_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
 
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(eq_node) = nodes.eq {
@@ -653,7 +654,7 @@ impl AudioEngine {
     /// Set a filter parameter on an instrument in real-time (targeted /n_set, no rebuild).
     pub fn set_filter_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
 
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(filter_node) = nodes.filter {
@@ -667,7 +668,7 @@ impl AudioEngine {
     /// Set an effect parameter on an instrument in real-time (targeted /n_set, no rebuild).
     pub fn set_effect_param(&self, instrument_id: InstrumentId, effect_id: EffectId, param: &str, value: f32) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
 
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(&effect_node) = nodes.effects.get(&effect_id) {
@@ -681,7 +682,7 @@ impl AudioEngine {
     /// Set an LFO parameter on an instrument in real-time (targeted /n_set, no rebuild).
     pub fn set_lfo_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
         if !self.is_running { return Ok(()); }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let client = self.backend.as_ref().ok_or("Not connected")?;
 
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(lfo_node) = nodes.lfo {

@@ -14,8 +14,8 @@ use std::process::Child;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
+use backend::AudioBackend;
 use super::bus_allocator::BusAllocator;
-use super::osc_client::OscClientLike;
 use crate::state::{BufferId, EffectId, InstrumentId};
 use node_registry::NodeRegistry;
 use voice_allocator::VoiceAllocator;
@@ -93,7 +93,7 @@ impl InstrumentNodes {
 }
 
 pub struct AudioEngine {
-    client: Option<Box<dyn OscClientLike>>,
+    backend: Option<Box<dyn AudioBackend>>,
     pub(crate) node_map: HashMap<InstrumentId, InstrumentNodes>,
     next_node_id: i32,
     is_running: bool,
@@ -141,7 +141,7 @@ pub struct AudioEngine {
 impl AudioEngine {
     pub fn new() -> Self {
         Self {
-            client: None,
+            backend: None,
             node_map: HashMap::new(),
             next_node_id: 1000,
             is_running: false,
@@ -186,25 +186,6 @@ impl AudioEngine {
     pub fn is_compiling(&self) -> bool {
         self.is_compiling
     }
-
-    /// Get the current master peak level
-    pub fn master_peak(&self) -> f32 {
-        self.client
-            .as_ref()
-            .map(|c| {
-                let (l, r) = c.meter_peak();
-                l.max(r)
-            })
-            .unwrap_or(0.0)
-    }
-
-    /// Get waveform data for an audio input instrument
-    pub fn audio_in_waveform(&self, instrument_id: u32) -> Vec<f32> {
-        self.client
-            .as_ref()
-            .map(|c| c.audio_in_waveform(instrument_id))
-            .unwrap_or_default()
-    }
 }
 
 impl Drop for AudioEngine {
@@ -223,13 +204,13 @@ impl Default for AudioEngine {
 mod tests {
     use super::*;
     use super::voice_allocator::MAX_VOICES_PER_INSTRUMENT;
-    use crate::audio::osc_client::NullOscClient;
+    use crate::audio::engine::backend::NullBackend;
     use crate::state::{AppState, AutomationTarget, FilterConfig, ParamValue};
     use crate::state::instrument::{EffectType, FilterType, SourceType};
 
     fn connect_engine() -> AudioEngine {
         let mut engine = AudioEngine::new();
-        engine.client = Some(Box::new(NullOscClient::new()));
+        engine.backend = Some(Box::new(NullBackend));
         engine.is_running = true;
         engine.server_status = ServerStatus::Connected;
         engine
@@ -594,14 +575,13 @@ mod tests {
 
     mod backend_routing_tests {
         use super::*;
-        use crate::audio::engine::backend::{TestBackend, TestOp, TestOscAdapter};
+        use crate::audio::engine::backend::{TestBackend, TestOp, SharedTestBackend};
         use std::sync::Arc;
 
         fn engine_with_test_backend() -> (AudioEngine, Arc<TestBackend>) {
             let backend = Arc::new(TestBackend::new());
-            let adapter = TestOscAdapter::new(Arc::clone(&backend));
             let mut engine = AudioEngine::new();
-            engine.client = Some(Box::new(adapter));
+            engine.backend = Some(Box::new(SharedTestBackend(Arc::clone(&backend))));
             engine.is_running = true;
             engine.server_status = ServerStatus::Connected;
             (engine, backend)

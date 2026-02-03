@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use super::backend::{AudioBackend, RawArg, ScBackend};
 use super::{AudioEngine, ServerStatus, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, GROUP_RECORD, GROUP_SAFETY};
 use crate::audio::osc_client::{AudioMonitor, OscClient};
 use regex::Regex;
@@ -161,7 +162,7 @@ impl AudioEngine {
                     self.node_registry.invalidate_all();
                     self.scsynth_process = None;
                     self.is_running = false;
-                    self.client = None;
+                    self.backend = None;
                     self.server_status = ServerStatus::Error;
                     self.groups_created = false;
                     Some(format!(
@@ -351,8 +352,10 @@ impl AudioEngine {
 
     pub fn connect(&mut self, server_addr: &str) -> std::io::Result<()> {
         let client = OscClient::new(server_addr)?;
-        client.send_message("/notify", vec![rosc::OscType::Int(1)])?;
-        self.client = Some(Box::new(client));
+        let backend = ScBackend::new(client);
+        backend.send_raw("/notify", vec![RawArg::Int(1)])
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        self.backend = Some(Box::new(backend));
         self.is_running = true;
         self.server_status = ServerStatus::Connected;
         Ok(())
@@ -360,8 +363,10 @@ impl AudioEngine {
 
     pub fn connect_with_monitor(&mut self, server_addr: &str, monitor: AudioMonitor) -> std::io::Result<()> {
         let client = OscClient::new_with_monitor(server_addr, monitor)?;
-        client.send_message("/notify", vec![rosc::OscType::Int(1)])?;
-        self.client = Some(Box::new(client));
+        let backend = ScBackend::new(client);
+        backend.send_raw("/notify", vec![RawArg::Int(1)])
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        self.backend = Some(Box::new(backend));
         self.is_running = true;
         self.server_status = ServerStatus::Connected;
         Ok(())
@@ -370,30 +375,30 @@ impl AudioEngine {
     pub(super) fn restart_meter(&mut self) {
         if let Some(node_id) = self.meter_node_id.take() {
             self.node_registry.unregister(node_id);
-            if let Some(ref client) = self.client {
-                let _ = client.free_node(node_id);
+            if let Some(ref backend) = self.backend {
+                let _ = backend.free_node(node_id);
             }
         }
         // Free existing analysis synths
-        if let Some(ref client) = self.client {
+        if let Some(ref backend) = self.backend {
             for &node_id in &self.analysis_node_ids {
                 self.node_registry.unregister(node_id);
-                let _ = client.free_node(node_id);
+                let _ = backend.free_node(node_id);
             }
         }
         self.analysis_node_ids.clear();
 
-        if let Some(ref client) = self.client {
+        if let Some(ref backend) = self.backend {
             // Create meter synth (in GROUP_SAFETY so it reads post-limiter signal)
             let node_id = self.next_node_id;
             self.next_node_id += 1;
-            let args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("imbolc_meter".to_string()),
-                rosc::OscType::Int(node_id),
-                rosc::OscType::Int(3), // addAfter
-                rosc::OscType::Int(GROUP_SAFETY),
+            let args = vec![
+                RawArg::Str("imbolc_meter".to_string()),
+                RawArg::Int(node_id),
+                RawArg::Int(3), // addAfter
+                RawArg::Int(GROUP_SAFETY),
             ];
-            if client.send_message("/s_new", args).is_ok() {
+            if backend.send_raw("/s_new", args).is_ok() {
                 self.node_registry.register(node_id);
                 self.meter_node_id = Some(node_id);
             }
@@ -402,13 +407,13 @@ impl AudioEngine {
             for synth_def in &["imbolc_spectrum", "imbolc_lufs_meter", "imbolc_scope"] {
                 let node_id = self.next_node_id;
                 self.next_node_id += 1;
-                let args: Vec<rosc::OscType> = vec![
-                    rosc::OscType::String(synth_def.to_string()),
-                    rosc::OscType::Int(node_id),
-                    rosc::OscType::Int(3), // addAfter
-                    rosc::OscType::Int(GROUP_SAFETY),
+                let args = vec![
+                    RawArg::Str(synth_def.to_string()),
+                    RawArg::Int(node_id),
+                    RawArg::Int(3), // addAfter
+                    RawArg::Int(GROUP_SAFETY),
                 ];
-                if client.send_message("/s_new", args).is_ok() {
+                if backend.send_raw("/s_new", args).is_ok() {
                     self.node_registry.register(node_id);
                     self.analysis_node_ids.push(node_id);
                 }
@@ -418,24 +423,24 @@ impl AudioEngine {
 
     pub fn disconnect(&mut self) {
         self.stop_recording();
-        if let Some(ref client) = self.client {
+        if let Some(ref backend) = self.backend {
             if let Some(node_id) = self.safety_node_id.take() {
-                let _ = client.free_node(node_id);
+                let _ = backend.free_node(node_id);
             }
             if let Some(node_id) = self.meter_node_id.take() {
-                let _ = client.free_node(node_id);
+                let _ = backend.free_node(node_id);
             }
             for &node_id in &self.analysis_node_ids {
-                let _ = client.free_node(node_id);
+                let _ = backend.free_node(node_id);
             }
             for nodes in self.node_map.values() {
                 for node_id in nodes.all_node_ids() {
-                    let _ = client.free_node(node_id);
+                    let _ = backend.free_node(node_id);
                 }
             }
             // Free all loaded sample buffers
             for &bufnum in self.buffer_map.values() {
-                let _ = client.free_buffer(bufnum);
+                let _ = backend.free_buffer(bufnum);
             }
         }
         self.node_map.clear();
@@ -450,7 +455,7 @@ impl AudioEngine {
         self.node_registry.invalidate_all();
         self.groups_created = false;
         self.wavetables_initialized = false;
-        self.client = None;
+        self.backend = None;
         self.is_running = false;
         if self.scsynth_process.is_some() {
             self.server_status = ServerStatus::Running;
@@ -463,12 +468,12 @@ impl AudioEngine {
         if self.groups_created {
             return Ok(());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
-        client.create_group(GROUP_SOURCES, 1, 0).map_err(|e| e.to_string())?;
-        client.create_group(GROUP_PROCESSING, 1, 0).map_err(|e| e.to_string())?;
-        client.create_group(GROUP_OUTPUT, 1, 0).map_err(|e| e.to_string())?;
-        client.create_group(GROUP_RECORD, 1, 0).map_err(|e| e.to_string())?;
-        client.create_group(GROUP_SAFETY, 1, 0).map_err(|e| e.to_string())?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.create_group(GROUP_SOURCES, 1, 0).map_err(|e| e.to_string())?;
+        backend.create_group(GROUP_PROCESSING, 1, 0).map_err(|e| e.to_string())?;
+        backend.create_group(GROUP_OUTPUT, 1, 0).map_err(|e| e.to_string())?;
+        backend.create_group(GROUP_RECORD, 1, 0).map_err(|e| e.to_string())?;
+        backend.create_group(GROUP_SAFETY, 1, 0).map_err(|e| e.to_string())?;
         self.groups_created = true;
         Ok(())
     }
@@ -477,18 +482,18 @@ impl AudioEngine {
         if self.safety_node_id.is_some() {
             return Ok(());
         }
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
         let node_id = self.next_node_id;
         self.next_node_id += 1;
-        let args: Vec<rosc::OscType> = vec![
-            rosc::OscType::String("imbolc_safety".to_string()),
-            rosc::OscType::Int(node_id),
-            rosc::OscType::Int(0), // addToHead
-            rosc::OscType::Int(GROUP_SAFETY),
-            rosc::OscType::String("ceiling".to_string()),
-            rosc::OscType::Float(0.95),
+        let args = vec![
+            RawArg::Str("imbolc_safety".to_string()),
+            RawArg::Int(node_id),
+            RawArg::Int(0), // addToHead
+            RawArg::Int(GROUP_SAFETY),
+            RawArg::Str("ceiling".to_string()),
+            RawArg::Float(0.95),
         ];
-        if client.send_message("/s_new", args).is_ok() {
+        if backend.send_raw("/s_new", args).is_ok() {
             self.node_registry.register(node_id);
             self.safety_node_id = Some(node_id);
         }

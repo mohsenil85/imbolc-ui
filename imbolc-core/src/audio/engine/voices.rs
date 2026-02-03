@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use super::backend::{AudioBackend, BackendMessage, RawArg};
 use super::{AudioEngine, VoiceChain, GROUP_SOURCES};
 use crate::state::{BufferId, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState};
 
@@ -32,10 +33,10 @@ impl AudioEngine {
             return self.spawn_sampler_voice(instrument_id, pitch, velocity, offset_secs, state, session);
         }
 
-        // Smart voice stealing (must precede client borrow)
+        // Smart voice stealing (must precede backend borrow)
         self.steal_voice_if_needed(instrument_id, pitch, velocity)?;
 
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         // Get the audio bus where voices should write their output
         let source_out_bus = self.bus_allocator.get_audio_bus(instrument_id, "source_out").unwrap_or(16);
@@ -50,15 +51,15 @@ impl AudioEngine {
         let tuning = session.tuning_a4 as f64;
         let freq = tuning * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
 
-        let mut messages: Vec<rosc::OscMessage> = Vec::new();
+        let mut messages: Vec<BackendMessage> = Vec::new();
 
         // 1. Create group
-        messages.push(rosc::OscMessage {
+        messages.push(BackendMessage {
             addr: "/g_new".to_string(),
             args: vec![
-                rosc::OscType::Int(group_id),
-                rosc::OscType::Int(1), // addToTail
-                rosc::OscType::Int(GROUP_SOURCES),
+                RawArg::Int(group_id),
+                RawArg::Int(1), // addToTail
+                RawArg::Int(GROUP_SOURCES),
             ],
         });
 
@@ -66,11 +67,11 @@ impl AudioEngine {
         let midi_node_id = self.next_node_id;
         self.next_node_id += 1;
         {
-            let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("imbolc_midi".to_string()),
-                rosc::OscType::Int(midi_node_id),
-                rosc::OscType::Int(1), // addToTail
-                rosc::OscType::Int(group_id),
+            let mut args: Vec<RawArg> = vec![
+                RawArg::Str("imbolc_midi".to_string()),
+                RawArg::Int(midi_node_id),
+                RawArg::Int(1), // addToTail
+                RawArg::Int(group_id),
             ];
             let params: Vec<(String, f32)> = vec![
                 ("note".to_string(), pitch as f32),
@@ -82,10 +83,10 @@ impl AudioEngine {
                 ("vel_out".to_string(), voice_vel_bus as f32),
             ];
             for (name, value) in &params {
-                args.push(rosc::OscType::String(name.clone()));
-                args.push(rosc::OscType::Float(*value));
+                args.push(RawArg::Str(name.clone()));
+                args.push(RawArg::Float(*value));
             }
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/s_new".to_string(),
                 args,
             });
@@ -95,138 +96,137 @@ impl AudioEngine {
         let source_node_id = self.next_node_id;
         self.next_node_id += 1;
         {
-            let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String(Self::source_synth_def(instrument.source, &session.custom_synthdefs)),
-                rosc::OscType::Int(source_node_id),
-                rosc::OscType::Int(1),
-                rosc::OscType::Int(group_id),
+            let mut args: Vec<RawArg> = vec![
+                RawArg::Str(Self::source_synth_def(instrument.source, &session.custom_synthdefs)),
+                RawArg::Int(source_node_id),
+                RawArg::Int(1),
+                RawArg::Int(group_id),
             ];
             // Source params
             for p in &instrument.source_params {
-                args.push(rosc::OscType::String(p.name.clone()));
-                args.push(rosc::OscType::Float(p.value.to_f32()));
+                args.push(RawArg::Str(p.name.clone()));
+                args.push(RawArg::Float(p.value.to_f32()));
             }
             // Wire control inputs
-            args.push(rosc::OscType::String("freq_in".to_string()));
-            args.push(rosc::OscType::Float(voice_freq_bus as f32));
-            args.push(rosc::OscType::String("gate_in".to_string()));
-            args.push(rosc::OscType::Float(voice_gate_bus as f32));
+            args.push(RawArg::Str("freq_in".to_string()));
+            args.push(RawArg::Float(voice_freq_bus as f32));
+            args.push(RawArg::Str("gate_in".to_string()));
+            args.push(RawArg::Float(voice_gate_bus as f32));
             // Amp envelope (ADSR)
-            args.push(rosc::OscType::String("attack".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.attack));
-            args.push(rosc::OscType::String("decay".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.decay));
-            args.push(rosc::OscType::String("sustain".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.sustain));
-            args.push(rosc::OscType::String("release".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.release));
+            args.push(RawArg::Str("attack".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.attack));
+            args.push(RawArg::Str("decay".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.decay));
+            args.push(RawArg::Str("sustain".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.sustain));
+            args.push(RawArg::Str("release".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.release));
             // Output to source_out_bus
-            args.push(rosc::OscType::String("out".to_string()));
-            args.push(rosc::OscType::Float(source_out_bus as f32));
+            args.push(RawArg::Str("out".to_string()));
+            args.push(RawArg::Float(source_out_bus as f32));
 
             // Wire LFO mod inputs based on target
             if instrument.lfo.enabled {
                 if let Some(lfo_bus) = self.bus_allocator.get_control_bus(instrument_id, "lfo_out") {
                     match instrument.lfo.target {
                         LfoTarget::Amplitude => {
-                            args.push(rosc::OscType::String("amp_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("amp_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Pitch => {
-                            args.push(rosc::OscType::String("pitch_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("pitch_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Detune => {
-                            args.push(rosc::OscType::String("detune_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("detune_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::PulseWidth => {
-                            args.push(rosc::OscType::String("width_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("width_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Attack => {
-                            args.push(rosc::OscType::String("attack_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("attack_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Release => {
-                            args.push(rosc::OscType::String("release_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("release_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::FmIndex => {
-                            args.push(rosc::OscType::String("index_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("index_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::WavetablePosition => {
-                            args.push(rosc::OscType::String("position_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("position_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::FormantFreq => {
-                            args.push(rosc::OscType::String("formant_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("formant_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::SyncRatio => {
-                            args.push(rosc::OscType::String("sync_ratio_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("sync_ratio_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Pressure => {
-                            args.push(rosc::OscType::String("pressure_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("pressure_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Embouchure => {
-                            args.push(rosc::OscType::String("embouchure_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("embouchure_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::GrainSize => {
-                            args.push(rosc::OscType::String("grain_size_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("grain_size_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::GrainDensity => {
-                            args.push(rosc::OscType::String("density_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("density_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::FbFeedback => {
-                            args.push(rosc::OscType::String("feedback_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("feedback_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::RingModDepth => {
-                            args.push(rosc::OscType::String("mod_depth_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("mod_depth_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::ChaosParam => {
-                            args.push(rosc::OscType::String("chaos_param_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("chaos_param_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::AdditiveRolloff => {
-                            args.push(rosc::OscType::String("rolloff_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("rolloff_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::MembraneTension => {
-                            args.push(rosc::OscType::String("tension_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("tension_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Decay => {
-                            args.push(rosc::OscType::String("decay_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("decay_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Sustain => {
-                            args.push(rosc::OscType::String("sustain_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("sustain_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         _ => {} // Routing-level targets handled in routing.rs
                     }
                 }
             }
 
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/s_new".to_string(),
                 args,
             });
         }
 
         // Send all as one timed bundle
-        let time = super::super::osc_client::osc_time_from_now(offset_secs);
-        client
-            .send_bundle(messages, time)
+        backend
+            .send_bundle(messages, offset_secs)
             .map_err(|e| e.to_string())?;
 
         // Register voice nodes in the node registry
@@ -276,10 +276,10 @@ impl AudioEngine {
             .map(|s| (s.start, s.end))
             .unwrap_or((0.0, 1.0));
 
-        // Smart voice stealing (must precede client borrow)
+        // Smart voice stealing (must precede backend borrow)
         self.steal_voice_if_needed(instrument_id, pitch, velocity)?;
 
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         // Get the audio bus where voices should write their output
         let source_out_bus = self.bus_allocator.get_audio_bus(instrument_id, "source_out").unwrap_or(16);
@@ -294,15 +294,15 @@ impl AudioEngine {
         let tuning = session.tuning_a4 as f64;
         let freq = tuning * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
 
-        let mut messages: Vec<rosc::OscMessage> = Vec::new();
+        let mut messages: Vec<BackendMessage> = Vec::new();
 
         // 1. Create group
-        messages.push(rosc::OscMessage {
+        messages.push(BackendMessage {
             addr: "/g_new".to_string(),
             args: vec![
-                rosc::OscType::Int(group_id),
-                rosc::OscType::Int(1), // addToTail
-                rosc::OscType::Int(GROUP_SOURCES),
+                RawArg::Int(group_id),
+                RawArg::Int(1), // addToTail
+                RawArg::Int(GROUP_SOURCES),
             ],
         });
 
@@ -310,11 +310,11 @@ impl AudioEngine {
         let midi_node_id = self.next_node_id;
         self.next_node_id += 1;
         {
-            let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("imbolc_midi".to_string()),
-                rosc::OscType::Int(midi_node_id),
-                rosc::OscType::Int(1), // addToTail
-                rosc::OscType::Int(group_id),
+            let mut args: Vec<RawArg> = vec![
+                RawArg::Str("imbolc_midi".to_string()),
+                RawArg::Int(midi_node_id),
+                RawArg::Int(1), // addToTail
+                RawArg::Int(group_id),
             ];
             let params: Vec<(String, f32)> = vec![
                 ("note".to_string(), pitch as f32),
@@ -326,10 +326,10 @@ impl AudioEngine {
                 ("vel_out".to_string(), voice_vel_bus as f32),
             ];
             for (name, value) in &params {
-                args.push(rosc::OscType::String(name.clone()));
-                args.push(rosc::OscType::Float(*value));
+                args.push(RawArg::Str(name.clone()));
+                args.push(RawArg::Float(*value));
             }
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/s_new".to_string(),
                 args,
             });
@@ -339,11 +339,11 @@ impl AudioEngine {
         let sampler_node_id = self.next_node_id;
         self.next_node_id += 1;
         {
-            let mut args: Vec<rosc::OscType> = vec![
-                rosc::OscType::String("imbolc_sampler".to_string()),
-                rosc::OscType::Int(sampler_node_id),
-                rosc::OscType::Int(1),
-                rosc::OscType::Int(group_id),
+            let mut args: Vec<RawArg> = vec![
+                RawArg::Str("imbolc_sampler".to_string()),
+                RawArg::Int(sampler_node_id),
+                RawArg::Int(1),
+                RawArg::Int(group_id),
             ];
 
             // Get rate and amp from source params
@@ -366,86 +366,85 @@ impl AudioEngine {
             let loop_mode = sampler_config.loop_mode;
 
             // Sampler params
-            args.push(rosc::OscType::String("bufnum".to_string()));
-            args.push(rosc::OscType::Float(bufnum as f32));
-            args.push(rosc::OscType::String("sliceStart".to_string()));
-            args.push(rosc::OscType::Float(slice_start));
-            args.push(rosc::OscType::String("sliceEnd".to_string()));
-            args.push(rosc::OscType::Float(slice_end));
-            args.push(rosc::OscType::String("rate".to_string()));
-            args.push(rosc::OscType::Float(rate));
-            args.push(rosc::OscType::String("amp".to_string()));
-            args.push(rosc::OscType::Float(amp));
-            args.push(rosc::OscType::String("loop".to_string()));
-            args.push(rosc::OscType::Float(if loop_mode { 1.0 } else { 0.0 }));
+            args.push(RawArg::Str("bufnum".to_string()));
+            args.push(RawArg::Float(bufnum as f32));
+            args.push(RawArg::Str("sliceStart".to_string()));
+            args.push(RawArg::Float(slice_start));
+            args.push(RawArg::Str("sliceEnd".to_string()));
+            args.push(RawArg::Float(slice_end));
+            args.push(RawArg::Str("rate".to_string()));
+            args.push(RawArg::Float(rate));
+            args.push(RawArg::Str("amp".to_string()));
+            args.push(RawArg::Float(amp));
+            args.push(RawArg::Str("loop".to_string()));
+            args.push(RawArg::Float(if loop_mode { 1.0 } else { 0.0 }));
 
             // Wire control inputs (for pitch tracking if enabled)
             if sampler_config.pitch_tracking {
-                args.push(rosc::OscType::String("freq_in".to_string()));
-                args.push(rosc::OscType::Float(voice_freq_bus as f32));
+                args.push(RawArg::Str("freq_in".to_string()));
+                args.push(RawArg::Float(voice_freq_bus as f32));
             }
-            args.push(rosc::OscType::String("gate_in".to_string()));
-            args.push(rosc::OscType::Float(voice_gate_bus as f32));
-            args.push(rosc::OscType::String("vel_in".to_string()));
-            args.push(rosc::OscType::Float(voice_vel_bus as f32));
+            args.push(RawArg::Str("gate_in".to_string()));
+            args.push(RawArg::Float(voice_gate_bus as f32));
+            args.push(RawArg::Str("vel_in".to_string()));
+            args.push(RawArg::Float(voice_vel_bus as f32));
 
             // Amp envelope (ADSR)
-            args.push(rosc::OscType::String("attack".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.attack));
-            args.push(rosc::OscType::String("decay".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.decay));
-            args.push(rosc::OscType::String("sustain".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.sustain));
-            args.push(rosc::OscType::String("release".to_string()));
-            args.push(rosc::OscType::Float(instrument.amp_envelope.release));
+            args.push(RawArg::Str("attack".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.attack));
+            args.push(RawArg::Str("decay".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.decay));
+            args.push(RawArg::Str("sustain".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.sustain));
+            args.push(RawArg::Str("release".to_string()));
+            args.push(RawArg::Float(instrument.amp_envelope.release));
 
             // Output to source_out_bus
-            args.push(rosc::OscType::String("out".to_string()));
-            args.push(rosc::OscType::Float(source_out_bus as f32));
+            args.push(RawArg::Str("out".to_string()));
+            args.push(RawArg::Float(source_out_bus as f32));
 
             // Wire LFO mod inputs for sampler voice
             if instrument.lfo.enabled {
                 if let Some(lfo_bus) = self.bus_allocator.get_control_bus(instrument_id, "lfo_out") {
                     match instrument.lfo.target {
                         LfoTarget::Amplitude => {
-                            args.push(rosc::OscType::String("amp_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("amp_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::SampleRate => {
-                            args.push(rosc::OscType::String("srate_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("srate_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Attack => {
-                            args.push(rosc::OscType::String("attack_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("attack_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Release => {
-                            args.push(rosc::OscType::String("release_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("release_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Decay => {
-                            args.push(rosc::OscType::String("decay_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("decay_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         LfoTarget::Sustain => {
-                            args.push(rosc::OscType::String("sustain_mod_in".to_string()));
-                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                            args.push(RawArg::Str("sustain_mod_in".to_string()));
+                            args.push(RawArg::Float(lfo_bus as f32));
                         }
                         _ => {} // Routing-level targets handled in routing.rs
                     }
                 }
             }
 
-            messages.push(rosc::OscMessage {
+            messages.push(BackendMessage {
                 addr: "/s_new".to_string(),
                 args,
             });
         }
 
         // Send all as one timed bundle
-        let time = super::super::osc_client::osc_time_from_now(offset_secs);
-        client
-            .send_bundle(messages, time)
+        backend
+            .send_bundle(messages, offset_secs)
             .map_err(|e| e.to_string())?;
 
         // Register voice nodes in the node registry
@@ -484,7 +483,7 @@ impl AudioEngine {
             }
         }
 
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         // Find and mark an active voice as released via the allocator
         let release_time = state.instrument(instrument_id)
@@ -495,26 +494,23 @@ impl AudioEngine {
             let voice = &self.voice_allocator.chains()[pos];
 
             // Send gate=0 to begin envelope release
-            let time = super::super::osc_client::osc_time_from_now(offset_secs);
-            client
+            backend
                 .set_params_bundled(
                     voice.midi_node_id,
                     &[("gate", 0.0)],
-                    time,
+                    offset_secs,
                 )
                 .map_err(|e| e.to_string())?;
 
             // Schedule deferred /n_free after envelope completes (+1s margin)
-            let cleanup_time = super::super::osc_client::osc_time_from_now(
-                offset_secs + release_time as f64 + 1.0,
-            );
-            client
+            let cleanup_offset = offset_secs + release_time as f64 + 1.0;
+            backend
                 .send_bundle(
-                    vec![rosc::OscMessage {
+                    vec![BackendMessage {
                         addr: "/n_free".to_string(),
-                        args: vec![rosc::OscType::Int(voice.group_id)],
+                        args: vec![RawArg::Int(voice.group_id)],
                     }],
-                    cleanup_time,
+                    cleanup_offset,
                 )
                 .map_err(|e| e.to_string())?;
         }
@@ -523,12 +519,12 @@ impl AudioEngine {
 
     /// Release all active voices
     pub fn release_all_voices(&mut self) {
-        if let Some(ref client) = self.client {
+        if let Some(ref backend) = self.backend {
             for chain in self.voice_allocator.drain_all() {
                 self.node_registry.unregister(chain.group_id);
                 self.node_registry.unregister(chain.midi_node_id);
                 self.node_registry.unregister(chain.source_node);
-                let _ = client.free_node(chain.group_id);
+                let _ = backend.free_node(chain.group_id);
             }
         }
     }
@@ -541,21 +537,21 @@ impl AudioEngine {
 
     /// Steal a voice if needed before spawning a new one.
     /// Delegates to the voice allocator for candidate selection,
-    /// then handles OSC anti-click freeing.
+    /// then handles anti-click freeing via the backend.
     pub(crate) fn steal_voice_if_needed(
         &mut self,
         instrument_id: InstrumentId,
         pitch: u8,
         _velocity: f32,
     ) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
 
         let stolen = self.voice_allocator.steal_voices(instrument_id, pitch);
         for voice in &stolen {
             self.node_registry.unregister(voice.group_id);
             self.node_registry.unregister(voice.midi_node_id);
             self.node_registry.unregister(voice.source_node);
-            Self::anti_click_free(client.as_ref(), voice)?;
+            Self::anti_click_free(backend.as_ref(), voice)?;
         }
 
         Ok(())
@@ -564,27 +560,25 @@ impl AudioEngine {
     /// Free a voice with a brief anti-click fade: send gate=0, then /n_free after 5ms.
     /// For already-released voices, skip gate=0 (already fading) and free immediately.
     fn anti_click_free(
-        client: &dyn super::super::osc_client::OscClientLike,
+        backend: &dyn AudioBackend,
         voice: &VoiceChain,
     ) -> Result<(), String> {
         if voice.release_state.is_some() {
-            // Already releasing — just free immediately (deferred /n_free already scheduled,
+            // Already releasing -- just free immediately (deferred /n_free already scheduled,
             // but SC silently ignores double-frees)
-            client.free_node(voice.group_id).map_err(|e| e.to_string())?;
+            backend.free_node(voice.group_id).map_err(|e| e.to_string())?;
         } else {
             // Active voice: send gate=0 for a brief fade, then free after 5ms
-            let now = super::super::osc_client::osc_time_from_now(0.0);
-            client
-                .set_params_bundled(voice.midi_node_id, &[("gate", 0.0)], now)
+            backend
+                .set_params_bundled(voice.midi_node_id, &[("gate", 0.0)], 0.0)
                 .map_err(|e| e.to_string())?;
-            let free_time = super::super::osc_client::osc_time_from_now(0.005);
-            client
+            backend
                 .send_bundle(
-                    vec![rosc::OscMessage {
+                    vec![BackendMessage {
                         addr: "/n_free".to_string(),
-                        args: vec![rosc::OscType::Int(voice.group_id)],
+                        args: vec![RawArg::Int(voice.group_id)],
                     }],
-                    free_time,
+                    0.005,
                 )
                 .map_err(|e| e.to_string())?;
         }
@@ -602,7 +596,7 @@ impl AudioEngine {
         rate: f32,
         offset_secs: f64,
     ) -> Result<(), String> {
-        let client = self.client.as_ref().ok_or("Not connected")?;
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
         let bufnum = *self.buffer_map.get(&buffer_id).ok_or("Buffer not loaded")?;
         let out_bus = self
             .bus_allocator
@@ -612,30 +606,29 @@ impl AudioEngine {
         let node_id = self.next_node_id;
         self.next_node_id += 1;
 
-        let msg = rosc::OscMessage {
+        let msg = BackendMessage {
             addr: "/s_new".to_string(),
             args: vec![
-                rosc::OscType::String("imbolc_sampler_oneshot".to_string()),
-                rosc::OscType::Int(node_id),
-                rosc::OscType::Int(0), // addToHead
-                rosc::OscType::Int(GROUP_SOURCES),
-                rosc::OscType::String("bufnum".to_string()),
-                rosc::OscType::Int(bufnum),
-                rosc::OscType::String("amp".to_string()),
-                rosc::OscType::Float(amp),
-                rosc::OscType::String("sliceStart".to_string()),
-                rosc::OscType::Float(slice_start),
-                rosc::OscType::String("sliceEnd".to_string()),
-                rosc::OscType::Float(slice_end),
-                rosc::OscType::String("rate".to_string()),
-                rosc::OscType::Float(rate),
-                rosc::OscType::String("out".to_string()),
-                rosc::OscType::Int(out_bus), // Route to instrument's source bus
+                RawArg::Str("imbolc_sampler_oneshot".to_string()),
+                RawArg::Int(node_id),
+                RawArg::Int(0), // addToHead
+                RawArg::Int(GROUP_SOURCES),
+                RawArg::Str("bufnum".to_string()),
+                RawArg::Int(bufnum),
+                RawArg::Str("amp".to_string()),
+                RawArg::Float(amp),
+                RawArg::Str("sliceStart".to_string()),
+                RawArg::Float(slice_start),
+                RawArg::Str("sliceEnd".to_string()),
+                RawArg::Float(slice_end),
+                RawArg::Str("rate".to_string()),
+                RawArg::Float(rate),
+                RawArg::Str("out".to_string()),
+                RawArg::Int(out_bus), // Route to instrument's source bus
             ],
         };
-        let time = super::super::osc_client::osc_time_from_now(offset_secs);
-        client
-            .send_bundle(vec![msg], time)
+        backend
+            .send_bundle(vec![msg], offset_secs)
             .map_err(|e| e.to_string())?;
 
         Ok(())
