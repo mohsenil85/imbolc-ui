@@ -83,6 +83,7 @@ impl AddEffectPane {
             AddEffectOption::Separator("── Utility ──"),
             AddEffectOption::Effect(EffectType::PitchShifter),
             AddEffectOption::Effect(EffectType::EnvFollower),
+            AddEffectOption::Effect(EffectType::Denoise),
             AddEffectOption::Effect(EffectType::Crossfader),
             AddEffectOption::Separator("── Lo-fi ──"),
             AddEffectOption::Effect(EffectType::Vinyl),

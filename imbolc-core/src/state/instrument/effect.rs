@@ -52,6 +52,7 @@ pub enum EffectType {
     EnvFollower,
     MidSide,
     Crossfader,
+    Denoise,
     Vst(VstPluginId),
 }
 
@@ -94,6 +95,7 @@ impl EffectType {
             EffectType::EnvFollower => "Env Follower",
             EffectType::MidSide => "Mid/Side",
             EffectType::Crossfader => "Crossfader",
+            EffectType::Denoise => "Denoise",
             EffectType::Vst(_) => "VST",
         }
     }
@@ -147,6 +149,7 @@ impl EffectType {
             EffectType::EnvFollower => "imbolc_env_follower",
             EffectType::MidSide => "imbolc_midside",
             EffectType::Crossfader => "imbolc_crossfader",
+            EffectType::Denoise => "imbolc_denoise",
             EffectType::Vst(_) => "imbolc_vst_effect",
         }
     }
@@ -362,6 +365,12 @@ impl EffectType {
                 Param { name: "crossfade".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
                 Param { name: "bus_b".to_string(), value: ParamValue::Int(0), min: 0.0, max: 8.0 },
             ],
+            EffectType::Denoise => vec![
+                Param { name: "threshold".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "hp_freq".to_string(), value: ParamValue::Float(80.0), min: 20.0, max: 500.0 },
+                Param { name: "smoothing".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
+            ],
             EffectType::Vst(_) => vec![], // VST params discovered from plugin
         }
     }
@@ -383,7 +392,7 @@ impl EffectType {
             EffectType::Resonator, EffectType::MultibandComp, EffectType::ParaEq,
             EffectType::SpectralFreeze, EffectType::Glitch, EffectType::Leslie,
             EffectType::SpringReverb, EffectType::EnvFollower, EffectType::MidSide,
-            EffectType::Crossfader,
+            EffectType::Crossfader, EffectType::Denoise,
         ]
     }
 }

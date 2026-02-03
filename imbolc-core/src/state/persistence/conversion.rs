@@ -196,6 +196,7 @@ pub(super) fn parse_effect_type(s: &str) -> EffectType {
         "envfollower" => EffectType::EnvFollower,
         "midside" => EffectType::MidSide,
         "crossfader" => EffectType::Crossfader,
+        "denoise" => EffectType::Denoise,
         other if other.starts_with("vst:") => {
             if let Ok(id) = other[4..].parse::<u32>() {
                 EffectType::Vst(id)
