@@ -45,6 +45,7 @@ bindings = [
   { key = "Ctrl+x", action = "cut", description = "Cut" },
   { key = "Ctrl+v", action = "paste", description = "Paste" },
   { key = "Ctrl+a", action = "select_all", description = "Select all" },
+  { key = "Ctrl+n", action = "add_instrument", description = "Add instrument" },
   { key = ":", action = "command_palette", description = "Command palette" },
 ]
 
