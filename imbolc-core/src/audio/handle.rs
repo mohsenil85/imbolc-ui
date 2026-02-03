@@ -311,6 +311,14 @@ impl AudioHandle {
         self.monitor.scope_buffer()
     }
 
+    pub fn sc_cpu(&self) -> f32 {
+        self.monitor.sc_cpu()
+    }
+
+    pub fn osc_latency_ms(&self) -> f32 {
+        self.monitor.osc_latency_ms()
+    }
+
     pub fn is_recording(&self) -> bool {
         self.audio_state.is_recording
     }

@@ -30,7 +30,6 @@ impl<'a> RenderBuf<'a> {
 
     /// Draw a string at (x, y) without wrapping. Characters beyond the buffer
     /// boundary are silently clipped.
-    #[allow(dead_code)]
     pub fn draw_str(&mut self, x: u16, y: u16, text: &str, style: Style) {
         let rat_style = ratatui::style::Style::from(style);
         for (i, ch) in text.chars().enumerate() {

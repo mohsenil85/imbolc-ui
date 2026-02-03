@@ -22,6 +22,12 @@ pub struct AudioMonitor {
     lufs_data: Arc<RwLock<(f32, f32, f32, f32)>>,
     /// Oscilloscope ring buffer
     scope_buffer: Arc<RwLock<VecDeque<f32>>>,
+    /// SuperCollider average CPU load from /status.reply
+    sc_cpu: Arc<RwLock<f32>>,
+    /// OSC round-trip latency in milliseconds
+    osc_latency_ms: Arc<RwLock<f32>>,
+    /// Timestamp when /status was last sent (for latency measurement)
+    status_sent_at: Arc<RwLock<Option<Instant>>>,
 }
 
 impl AudioMonitor {
@@ -32,6 +38,9 @@ impl AudioMonitor {
             spectrum_data: Arc::new(RwLock::new([0.0; 7])),
             lufs_data: Arc::new(RwLock::new((0.0, 0.0, 0.0, 0.0))),
             scope_buffer: Arc::new(RwLock::new(VecDeque::with_capacity(SCOPE_BUFFER_SIZE))),
+            sc_cpu: Arc::new(RwLock::new(0.0)),
+            osc_latency_ms: Arc::new(RwLock::new(0.0)),
+            status_sent_at: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -74,6 +83,21 @@ impl AudioMonitor {
             .map(|buf| buf.iter().copied().collect())
             .unwrap_or_default()
     }
+
+    pub fn sc_cpu(&self) -> f32 {
+        self.sc_cpu.read().map(|v| *v).unwrap_or(0.0)
+    }
+
+    pub fn osc_latency_ms(&self) -> f32 {
+        self.osc_latency_ms.read().map(|v| *v).unwrap_or(0.0)
+    }
+
+    /// Mark the time /status was sent, for latency measurement
+    pub fn mark_status_sent(&self) {
+        if let Ok(mut ts) = self.status_sent_at.write() {
+            *ts = Some(Instant::now());
+        }
+    }
 }
 
 pub struct OscClient {
@@ -85,6 +109,9 @@ pub struct OscClient {
     spectrum_data: Arc<RwLock<[f32; 7]>>,
     lufs_data: Arc<RwLock<(f32, f32, f32, f32)>>,
     scope_buffer: Arc<RwLock<VecDeque<f32>>>,
+    sc_cpu: Arc<RwLock<f32>>,
+    osc_latency_ms: Arc<RwLock<f32>>,
+    status_sent_at: Arc<RwLock<Option<Instant>>>,
     _recv_thread: Option<JoinHandle<()>>,
 }
 
@@ -95,6 +122,9 @@ struct OscRefs {
     spectrum: Arc<RwLock<[f32; 7]>>,
     lufs: Arc<RwLock<(f32, f32, f32, f32)>>,
     scope: Arc<RwLock<VecDeque<f32>>>,
+    sc_cpu: Arc<RwLock<f32>>,
+    osc_latency_ms: Arc<RwLock<f32>>,
+    status_sent_at: Arc<RwLock<Option<Instant>>>,
 }
 
 fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
@@ -175,6 +205,24 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                         buf.pop_front();
                     }
                 }
+            } else if msg.addr == "/status.reply" && msg.args.len() >= 6 {
+                // /status.reply: [unused, ugens, synths, groups, synthdefs, avg_cpu, peak_cpu]
+                let avg_cpu = match msg.args.get(5) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => 0.0,
+                };
+                if let Ok(mut cpu) = refs.sc_cpu.write() {
+                    *cpu = avg_cpu;
+                }
+                // Calculate round-trip latency from when /status was sent
+                if let Ok(mut ts) = refs.status_sent_at.write() {
+                    if let Some(sent) = ts.take() {
+                        let latency = sent.elapsed().as_secs_f32() * 1000.0;
+                        if let Ok(mut lat) = refs.osc_latency_ms.write() {
+                            *lat = latency;
+                        }
+                    }
+                }
             }
         }
         OscPacket::Bundle(bundle) => {
@@ -198,6 +246,9 @@ impl OscClient {
         let spectrum_data = Arc::clone(&monitor.spectrum_data);
         let lufs_data = Arc::clone(&monitor.lufs_data);
         let scope_buffer = Arc::clone(&monitor.scope_buffer);
+        let sc_cpu = Arc::clone(&monitor.sc_cpu);
+        let osc_latency_ms = Arc::clone(&monitor.osc_latency_ms);
+        let status_sent_at = Arc::clone(&monitor.status_sent_at);
 
         // Clone socket for receive thread
         let recv_socket = socket.try_clone()?;
@@ -208,6 +259,9 @@ impl OscClient {
             spectrum: Arc::clone(&spectrum_data),
             lufs: Arc::clone(&lufs_data),
             scope: Arc::clone(&scope_buffer),
+            sc_cpu: Arc::clone(&sc_cpu),
+            osc_latency_ms: Arc::clone(&osc_latency_ms),
+            status_sent_at: Arc::clone(&status_sent_at),
         };
 
         let handle = thread::spawn(move || {
@@ -233,6 +287,9 @@ impl OscClient {
             spectrum_data,
             lufs_data,
             scope_buffer,
+            sc_cpu,
+            osc_latency_ms,
+            status_sent_at,
             _recv_thread: Some(handle),
         })
     }
@@ -245,6 +302,9 @@ impl OscClient {
             spectrum_data: Arc::clone(&self.spectrum_data),
             lufs_data: Arc::clone(&self.lufs_data),
             scope_buffer: Arc::clone(&self.scope_buffer),
+            sc_cpu: Arc::clone(&self.sc_cpu),
+            osc_latency_ms: Arc::clone(&self.osc_latency_ms),
+            status_sent_at: Arc::clone(&self.status_sent_at),
         }
     }
 

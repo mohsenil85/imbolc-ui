@@ -421,6 +421,13 @@ impl AudioEngine {
         }
     }
 
+    /// Send a /status query to SuperCollider (response arrives as /status.reply via OSC)
+    pub fn send_status_query(&self) {
+        if let Some(ref backend) = self.backend {
+            let _ = backend.send_raw("/status", vec![]);
+        }
+    }
+
     pub fn disconnect(&mut self) {
         self.stop_recording();
         if let Some(ref backend) = self.backend {

@@ -51,6 +51,8 @@ pub(crate) struct AudioThread {
     last_export_progress: f32,
     /// Fractional tick accumulator for sub-tick precision (avoids truncation drift)
     tick_accumulator: f64,
+    /// Last time /status was polled from SuperCollider
+    last_status_poll: Instant,
 }
 
 fn config_synthdefs_dir() -> PathBuf {
@@ -89,6 +91,7 @@ impl AudioThread {
             export_state: None,
             last_export_progress: 0.0,
             tick_accumulator: 0.0,
+            last_status_poll: Instant::now(),
         }
     }
 
@@ -655,6 +658,13 @@ impl AudioThread {
                 message: msg,
                 server_running: self.engine.server_running(),
             });
+        }
+
+        // Poll SuperCollider /status for CPU load and latency
+        if self.engine.is_running() && self.last_status_poll.elapsed() >= Duration::from_secs(1) {
+            self.last_status_poll = Instant::now();
+            self.monitor.mark_status_sent();
+            self.engine.send_status_query();
         }
 
         if self.engine.poll_pending_buffer_free() {
