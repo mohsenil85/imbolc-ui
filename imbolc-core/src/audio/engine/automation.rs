@@ -40,17 +40,11 @@ impl AudioEngine {
                     }
                 }
             }
-            AutomationTarget::EffectParam(instrument_id, effect_idx, param_idx) => {
+            AutomationTarget::EffectParam(instrument_id, effect_id, param_idx) => {
                 if let Some(nodes) = self.node_map.get(instrument_id) {
-                    let instrument = state.instrument(*instrument_id);
-                    if let Some(instrument) = instrument {
-                        // Count enabled effects before effect_idx to find the right node
-                        let enabled_idx = instrument.effects.iter()
-                            .take(*effect_idx)
-                            .filter(|e| e.enabled)
-                            .count();
-                        if let Some(&effect_node) = nodes.effects.get(enabled_idx) {
-                            if let Some(effect) = instrument.effects.get(*effect_idx) {
+                    if let Some(&effect_node) = nodes.effects.get(effect_id) {
+                        if let Some(instrument) = state.instrument(*instrument_id) {
+                            if let Some(effect) = instrument.effect_by_id(*effect_id) {
                                 if let Some(param) = effect.params.get(*param_idx) {
                                     client.set_param(effect_node, &param.name, value)
                                         .map_err(|e| e.to_string())?;
@@ -61,7 +55,7 @@ impl AudioEngine {
                 }
             }
             AutomationTarget::SampleRate(instrument_id) => {
-                for voice in &self.voice_chains {
+                for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
                         client.set_param(voice.source_node, "rate", value)
                             .map_err(|e| e.to_string())?;
@@ -69,7 +63,7 @@ impl AudioEngine {
                 }
             }
             AutomationTarget::SampleAmp(instrument_id) => {
-                for voice in &self.voice_chains {
+                for voice in self.voice_allocator.chains() {
                     if voice.instrument_id == *instrument_id {
                         client.set_param(voice.source_node, "amp", value)
                             .map_err(|e| e.to_string())?;
@@ -114,17 +108,11 @@ impl AudioEngine {
                 }
             }
             AutomationTarget::SendLevel(instrument_id, send_idx) => {
-                // Find the send node for this instrument + send index
-                let inst_idx = state.instruments.iter().position(|i| i.id == *instrument_id);
-                if let Some(idx) = inst_idx {
-                    // Send nodes are keyed by (instrument_index, bus_id)
-                    // We need to find the bus_id from the send_idx
-                    if let Some(inst) = state.instrument(*instrument_id) {
-                        if let Some(send) = inst.sends.get(*send_idx) {
-                            if let Some(&node_id) = self.send_node_map.get(&(idx, send.bus_id)) {
-                                client.set_param(node_id, "level", value)
-                                    .map_err(|e| e.to_string())?;
-                            }
+                if let Some(inst) = state.instrument(*instrument_id) {
+                    if let Some(send) = inst.sends.get(*send_idx) {
+                        if let Some(&node_id) = self.send_node_map.get(&(*instrument_id, send.bus_id)) {
+                            client.set_param(node_id, "level", value)
+                                .map_err(|e| e.to_string())?;
                         }
                     }
                 }

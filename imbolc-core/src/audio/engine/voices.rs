@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use super::{AudioEngine, VoiceChain, MAX_VOICES_PER_INSTRUMENT, GROUP_SOURCES};
+use super::{AudioEngine, VoiceChain, GROUP_SOURCES};
 use crate::state::{BufferId, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState};
 
 impl AudioEngine {
@@ -44,13 +44,8 @@ impl AudioEngine {
         let group_id = self.next_node_id;
         self.next_node_id += 1;
 
-        // Allocate per-voice control buses
-        let voice_freq_bus = self.next_voice_control_bus;
-        self.next_voice_control_bus += 1;
-        let voice_gate_bus = self.next_voice_control_bus;
-        self.next_voice_control_bus += 1;
-        let voice_vel_bus = self.next_voice_control_bus;
-        self.next_voice_control_bus += 1;
+        // Allocate per-voice control buses (with pooling)
+        let (voice_freq_bus, voice_gate_bus, voice_vel_bus) = self.voice_allocator.alloc_control_buses();
 
         let tuning = session.tuning_a4 as f64;
         let freq = tuning * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
@@ -239,7 +234,7 @@ impl AudioEngine {
             .send_bundle(messages, time)
             .map_err(|e| e.to_string())?;
 
-        self.voice_chains.push(VoiceChain {
+        self.voice_allocator.add(VoiceChain {
             instrument_id,
             pitch,
             velocity,
@@ -293,13 +288,8 @@ impl AudioEngine {
         let group_id = self.next_node_id;
         self.next_node_id += 1;
 
-        // Allocate per-voice control buses
-        let voice_freq_bus = self.next_voice_control_bus;
-        self.next_voice_control_bus += 1;
-        let voice_gate_bus = self.next_voice_control_bus;
-        self.next_voice_control_bus += 1;
-        let voice_vel_bus = self.next_voice_control_bus;
-        self.next_voice_control_bus += 1;
+        // Allocate per-voice control buses (with pooling)
+        let (voice_freq_bus, voice_gate_bus, voice_vel_bus) = self.voice_allocator.alloc_control_buses();
 
         let tuning = session.tuning_a4 as f64;
         let freq = tuning * (2.0_f64).powf((pitch as f64 - 69.0) / 12.0);
@@ -458,7 +448,7 @@ impl AudioEngine {
             .send_bundle(messages, time)
             .map_err(|e| e.to_string())?;
 
-        self.voice_chains.push(VoiceChain {
+        self.voice_allocator.add(VoiceChain {
             instrument_id,
             pitch,
             velocity,
@@ -491,25 +481,19 @@ impl AudioEngine {
 
         let client = self.client.as_ref().ok_or("Not connected")?;
 
-        // Find an active (non-released) voice matching this instrument and pitch
-        if let Some(pos) = self
-            .voice_chains
-            .iter()
-            .position(|v| {
-                v.instrument_id == instrument_id
-                    && v.pitch == pitch
-                    && v.release_state.is_none()
-            })
-        {
-            let release_time = state.instrument(instrument_id)
-                .map(|s| s.amp_envelope.release)
-                .unwrap_or(1.0);
+        // Find and mark an active voice as released via the allocator
+        let release_time = state.instrument(instrument_id)
+            .map(|s| s.amp_envelope.release)
+            .unwrap_or(1.0);
+
+        if let Some(pos) = self.voice_allocator.mark_released(instrument_id, pitch, release_time) {
+            let voice = &self.voice_allocator.chains()[pos];
 
             // Send gate=0 to begin envelope release
             let time = super::super::osc_client::osc_time_from_now(offset_secs);
             client
                 .set_params_bundled(
-                    self.voice_chains[pos].midi_node_id,
+                    voice.midi_node_id,
                     &[("gate", 0.0)],
                     time,
                 )
@@ -523,14 +507,11 @@ impl AudioEngine {
                 .send_bundle(
                     vec![rosc::OscMessage {
                         addr: "/n_free".to_string(),
-                        args: vec![rosc::OscType::Int(self.voice_chains[pos].group_id)],
+                        args: vec![rosc::OscType::Int(voice.group_id)],
                     }],
                     cleanup_time,
                 )
                 .map_err(|e| e.to_string())?;
-
-            // Mark as released (keep in voice_chains for steal scoring)
-            self.voice_chains[pos].release_state = Some((Instant::now(), release_time));
         }
         Ok(())
     }
@@ -538,7 +519,7 @@ impl AudioEngine {
     /// Release all active voices
     pub fn release_all_voices(&mut self) {
         if let Some(ref client) = self.client {
-            for chain in self.voice_chains.drain(..) {
+            for chain in self.voice_allocator.drain_all() {
                 let _ = client.free_node(chain.group_id);
             }
         }
@@ -547,66 +528,12 @@ impl AudioEngine {
     /// Remove voices whose release envelope has fully expired.
     /// Called periodically from the audio thread to prevent unbounded growth.
     pub fn cleanup_expired_voices(&mut self) {
-        let now = Instant::now();
-        self.voice_chains.retain(|v| {
-            if let Some((released_at, release_dur)) = v.release_state {
-                // Keep if still within release + 1.5s safety margin
-                now.duration_since(released_at).as_secs_f32() < release_dur + 1.5
-            } else {
-                true // active voice, keep
-            }
-        });
-    }
-
-    /// Find the best steal candidate for a given instrument.
-    /// Returns the index of the voice with the lowest score (best target).
-    ///
-    /// Scoring:
-    /// - Released voices: 0–999 (further into release = lower score)
-    /// - Active voices: 1000+ (lower velocity = lower; older = lower tiebreaker)
-    fn find_steal_candidate(&self, instrument_id: InstrumentId) -> Option<usize> {
-        let now = Instant::now();
-
-        self.voice_chains
-            .iter()
-            .enumerate()
-            .filter(|(_, v)| v.instrument_id == instrument_id)
-            .min_by(|(_, a), (_, b)| {
-                let score_a = Self::steal_score(a, now);
-                let score_b = Self::steal_score(b, now);
-                score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|(i, _)| i)
-    }
-
-    /// Compute a steal priority score for a voice. Lower = better steal target.
-    fn steal_score(voice: &VoiceChain, now: Instant) -> f64 {
-        if let Some((released_at, release_dur)) = voice.release_state {
-            // Released voice: score 0–999
-            // Further into release (closer to silent) = lower score
-            let elapsed = now.duration_since(released_at).as_secs_f64();
-            let progress = if release_dur > 0.0 {
-                (elapsed / release_dur as f64).min(1.0)
-            } else {
-                1.0
-            };
-            // progress 1.0 (fully released) -> score 0, progress 0.0 (just released) -> score 999
-            (1.0 - progress) * 999.0
-        } else {
-            // Active voice: score 1000+
-            // Lower velocity = lower score (steal quieter voices first)
-            let velocity_score = voice.velocity as f64 * 500.0; // 0–500
-            // Older = lower score (tiebreaker)
-            let age_secs = now.duration_since(voice.spawn_time).as_secs_f64();
-            let age_score = 500.0 / (1.0 + age_secs); // older -> smaller value
-            1000.0 + velocity_score + age_score
-        }
+        self.voice_allocator.cleanup_expired();
     }
 
     /// Steal a voice if needed before spawning a new one.
-    /// 1. Same-pitch retrigger: always steal matching pitch
-    /// 2. If active voice count is at the limit, steal the best candidate
-    /// Uses a brief anti-click fade (gate=0 then /n_free after 5ms) instead of hard cut.
+    /// Delegates to the voice allocator for candidate selection,
+    /// then handles OSC anti-click freeing.
     pub(crate) fn steal_voice_if_needed(
         &mut self,
         instrument_id: InstrumentId,
@@ -615,27 +542,9 @@ impl AudioEngine {
     ) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
 
-        // 1. Same-pitch retrigger: steal any voice (active or released) with the same pitch
-        if let Some(pos) = self.voice_chains.iter().position(|v| {
-            v.instrument_id == instrument_id && v.pitch == pitch
-        }) {
-            let old = self.voice_chains.remove(pos);
-            Self::anti_click_free(client.as_ref(), &old)?;
-            // After removing the retrigger target, still check if we're at the limit
-        }
-
-        // 2. Count active (non-released) voices for this instrument
-        let active_count = self
-            .voice_chains
-            .iter()
-            .filter(|v| v.instrument_id == instrument_id && v.release_state.is_none())
-            .count();
-
-        if active_count >= MAX_VOICES_PER_INSTRUMENT {
-            if let Some(pos) = self.find_steal_candidate(instrument_id) {
-                let old = self.voice_chains.remove(pos);
-                Self::anti_click_free(client.as_ref(), &old)?;
-            }
+        let stolen = self.voice_allocator.steal_voices(instrument_id, pitch);
+        for voice in &stolen {
+            Self::anti_click_free(client.as_ref(), voice)?;
         }
 
         Ok(())

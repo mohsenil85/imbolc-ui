@@ -1,8 +1,10 @@
+use serde::{Serialize, Deserialize};
+
 use crate::state::custom_synthdef::{CustomSynthDefId, CustomSynthDefRegistry};
 use crate::state::param::{Param, ParamValue};
 use crate::state::vst_plugin::{VstPluginId, VstPluginRegistry};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceType {
     Saw,
     Sin,

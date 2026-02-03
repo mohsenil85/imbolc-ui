@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::audio::ServerStatus;
 use crate::state::arrangement::{ClipId, PlacementId};
-use crate::state::{EqConfig, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
+use crate::state::{EqConfig, EffectId, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
 use crate::state::ClipboardNote;
 use crate::state::drum_sequencer::DrumStep;
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
@@ -91,15 +91,15 @@ pub enum InstrumentAction {
     #[allow(dead_code)]
     SetParam(InstrumentId, String, f32),
     AddEffect(InstrumentId, EffectType),
-    RemoveEffect(InstrumentId, usize),
-    MoveEffect(InstrumentId, usize, i8),
+    RemoveEffect(InstrumentId, EffectId),
+    MoveEffect(InstrumentId, EffectId, i8),
     SetFilter(InstrumentId, Option<FilterType>),
-    ToggleEffectBypass(InstrumentId, usize),
+    ToggleEffectBypass(InstrumentId, EffectId),
     ToggleFilter(InstrumentId),
     CycleFilterType(InstrumentId),
     AdjustFilterCutoff(InstrumentId, f32),
     AdjustFilterResonance(InstrumentId, f32),
-    AdjustEffectParam(InstrumentId, usize, usize, f32),
+    AdjustEffectParam(InstrumentId, EffectId, usize, f32),
     PlayNote(u8, u8),
     PlayNotes(Vec<u8>, u8),
     Select(usize),
@@ -116,8 +116,8 @@ pub enum InstrumentAction {
     AdjustArpGate(InstrumentId, f32),
     CycleChordShape(InstrumentId),
     ClearChordShape(InstrumentId),
-    LoadIRResult(InstrumentId, usize, PathBuf), // instrument_id, effect_index, path
-    OpenVstEffectParams(InstrumentId, usize), // instrument_id, effect_index
+    LoadIRResult(InstrumentId, EffectId, PathBuf), // instrument_id, effect_id, path
+    OpenVstEffectParams(InstrumentId, EffectId), // instrument_id, effect_id
     SetEqParam(InstrumentId, usize, String, f32), // instrument_id, band_index, param_name, value
     ToggleEq(InstrumentId),
     LinkLayer(InstrumentId, InstrumentId),
@@ -245,7 +245,7 @@ pub enum ServerAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VstTarget {
     Source,
-    Effect(usize),  // index into instrument.effects[]
+    Effect(EffectId),  // stable effect ID
 }
 
 /// VST parameter actions
@@ -367,7 +367,7 @@ pub enum FileSelectAction {
     LoadDrumSample(usize), // pad index
     LoadChopperSample,
     LoadPitchedSample(InstrumentId),
-    LoadImpulseResponse(InstrumentId, usize), // instrument_id, effect_index
+    LoadImpulseResponse(InstrumentId, EffectId), // instrument_id, effect_id
 }
 
 /// Navigation intent returned from dispatch — processed by the UI layer
@@ -403,6 +403,10 @@ pub struct DispatchResult {
     pub status: Vec<StatusEvent>,
     pub project_name: Option<String>,
     pub audio_dirty: AudioDirty,
+    /// Signal that playback should be stopped (processed by the UI layer, not dispatch)
+    pub stop_playback: bool,
+    /// Signal that the playhead should be reset to 0 (processed by the UI layer, not dispatch)
+    pub reset_playhead: bool,
 }
 
 impl Default for DispatchResult {
@@ -413,6 +417,8 @@ impl Default for DispatchResult {
             status: Vec::new(),
             project_name: None,
             audio_dirty: AudioDirty::default(),
+            stop_playback: false,
+            reset_playhead: false,
         }
     }
 }
@@ -424,6 +430,9 @@ pub struct AudioDirty {
     pub piano_roll: bool,
     pub automation: bool,
     pub routing: bool,
+    /// When set, only rebuild routing for this specific instrument (optimization).
+    /// If `routing` is also true, this is ignored and a full rebuild is performed.
+    pub routing_instrument: Option<InstrumentId>,
     pub mixer_params: bool,
 }
 
@@ -435,6 +444,7 @@ impl AudioDirty {
             piano_roll: true,
             automation: true,
             routing: true,
+            routing_instrument: None,
             mixer_params: true,
         }
     }
@@ -445,6 +455,7 @@ impl AudioDirty {
             || self.piano_roll
             || self.automation
             || self.routing
+            || self.routing_instrument.is_some()
             || self.mixer_params
     }
 
@@ -454,6 +465,19 @@ impl AudioDirty {
         self.piano_roll |= other.piano_roll;
         self.automation |= other.automation;
         self.routing |= other.routing;
+        // Merge routing_instrument: if both have a targeted instrument but they differ,
+        // escalate to full rebuild. If only one has it, keep it.
+        match (self.routing_instrument, other.routing_instrument) {
+            (Some(a), Some(b)) if a != b => {
+                // Different instruments targeted — escalate to full rebuild
+                self.routing = true;
+                self.routing_instrument = None;
+            }
+            (None, Some(id)) => {
+                self.routing_instrument = Some(id);
+            }
+            _ => {} // keep existing
+        }
         self.mixer_params |= other.mixer_params;
     }
 
@@ -507,5 +531,7 @@ impl DispatchResult {
             self.project_name = other.project_name;
         }
         self.audio_dirty.merge(other.audio_dirty);
+        self.stop_playback |= other.stop_playback;
+        self.reset_playhead |= other.reset_playhead;
     }
 }

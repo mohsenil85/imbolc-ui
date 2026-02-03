@@ -258,7 +258,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                         &mut state, &mut audio, &io_tx,
                     );
                     pending_audio_dirty.merge(exit_result.audio_dirty);
-                    apply_dispatch_result(exit_result, &mut state, &mut panes, &mut app_frame);
+                    apply_dispatch_result(exit_result, &mut state, &mut panes, &mut app_frame, &mut audio);
                 }
             }
 
@@ -282,7 +282,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                             let r = dispatch::dispatch_action(&re_action, &mut state, &mut audio, &io_tx);
                             if r.quit { break; }
                             pending_audio_dirty.merge(r.audio_dirty);
-                            apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame);
+                            apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame, &mut audio);
                         }
                     }
                 }
@@ -312,7 +312,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 break;
             }
             pending_audio_dirty.merge(dispatch_result.audio_dirty);
-            apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame);
+            apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame, &mut audio);
         }
 
         if pending_audio_dirty.any() {
@@ -373,11 +373,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                                         path: path.clone(),
                                     });
                                 }
-                                for (idx, effect) in inst.effects.iter().enumerate() {
+                                for effect in &inst.effects {
                                     if let (state::EffectType::Vst(_), Some(ref path)) = (&effect.effect_type, &effect.vst_state_path) {
                                         let _ = audio.send_cmd(audio::commands::AudioCmd::LoadVstState {
                                             instrument_id: inst.id,
-                                            target: action::VstTarget::Effect(idx),
+                                            target: action::VstTarget::Effect(effect.id),
                                             path: path.clone(),
                                         });
                                     }
@@ -466,7 +466,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             let action = Action::AudioFeedback(feedback);
             let r = dispatch::dispatch_action(&action, &mut state, &mut audio, &io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame);
+            apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame, &mut audio);
         }
 
         // Poll MIDI events

@@ -21,7 +21,7 @@ fn vst_state_path(instrument_id: u32, plugin_name: &str) -> PathBuf {
 }
 
 /// Compute VST state file path for an effect slot
-fn vst_effect_state_path(instrument_id: u32, effect_idx: usize, plugin_name: &str) -> PathBuf {
+fn vst_effect_state_path(instrument_id: u32, effect_id: u32, plugin_name: &str) -> PathBuf {
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."));
     let sanitized: String = plugin_name.chars()
@@ -30,7 +30,7 @@ fn vst_effect_state_path(instrument_id: u32, effect_idx: usize, plugin_name: &st
     config_dir
         .join("imbolc")
         .join("vst_states")
-        .join(format!("instrument_{}_fx_{}_{}.fxp", instrument_id, effect_idx, sanitized))
+        .join(format!("instrument_{}_fx_{}_{}.fxp", instrument_id, effect_id, sanitized))
 }
 
 /// Get the VstPluginId for a given instrument and target
@@ -43,8 +43,8 @@ fn get_vst_plugin_id(instrument: &Instrument, target: VstTarget) -> Option<VstPl
                 None
             }
         }
-        VstTarget::Effect(idx) => {
-            instrument.effects.get(idx).and_then(|e| {
+        VstTarget::Effect(effect_id) => {
+            instrument.effect_by_id(effect_id).and_then(|e| {
                 if let crate::state::EffectType::Vst(id) = e.effect_type {
                     Some(id)
                 } else {
@@ -59,8 +59,8 @@ fn get_vst_plugin_id(instrument: &Instrument, target: VstTarget) -> Option<VstPl
 fn get_param_values(instrument: &Instrument, target: VstTarget) -> &[(u32, f32)] {
     match target {
         VstTarget::Source => &instrument.vst_param_values,
-        VstTarget::Effect(idx) => {
-            instrument.effects.get(idx)
+        VstTarget::Effect(effect_id) => {
+            instrument.effect_by_id(effect_id)
                 .map(|e| e.vst_param_values.as_slice())
                 .unwrap_or(&[])
         }
@@ -71,8 +71,8 @@ fn get_param_values(instrument: &Instrument, target: VstTarget) -> &[(u32, f32)]
 fn get_param_values_mut(instrument: &mut Instrument, target: VstTarget) -> Option<&mut Vec<(u32, f32)>> {
     match target {
         VstTarget::Source => Some(&mut instrument.vst_param_values),
-        VstTarget::Effect(idx) => {
-            instrument.effects.get_mut(idx)
+        VstTarget::Effect(effect_id) => {
+            instrument.effect_by_id_mut(effect_id)
                 .map(|e| &mut e.vst_param_values)
         }
     }
@@ -167,7 +167,7 @@ pub(super) fn dispatch_vst_param(
                 };
                 let path = match *target {
                     VstTarget::Source => vst_state_path(*instrument_id, &plugin_name),
-                    VstTarget::Effect(idx) => vst_effect_state_path(*instrument_id, idx, &plugin_name),
+                    VstTarget::Effect(effect_id) => vst_effect_state_path(*instrument_id, effect_id, &plugin_name),
                 };
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -178,8 +178,8 @@ pub(super) fn dispatch_vst_param(
                         VstTarget::Source => {
                             instrument.vst_state_path = Some(path.clone());
                         }
-                        VstTarget::Effect(idx) => {
-                            if let Some(effect) = instrument.effects.get_mut(idx) {
+                        VstTarget::Effect(effect_id) => {
+                            if let Some(effect) = instrument.effect_by_id_mut(effect_id) {
                                 effect.vst_state_path = Some(path.clone());
                             }
                         }

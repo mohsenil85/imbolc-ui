@@ -1,7 +1,9 @@
+use serde::{Serialize, Deserialize};
+
 use super::ModulatedParam;
 use crate::state::param::{Param, ParamValue};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterType {
     Lpf,
     Hpf,
@@ -62,7 +64,7 @@ impl FilterType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterConfig {
     pub filter_type: FilterType,
     pub cutoff: ModulatedParam,
@@ -81,7 +83,7 @@ impl FilterConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EqBandType {
     LowShelf,
     Peaking,
@@ -98,7 +100,7 @@ impl EqBandType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EqBand {
     pub band_type: EqBandType,
     pub freq: f32,
@@ -109,7 +111,7 @@ pub struct EqBand {
 
 pub const EQ_BAND_COUNT: usize = 12;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EqConfig {
     pub bands: [EqBand; EQ_BAND_COUNT],
     pub enabled: bool,

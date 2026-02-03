@@ -3,6 +3,7 @@ mod recording;
 mod routing;
 mod samples;
 mod server;
+pub(crate) mod voice_allocator;
 mod voices;
 mod vst;
 
@@ -13,7 +14,8 @@ use std::time::Instant;
 
 use super::bus_allocator::BusAllocator;
 use super::osc_client::OscClientLike;
-use crate::state::{BufferId, InstrumentId};
+use crate::state::{BufferId, EffectId, InstrumentId};
+use voice_allocator::VoiceAllocator;
 
 use recording::{ExportRecordingState, RecordingState};
 
@@ -39,9 +41,6 @@ pub enum ServerStatus {
     Error,
 }
 
-/// Maximum simultaneous voices per instrument
-const MAX_VOICES_PER_INSTRUMENT: usize = 16;
-
 /// VSTPlugin UGen index within wrapper SynthDefs (imbolc_vst_instrument, imbolc_vst_effect).
 /// This is 0 because VSTPlugin is the first (and only) UGen in our wrappers.
 const VST_UGEN_INDEX: i32 = 0;
@@ -66,7 +65,9 @@ pub struct InstrumentNodes {
     pub lfo: Option<i32>,
     pub filter: Option<i32>,
     pub eq: Option<i32>,
-    pub effects: Vec<i32>,  // only enabled effects
+    pub effects: HashMap<EffectId, i32>,
+    /// Ordered list of effect IDs matching the signal chain order (only enabled effects)
+    pub effect_order: Vec<EffectId>,
     pub output: i32,
 }
 
@@ -77,7 +78,11 @@ impl InstrumentNodes {
         if let Some(id) = self.lfo { ids.push(id); }
         if let Some(id) = self.filter { ids.push(id); }
         if let Some(id) = self.eq { ids.push(id); }
-        ids.extend(&self.effects);
+        for eid in &self.effect_order {
+            if let Some(&nid) = self.effects.get(eid) {
+                ids.push(nid);
+            }
+        }
         ids.push(self.output);
         ids
     }
@@ -96,18 +101,14 @@ pub struct AudioEngine {
     groups_created: bool,
     /// Dedicated audio bus per mixer bus (bus_id -> SC audio bus index)
     bus_audio_buses: HashMap<u8, i32>,
-    /// Send synth nodes: (instrument_index, bus_id) -> node_id
-    send_node_map: HashMap<(usize, u8), i32>,
+    /// Send synth nodes: (instrument_id, bus_id) -> node_id
+    send_node_map: HashMap<(InstrumentId, u8), i32>,
     /// Bus output synth nodes: bus_id -> node_id
     bus_node_map: HashMap<u8, i32>,
     /// Instrument final buses: instrument_id -> SC audio bus index (post-effects, pre-mixer)
     pub(crate) instrument_final_buses: HashMap<InstrumentId, i32>,
-    /// Active poly voice chains (full signal chain per note)
-    voice_chains: Vec<VoiceChain>,
-    /// Next available voice bus (audio)
-    next_voice_audio_bus: i32,
-    /// Next available voice bus (control)
-    next_voice_control_bus: i32,
+    /// Voice allocation, tracking, stealing, and control bus pooling
+    pub(crate) voice_allocator: VoiceAllocator,
     /// Meter synth node ID
     meter_node_id: Option<i32>,
     /// Analysis synth node IDs (spectrum, LUFS, scope)
@@ -146,9 +147,7 @@ impl AudioEngine {
             send_node_map: HashMap::new(),
             bus_node_map: HashMap::new(),
             instrument_final_buses: HashMap::new(),
-            voice_chains: Vec::new(),
-            next_voice_audio_bus: 16,
-            next_voice_control_bus: 0,
+            voice_allocator: VoiceAllocator::new(),
             meter_node_id: None,
             analysis_node_ids: Vec::new(),
             buffer_map: HashMap::new(),
@@ -213,9 +212,10 @@ impl Default for AudioEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::voice_allocator::MAX_VOICES_PER_INSTRUMENT;
     use crate::audio::osc_client::NullOscClient;
     use crate::state::{AppState, AutomationTarget, FilterConfig, ParamValue};
-    use crate::state::instrument::{EffectSlot, EffectType, FilterType, SourceType};
+    use crate::state::instrument::{EffectType, FilterType, SourceType};
 
     fn connect_engine() -> AudioEngine {
         let mut engine = AudioEngine::new();
@@ -234,7 +234,7 @@ mod tests {
         if let Some(inst) = state.instruments.instrument_mut(inst_id) {
             inst.filter = Some(FilterConfig::new(FilterType::Lpf));
             inst.lfo.enabled = true;
-            inst.effects.push(EffectSlot::new(EffectType::Delay));
+            inst.add_effect(EffectType::Delay);
             inst.sends[0].enabled = true;
             inst.sends[0].level = 0.5;
         }
@@ -248,7 +248,7 @@ mod tests {
         assert!(nodes.filter.is_some());
         assert!(nodes.lfo.is_some());
         assert_eq!(nodes.effects.len(), 1);
-        assert!(engine.send_node_map.contains_key(&(0, 1)));
+        assert!(engine.send_node_map.contains_key(&(inst_id, 1)));
         assert_eq!(engine.bus_node_map.len(), state.session.buses.len());
     }
 
@@ -259,11 +259,12 @@ mod tests {
 
         let inst_id = state.add_instrument(SourceType::BusIn);
         if let Some(inst) = state.instruments.instrument_mut(inst_id) {
-            let mut effect = EffectSlot::new(EffectType::SidechainComp);
-            if let Some(param) = effect.params.iter_mut().find(|p| p.name == "sc_bus") {
-                param.value = ParamValue::Int(1);
+            let effect_id = inst.add_effect(EffectType::SidechainComp);
+            if let Some(effect) = inst.effect_by_id_mut(effect_id) {
+                if let Some(param) = effect.params.iter_mut().find(|p| p.name == "sc_bus") {
+                    param.value = ParamValue::Int(1);
+                }
             }
-            inst.effects.push(effect);
         }
 
         engine
@@ -283,17 +284,18 @@ mod tests {
         let inst_id = state.add_instrument(SourceType::Saw);
         if let Some(inst) = state.instruments.instrument_mut(inst_id) {
             inst.filter = Some(FilterConfig::new(FilterType::Hpf));
-            let mut disabled = EffectSlot::new(EffectType::Delay);
-            disabled.enabled = false;
-            inst.effects.push(disabled);
-            inst.effects.push(EffectSlot::new(EffectType::Reverb));
+            let disabled_id = inst.add_effect(EffectType::Delay);
+            if let Some(disabled) = inst.effect_by_id_mut(disabled_id) {
+                disabled.enabled = false;
+            }
+            inst.add_effect(EffectType::Reverb);
         }
 
         engine
             .rebuild_instrument_routing(&state.instruments, &state.session)
             .expect("rebuild routing");
 
-        engine.voice_chains.push(VoiceChain {
+        engine.voice_allocator.add(VoiceChain {
             instrument_id: inst_id,
             pitch: 60,
             velocity: 0.8,
@@ -433,7 +435,7 @@ mod tests {
         let inst_id = 1;
 
         // Add a voice at pitch 60
-        engine.voice_chains.push(make_voice(inst_id, 60, 0.8, 100));
+        engine.voice_allocator.add(make_voice(inst_id, 60, 0.8, 100));
 
         // Steal for a new note at the same pitch
         engine
@@ -442,7 +444,7 @@ mod tests {
 
         // The old voice should be removed
         assert!(
-            engine.voice_chains.iter().all(|v| !(v.instrument_id == inst_id && v.pitch == 60)),
+            engine.voice_allocator.chains().iter().all(|v| !(v.instrument_id == inst_id && v.pitch == 60)),
             "same-pitch voice should have been stolen"
         );
     }
@@ -454,10 +456,10 @@ mod tests {
 
         // Fill to limit with active voices
         for i in 0..MAX_VOICES_PER_INSTRUMENT {
-            engine.voice_chains.push(make_voice(inst_id, 40 + i as u8, 0.8, 100));
+            engine.voice_allocator.add(make_voice(inst_id, 40 + i as u8, 0.8, 100));
         }
         // Add an extra released voice (active count is already at limit)
-        engine.voice_chains.push(make_released_voice(inst_id, 80, 0.8, 500, 1.0));
+        engine.voice_allocator.add(make_released_voice(inst_id, 80, 0.8, 500, 1.0));
 
         // Trigger steal
         engine
@@ -466,12 +468,12 @@ mod tests {
 
         // The released voice should be gone, not any active voice
         assert!(
-            !engine.voice_chains.iter().any(|v| v.pitch == 80 && v.instrument_id == inst_id),
+            !engine.voice_allocator.chains().iter().any(|v| v.pitch == 80 && v.instrument_id == inst_id),
             "released voice should be stolen before active voices"
         );
         // All original active voices should still be present
         assert_eq!(
-            engine.voice_chains.iter().filter(|v| v.instrument_id == inst_id).count(),
+            engine.voice_allocator.chains().iter().filter(|v| v.instrument_id == inst_id).count(),
             MAX_VOICES_PER_INSTRUMENT,
         );
     }
@@ -484,16 +486,16 @@ mod tests {
         // Fill to limit — all same age, varying velocity
         for i in 0..MAX_VOICES_PER_INSTRUMENT {
             let vel = 0.2 + (i as f32 * 0.05); // 0.2, 0.25, 0.30, ...
-            engine.voice_chains.push(make_voice(inst_id, 40 + i as u8, vel, 100));
+            engine.voice_allocator.add(make_voice(inst_id, 40 + i as u8, vel, 100));
         }
-        let quietest_pitch = engine.voice_chains[0].pitch; // velocity 0.2
+        let quietest_pitch = engine.voice_allocator.chains()[0].pitch; // velocity 0.2
 
         engine
             .steal_voice_if_needed(inst_id, 90, 0.8)
             .expect("steal");
 
         assert!(
-            !engine.voice_chains.iter().any(|v| v.pitch == quietest_pitch && v.instrument_id == inst_id),
+            !engine.voice_allocator.chains().iter().any(|v| v.pitch == quietest_pitch && v.instrument_id == inst_id),
             "lowest velocity voice should be stolen"
         );
     }
@@ -506,16 +508,16 @@ mod tests {
         // Fill to limit — all same velocity, varying age
         for i in 0..MAX_VOICES_PER_INSTRUMENT {
             let age = 1000 - (i as u64 * 50); // oldest first: 1000, 950, 900, ...
-            engine.voice_chains.push(make_voice(inst_id, 40 + i as u8, 0.5, age));
+            engine.voice_allocator.add(make_voice(inst_id, 40 + i as u8, 0.5, age));
         }
-        let oldest_pitch = engine.voice_chains[0].pitch; // age 1000ms
+        let oldest_pitch = engine.voice_allocator.chains()[0].pitch; // age 1000ms
 
         engine
             .steal_voice_if_needed(inst_id, 90, 0.5)
             .expect("steal");
 
         assert!(
-            !engine.voice_chains.iter().any(|v| v.pitch == oldest_pitch && v.instrument_id == inst_id),
+            !engine.voice_allocator.chains().iter().any(|v| v.pitch == oldest_pitch && v.instrument_id == inst_id),
             "oldest voice should be stolen as tiebreaker"
         );
     }
@@ -526,17 +528,17 @@ mod tests {
         let inst_id = 1;
 
         // Add a voice released long ago (should be cleaned up)
-        engine.voice_chains.push(make_released_voice(inst_id, 60, 0.5, 5000, 0.5));
+        engine.voice_allocator.add(make_released_voice(inst_id, 60, 0.5, 5000, 0.5));
         // Add a voice released recently (should be kept)
-        engine.voice_chains.push(make_released_voice(inst_id, 72, 0.5, 100, 1.0));
+        engine.voice_allocator.add(make_released_voice(inst_id, 72, 0.5, 100, 1.0));
         // Add an active voice (should be kept)
-        engine.voice_chains.push(make_voice(inst_id, 48, 0.8, 200));
+        engine.voice_allocator.add(make_voice(inst_id, 48, 0.8, 200));
 
         engine.cleanup_expired_voices();
 
-        assert_eq!(engine.voice_chains.len(), 2);
-        assert!(engine.voice_chains.iter().any(|v| v.pitch == 72));
-        assert!(engine.voice_chains.iter().any(|v| v.pitch == 48));
-        assert!(!engine.voice_chains.iter().any(|v| v.pitch == 60));
+        assert_eq!(engine.voice_allocator.chains().len(), 2);
+        assert!(engine.voice_allocator.chains().iter().any(|v| v.pitch == 72));
+        assert!(engine.voice_allocator.chains().iter().any(|v| v.pitch == 48));
+        assert!(!engine.voice_allocator.chains().iter().any(|v| v.pitch == 60));
     }
 }

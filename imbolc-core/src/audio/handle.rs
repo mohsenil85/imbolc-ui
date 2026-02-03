@@ -146,6 +146,14 @@ impl AudioHandle {
         }
         if dirty.routing {
             let _ = self.send_cmd(AudioCmd::RebuildRouting);
+        } else if let Some(instrument_id) = dirty.routing_instrument {
+            // Targeted single-instrument rebuild (no full teardown)
+            if needs_full_state {
+                // State already sent above
+            } else {
+                self.update_state(&state.instruments, &state.session);
+            }
+            let _ = self.send_cmd(AudioCmd::RebuildInstrumentRouting { instrument_id });
         }
         if dirty.mixer_params {
             if needs_full_state {

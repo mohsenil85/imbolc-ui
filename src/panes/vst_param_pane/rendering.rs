@@ -62,8 +62,8 @@ impl VstParamPane {
                     .and_then(|id| state.instruments.instrument(id))
                     .map(|inst| match self.target {
                         crate::action::VstTarget::Source => inst.vst_param_values.clone(),
-                        crate::action::VstTarget::Effect(idx) => {
-                            inst.effects.get(idx)
+                        crate::action::VstTarget::Effect(effect_id) => {
+                            inst.effect_by_id(effect_id)
                                 .map(|e| e.vst_param_values.clone())
                                 .unwrap_or_default()
                         }

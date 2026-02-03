@@ -44,7 +44,7 @@ pub(super) fn deserialize_automation_target(
         "filter_cutoff" => Some(AutomationTarget::FilterCutoff(instrument_id)),
         "filter_resonance" => Some(AutomationTarget::FilterResonance(instrument_id)),
         "effect_param" => {
-            let fx = effect_idx.unwrap_or(0) as usize;
+            let fx = effect_idx.unwrap_or(0) as u32;
             let param = param_idx.unwrap_or(0) as usize;
             Some(AutomationTarget::EffectParam(instrument_id, fx, param))
         }

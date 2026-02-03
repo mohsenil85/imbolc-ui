@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use super::instrument::InstrumentId;
 use super::piano_roll::Note;
+use serde::{Serialize, Deserialize};
 
 pub type ClipId = u32;
 pub type PlacementId = u32;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayMode {
     Pattern,
     Song,
@@ -19,7 +20,7 @@ impl Default for PlayMode {
 
 /// Reusable pattern of notes for a single instrument.
 /// Notes use tick positions relative to clip start (0-based).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Clip {
     pub id: ClipId,
     pub name: String,
@@ -29,7 +30,7 @@ pub struct Clip {
 }
 
 /// A placement of a clip on the timeline. Multiple placements can share a clip.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipPlacement {
     pub id: PlacementId,
     pub clip_id: ClipId,
@@ -49,7 +50,7 @@ impl ClipPlacement {
 }
 
 /// Saved context when editing a clip in the piano roll
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipEditContext {
     pub clip_id: ClipId,
     pub instrument_id: InstrumentId,
@@ -60,11 +61,12 @@ pub struct ClipEditContext {
 }
 
 /// Top-level arrangement state. Owned by SessionState.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArrangementState {
     pub clips: Vec<Clip>,
     pub placements: Vec<ClipPlacement>,
     pub play_mode: PlayMode,
+    #[serde(skip)]
     pub editing_clip: Option<ClipEditContext>,
 
     // UI state (persisted)
@@ -74,8 +76,8 @@ pub struct ArrangementState {
     pub ticks_per_col: u32,        // Zoom: ticks per terminal column (default 120)
     pub cursor_tick: u32,
 
-    next_clip_id: ClipId,
-    next_placement_id: PlacementId,
+    pub(crate) next_clip_id: ClipId,
+    pub(crate) next_placement_id: PlacementId,
 }
 
 impl Default for ArrangementState {

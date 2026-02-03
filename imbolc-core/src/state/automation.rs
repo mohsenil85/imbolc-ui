@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
-use super::instrument::InstrumentId;
+use super::instrument::{EffectId, InstrumentId};
+use serde::{Serialize, Deserialize};
 
 pub type AutomationLaneId = u32;
 
 /// Interpolation curve type between automation points
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CurveType {
     /// Linear interpolation (default)
     Linear,
@@ -24,7 +25,7 @@ impl Default for CurveType {
 }
 
 /// A single automation point
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationPoint {
     /// Position in ticks
     pub tick: u32,
@@ -53,7 +54,7 @@ impl AutomationPoint {
 }
 
 /// What parameter is being automated
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AutomationTarget {
     /// Instrument output level
     InstrumentLevel(InstrumentId),
@@ -63,8 +64,8 @@ pub enum AutomationTarget {
     FilterCutoff(InstrumentId),
     /// Filter resonance
     FilterResonance(InstrumentId),
-    /// Effect parameter (instrument_id, effect_index, param_index)
-    EffectParam(InstrumentId, usize, usize),
+    /// Effect parameter (instrument_id, effect_id, param_index)
+    EffectParam(InstrumentId, EffectId, usize),
     /// Sample playback rate (for scratching)
     SampleRate(InstrumentId),
     /// Sample amplitude
@@ -227,7 +228,7 @@ impl AutomationTarget {
 }
 
 /// An automation lane containing points for a single parameter
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationLane {
     pub id: AutomationLaneId,
     pub target: AutomationTarget,
@@ -345,11 +346,11 @@ impl AutomationLane {
 }
 
 /// Collection of automation lanes for a session
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AutomationState {
     pub lanes: Vec<AutomationLane>,
     pub selected_lane: Option<usize>,
-    next_lane_id: AutomationLaneId,
+    pub(crate) next_lane_id: AutomationLaneId,
 }
 
 impl AutomationState {

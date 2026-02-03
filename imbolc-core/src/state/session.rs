@@ -6,10 +6,11 @@ use super::music::{Key, Scale};
 use super::piano_roll::PianoRollState;
 use super::instrument::MixerBus;
 use super::vst_plugin::VstPluginRegistry;
+use serde::{Serialize, Deserialize};
 
 pub const MAX_BUSES: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MixerSelection {
     Instrument(usize), // index into instruments vec
     Bus(u8),      // 1-8
@@ -23,7 +24,7 @@ impl Default for MixerSelection {
 }
 
 /// The subset of session fields that are cheap to clone for editing (BPM, key, scale, etc.)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MusicalSettings {
     pub key: Key,
     pub scale: Scale,
@@ -48,7 +49,7 @@ impl Default for MusicalSettings {
 
 /// Project-level state container.
 /// Owns musical settings, piano roll, automation, mixer buses, and other project data.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
     // Musical settings (flat, not nested)
     pub key: Key,
@@ -68,6 +69,7 @@ pub struct SessionState {
     pub buses: Vec<MixerBus>,
     pub master_level: f32,
     pub master_mute: bool,
+    #[serde(skip)]
     pub mixer_selection: MixerSelection,
     /// Global velocity jitter amount (0.0-1.0)
     pub humanize_velocity: f32,

@@ -42,8 +42,8 @@ pub fn dispatch_audio_feedback(
             if let Some(render) = state.pending_render.take() {
                 state.session.piano_roll.looping = render.was_looping;
             }
-            audio.set_playing(false);
-            audio.reset_playhead();
+            result.stop_playback = true;
+            result.reset_playhead = true;
 
             // Convert instrument to PitchedSampler
             let buffer_id = state.instruments.next_sampler_buffer_id;
@@ -61,7 +61,7 @@ pub fn dispatch_audio_feedback(
             }
 
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(*instrument_id);
             result.push_status(audio.status(), "Render complete");
         }
         AudioFeedback::CompileResult(res) => {
@@ -101,8 +101,8 @@ pub fn dispatch_audio_feedback(
                             instrument.vst_param_values.push((*index, *default));
                         }
                     }
-                    VstTarget::Effect(idx) => {
-                        if let Some(effect) = instrument.effects.get_mut(*idx) {
+                    VstTarget::Effect(effect_id) => {
+                        if let Some(effect) = instrument.effect_by_id_mut(*effect_id) {
                             effect.vst_param_values.clear();
                             for (index, _, _, default) in params {
                                 effect.vst_param_values.push((*index, *default));
@@ -119,8 +119,8 @@ pub fn dispatch_audio_feedback(
                 state.session.piano_roll.looping = export.was_looping;
             }
             state.export_progress = 0.0;
-            audio.set_playing(false);
-            audio.reset_playhead();
+            result.stop_playback = true;
+            result.reset_playhead = true;
 
             let message = match kind {
                 crate::audio::commands::ExportKind::MasterBounce => {
@@ -141,8 +141,8 @@ pub fn dispatch_audio_feedback(
                     VstTarget::Source => {
                         instrument.vst_state_path = Some(path.clone());
                     }
-                    VstTarget::Effect(idx) => {
-                        if let Some(effect) = instrument.effects.get_mut(*idx) {
+                    VstTarget::Effect(effect_id) => {
+                        if let Some(effect) = instrument.effect_by_id_mut(*effect_id) {
                             effect.vst_state_path = Some(path.clone());
                         }
                     }

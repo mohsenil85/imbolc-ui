@@ -1,7 +1,11 @@
+use serde::{Serialize, Deserialize};
+
 use crate::state::param::{Param, ParamValue};
 use crate::state::vst_plugin::{VstPluginId, VstPluginRegistry};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub type EffectId = u32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EffectType {
     Delay,
     Reverb,
@@ -384,8 +388,9 @@ impl EffectType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectSlot {
+    pub id: EffectId,
     pub effect_type: EffectType,
     pub params: Vec<Param>,
     pub enabled: bool,
@@ -394,8 +399,9 @@ pub struct EffectSlot {
 }
 
 impl EffectSlot {
-    pub fn new(effect_type: EffectType) -> Self {
+    pub fn new(id: EffectId, effect_type: EffectType) -> Self {
         Self {
+            id,
             params: effect_type.default_params(),
             effect_type,
             enabled: true,

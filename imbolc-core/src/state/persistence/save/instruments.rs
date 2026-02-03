@@ -165,11 +165,11 @@ pub(crate) fn save_source_params(conn: &SqlConnection, instruments: &InstrumentS
 
 pub(crate) fn save_effects(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut effect_stmt = conn.prepare(
-        "INSERT INTO instrument_effects (instrument_id, position, effect_type, enabled, vst_state_path)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO instrument_effects (instrument_id, position, effect_id, effect_type, enabled, vst_state_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     let mut param_stmt = conn.prepare(
-        "INSERT INTO instrument_effect_params (instrument_id, effect_position, param_name, param_value)
+        "INSERT INTO instrument_effect_params (instrument_id, effect_id, param_name, param_value)
              VALUES (?1, ?2, ?3, ?4)",
     )?;
     for inst in &instruments.instruments {
@@ -181,6 +181,7 @@ pub(crate) fn save_effects(conn: &SqlConnection, instruments: &InstrumentState) 
             effect_stmt.execute(rusqlite::params![
                 inst.id,
                 pos as i32,
+                effect.id,
                 type_str,
                 effect.enabled,
                 effect.vst_state_path.as_ref().map(|p| p.to_string_lossy().to_string()),
@@ -195,7 +196,7 @@ pub(crate) fn save_effects(conn: &SqlConnection, instruments: &InstrumentState) 
                 };
                 param_stmt.execute(rusqlite::params![
                     inst.id,
-                    pos as i32,
+                    effect.id,
                     param.name,
                     value
                 ])?;

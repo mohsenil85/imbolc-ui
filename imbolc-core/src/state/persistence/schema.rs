@@ -80,6 +80,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             CREATE TABLE IF NOT EXISTS instrument_effects (
                 instrument_id INTEGER NOT NULL,
                 position INTEGER NOT NULL,
+                effect_id INTEGER NOT NULL,
                 effect_type TEXT NOT NULL,
                 enabled INTEGER NOT NULL,
                 vst_state_path TEXT,
@@ -88,10 +89,10 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
 
             CREATE TABLE IF NOT EXISTS instrument_effect_params (
                 instrument_id INTEGER NOT NULL,
-                effect_position INTEGER NOT NULL,
+                effect_id INTEGER NOT NULL,
                 param_name TEXT NOT NULL,
                 param_value REAL NOT NULL,
-                PRIMARY KEY (instrument_id, effect_position, param_name)
+                PRIMARY KEY (instrument_id, effect_id, param_name)
             );
 
             CREATE TABLE IF NOT EXISTS instrument_sends (
@@ -234,10 +235,10 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
 
             CREATE TABLE IF NOT EXISTS effect_vst_params (
                 instrument_id INTEGER NOT NULL,
-                effect_position INTEGER NOT NULL,
+                effect_id INTEGER NOT NULL,
                 param_index INTEGER NOT NULL,
                 value REAL NOT NULL,
-                PRIMARY KEY (instrument_id, effect_position, param_index)
+                PRIMARY KEY (instrument_id, effect_id, param_index)
             );
 
             CREATE TABLE IF NOT EXISTS vst_plugins (

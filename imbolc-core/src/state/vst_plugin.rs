@@ -1,17 +1,18 @@
 #![allow(dead_code)]
 
+use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 
 pub type VstPluginId = u32;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VstPluginKind {
     Instrument,
     Effect,
 }
 
 /// Specification for a VST parameter
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VstParamSpec {
     pub index: u32,      // VST param index (0-based)
     pub name: String,
@@ -20,7 +21,7 @@ pub struct VstParamSpec {
 }
 
 /// A registered VST plugin
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VstPlugin {
     pub id: VstPluginId,
     pub name: String,           // display name (from filename)
@@ -30,7 +31,7 @@ pub struct VstPlugin {
 }
 
 /// Registry of all VST plugins
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VstPluginRegistry {
     pub plugins: Vec<VstPlugin>,
     pub next_id: VstPluginId,

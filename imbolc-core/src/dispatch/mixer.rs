@@ -225,7 +225,7 @@ pub(super) fn dispatch_mixer(
                             send.level = 0.5;
                         }
                         result.audio_dirty.instruments = true;
-                        result.audio_dirty.routing = true;
+                        result.audio_dirty.routing_instrument = Some(instrument.id);
                     }
                 }
             }

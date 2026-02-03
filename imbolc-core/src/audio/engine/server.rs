@@ -429,7 +429,8 @@ impl AudioEngine {
         self.send_node_map.clear();
         self.bus_node_map.clear();
         self.bus_audio_buses.clear();
-        self.voice_chains.clear();
+        // Drain all voices (no OSC needed since server is disconnecting)
+        let _ = self.voice_allocator.drain_all();
         self.analysis_node_ids.clear();
         self.buffer_map.clear();
         self.bus_allocator.reset();

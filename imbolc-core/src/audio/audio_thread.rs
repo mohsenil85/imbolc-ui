@@ -224,6 +224,9 @@ impl AudioThread {
             AudioCmd::RebuildRouting => {
                 let _ = self.engine.rebuild_instrument_routing(&self.instruments, &self.session);
             }
+            AudioCmd::RebuildInstrumentRouting { instrument_id } => {
+                let _ = self.engine.rebuild_single_instrument_routing(instrument_id, &self.instruments, &self.session);
+            }
             AudioCmd::UpdateMixerParams => {
                 let _ = self.engine.update_all_instrument_mixer_params(&self.instruments, &self.session);
             }
@@ -423,15 +426,8 @@ impl AudioThread {
         let nodes = self.engine.node_map.get(&instrument_id)?;
         match target {
             VstTarget::Source => nodes.source,
-            VstTarget::Effect(idx) => {
-                // nodes.effects only contains enabled effects; map full index to enabled index
-                let inst = self.instruments.instruments.iter()
-                    .find(|i| i.id == instrument_id)?;
-                let enabled_idx = inst.effects.iter()
-                    .take(idx)
-                    .filter(|e| e.enabled)
-                    .count();
-                nodes.effects.get(enabled_idx).copied()
+            VstTarget::Effect(effect_id) => {
+                nodes.effects.get(&effect_id).copied()
             }
         }
     }
@@ -448,16 +444,14 @@ impl AudioThread {
                     None
                 }
             }
-            VstTarget::Effect(idx) => {
-                if let Some(effect) = inst.effects.get(idx) {
+            VstTarget::Effect(effect_id) => {
+                inst.effect_by_id(effect_id).and_then(|effect| {
                     if let crate::state::EffectType::Vst(id) = effect.effect_type {
                         Some(id)
                     } else {
                         None
                     }
-                } else {
-                    None
-                }
+                })
             }
         }
     }

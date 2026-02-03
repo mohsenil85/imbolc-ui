@@ -1,4 +1,5 @@
 use super::sampler::{BufferId, Slice, SliceId};
+use serde::{Serialize, Deserialize};
 
 pub const NUM_PADS: usize = 12;
 #[allow(dead_code)]
@@ -6,7 +7,7 @@ pub const MAX_STEPS: usize = 64;
 pub const DEFAULT_STEPS: usize = 16;
 pub const NUM_PATTERNS: usize = 4;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChopperState {
     pub buffer_id: Option<BufferId>,
     pub path: Option<String>,
@@ -18,7 +19,7 @@ pub struct ChopperState {
     pub duration_secs: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DrumStep {
     pub active: bool,
     pub velocity: u8, // 1-127, default 100
@@ -37,7 +38,7 @@ impl Default for DrumStep {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrumPad {
     pub buffer_id: Option<BufferId>,
     pub path: Option<String>,
@@ -64,7 +65,7 @@ impl Default for DrumPad {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrumPattern {
     pub steps: Vec<Vec<DrumStep>>, // [NUM_PADS][length]
     pub length: usize,
@@ -81,15 +82,19 @@ impl DrumPattern {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrumSequencerState {
     pub pads: Vec<DrumPad>,
     pub patterns: Vec<DrumPattern>,
     pub current_pattern: usize,
+    #[serde(skip)]
     pub playing: bool,
+    #[serde(skip)]
     pub current_step: usize,
     pub next_buffer_id: BufferId,
+    #[serde(skip)]
     pub step_accumulator: f32,
+    #[serde(skip)]
     pub last_played_step: Option<usize>,
     pub chopper: Option<ChopperState>,
     /// Swing amount: 0.0 = no swing, 1.0 = max swing (delays odd-numbered steps)
@@ -99,6 +104,7 @@ pub struct DrumSequencerState {
     /// Whether pattern chaining is active
     pub chain_enabled: bool,
     /// Current position within the chain (runtime)
+    #[serde(skip)]
     pub chain_position: usize,
 }
 

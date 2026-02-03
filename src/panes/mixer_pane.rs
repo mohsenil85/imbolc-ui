@@ -210,18 +210,18 @@ impl MixerPane {
         }
     }
 
-    /// Decode effect cursor into (effect_index, param_index_within_effect) where None = header
-    fn decode_effect_cursor(&self, state: &AppState) -> Option<(usize, Option<usize>)> {
+    /// Decode effect cursor into (effect_id, param_index_within_effect) where None = header
+    fn decode_effect_cursor(&self, state: &AppState) -> Option<(crate::state::EffectId, Option<usize>)> {
         let (_, inst) = self.detail_instrument(state)?;
         let mut pos = 0;
-        for (ei, effect) in inst.effects.iter().enumerate() {
+        for effect in &inst.effects {
             if self.detail_cursor == pos {
-                return Some((ei, None)); // on effect header
+                return Some((effect.id, None)); // on effect header
             }
             pos += 1;
             for pi in 0..effect.params.len() {
                 if self.detail_cursor == pos {
-                    return Some((ei, Some(pi)));
+                    return Some((effect.id, Some(pi)));
                 }
                 pos += 1;
             }

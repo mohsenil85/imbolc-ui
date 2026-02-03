@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use super::instrument::InstrumentId;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub tick: u32,
     pub duration: u32,
@@ -11,26 +12,29 @@ pub struct Note {
     pub probability: f32, // 0.0-1.0, default 1.0 (always play)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub module_id: InstrumentId,
     pub notes: Vec<Note>,
     pub polyphonic: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PianoRollState {
     pub tracks: HashMap<InstrumentId, Track>,
     pub track_order: Vec<InstrumentId>,
     pub bpm: f32,
     pub time_signature: (u8, u8),
+    #[serde(skip)]
     pub playing: bool,
     pub looping: bool,
     pub loop_start: u32,
     pub loop_end: u32,
+    #[serde(skip)]
     pub playhead: u32,
     pub ticks_per_beat: u32,
     /// Whether note input from piano keys should be recorded to the current track
+    #[serde(skip)]
     pub recording: bool,
     /// Swing amount: 0.0 = no swing, 1.0 = max swing (delays offbeat notes)
     pub swing_amount: f32,

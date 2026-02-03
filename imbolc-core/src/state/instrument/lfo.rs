@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LfoShape {
     Sine,
     Square,
@@ -43,7 +45,7 @@ impl LfoShape {
 // All LFO targets are wired: each target has a corresponding *_mod_in param
 // in the relevant SynthDef, connected via routing.rs (routing-level targets)
 // or voices.rs (voice-level targets).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LfoTarget {
     FilterCutoff,
     FilterResonance,
@@ -185,7 +187,7 @@ impl LfoTarget {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LfoConfig {
     pub enabled: bool,
     pub rate: f32,

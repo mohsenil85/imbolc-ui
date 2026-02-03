@@ -139,6 +139,7 @@ pub(crate) fn load_instruments(conn: &SqlConnection) -> SqlResult<Vec<Instrument
             filter,
             eq: None,
             effects: Vec::new(),
+            next_effect_id: 0, // Will be set by load_effects
             lfo: LfoConfig {
                 enabled: lfo_enabled,
                 rate: lfo_rate as f32,
@@ -274,35 +275,59 @@ pub(crate) fn load_source_params(conn: &SqlConnection, instruments: &mut [Instru
 }
 
 pub(crate) fn load_effects(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    // Check if effect_id column exists (new schema)
+    let has_effect_id = conn
+        .prepare("SELECT effect_id FROM instrument_effects LIMIT 0")
+        .is_ok();
     // Check if vst_state_path column exists (backwards compat)
     let has_vst_state_path = conn
         .prepare("SELECT vst_state_path FROM instrument_effects LIMIT 0")
         .is_ok();
-    let effects_query = if has_vst_state_path {
-        "SELECT position, effect_type, enabled, vst_state_path FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
+
+    let effects_query = if has_effect_id && has_vst_state_path {
+        "SELECT position, effect_id, effect_type, enabled, vst_state_path FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
+    } else if has_effect_id {
+        "SELECT position, effect_id, effect_type, enabled, NULL FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
+    } else if has_vst_state_path {
+        "SELECT position, position, effect_type, enabled, vst_state_path FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
     } else {
-        "SELECT position, effect_type, enabled, NULL FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
+        "SELECT position, position, effect_type, enabled, NULL FROM instrument_effects WHERE instrument_id = ?1 ORDER BY position"
     };
+
+    // Check if effect params use effect_id or effect_position
+    let has_effect_id_params = conn
+        .prepare("SELECT effect_id FROM instrument_effect_params LIMIT 0")
+        .is_ok();
+    let params_query = if has_effect_id_params {
+        "SELECT param_name, param_value FROM instrument_effect_params WHERE instrument_id = ?1 AND effect_id = ?2"
+    } else {
+        "SELECT param_name, param_value FROM instrument_effect_params WHERE instrument_id = ?1 AND effect_position = ?2"
+    };
+
     let mut effect_stmt = conn.prepare(effects_query)?;
-    let mut param_stmt = conn.prepare(
-        "SELECT param_name, param_value FROM instrument_effect_params WHERE instrument_id = ?1 AND effect_position = ?2",
-    )?;
+    let mut param_stmt = conn.prepare(params_query)?;
     for inst in instruments {
-        let effects: Vec<(i32, String, bool, Option<String>)> = effect_stmt
+        let effects: Vec<(i32, u32, String, bool, Option<String>)> = effect_stmt
             .query_map([&inst.id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                Ok((row.get(0)?, row.get::<_, i32>(1)? as u32, row.get(2)?, row.get(3)?, row.get(4)?))
             })?
             .filter_map(|r| r.ok())
             .collect();
 
-        for (pos, type_str, enabled, vst_state_path_str) in effects {
+        let mut max_effect_id: u32 = 0;
+        for (_pos, effect_id, type_str, enabled, vst_state_path_str) in effects {
             let effect_type = parse_effect_type(&type_str);
-            let mut slot = EffectSlot::new(effect_type);
+            let mut slot = EffectSlot::new(effect_id, effect_type);
             slot.enabled = enabled;
             slot.vst_state_path = vst_state_path_str.map(PathBuf::from);
+            if effect_id >= max_effect_id {
+                max_effect_id = effect_id + 1;
+            }
 
+            // For params, use effect_id for the new schema, position for old
+            let param_key = if has_effect_id_params { effect_id as i32 } else { _pos };
             let params: Vec<(String, f64)> = param_stmt
-                .query_map(rusqlite::params![inst.id, pos], |row| {
+                .query_map(rusqlite::params![inst.id, param_key], |row| {
                     Ok((row.get(0)?, row.get(1)?))
                 })?
                 .filter_map(|r| r.ok())
@@ -320,6 +345,7 @@ pub(crate) fn load_effects(conn: &SqlConnection, instruments: &mut [Instrument])
 
             inst.effects.push(slot);
         }
+        inst.next_effect_id = max_effect_id;
     }
     Ok(())
 }

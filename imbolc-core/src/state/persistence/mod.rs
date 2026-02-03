@@ -1,3 +1,4 @@
+mod blob;
 mod conversion;
 mod load;
 mod save;
@@ -11,50 +12,64 @@ use super::instrument::InstrumentId;
 use super::instrument_state::InstrumentState;
 use super::session::SessionState;
 
-/// Save to SQLite
+/// Save project as MessagePack blobs in SQLite
 pub fn save_project(path: &Path, session: &SessionState, instruments: &InstrumentState) -> SqlResult<()> {
     let conn = SqlConnection::open(path)?;
 
-    schema::create_tables_and_clear(&conn)?;
-
-    conn.execute(
-        "INSERT INTO session (id, name, created_at, modified_at, next_instrument_id, selected_instrument, selected_automation_lane, next_layer_group_id)
-             VALUES (1, 'default', datetime('now'), datetime('now'), ?1, ?2, ?3, ?4)",
-        rusqlite::params![
-            &instruments.next_id,
-            instruments.selected.map(|s| s as i32),
-            session.automation.selected_lane.map(|s| s as i32),
-            &instruments.next_layer_group_id,
-        ],
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_blob (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            format_version INTEGER NOT NULL,
+            session_data BLOB NOT NULL,
+            instrument_data BLOB NOT NULL
+        );"
     )?;
 
-    save::save_instruments(&conn, instruments)?;
-    save::save_eq_bands(&conn, instruments)?;
-    save::save_source_params(&conn, instruments)?;
-    save::save_filter_params(&conn, instruments)?;
-    save::save_effects(&conn, instruments)?;
-    save::save_sends(&conn, instruments)?;
-    save::save_modulations(&conn, instruments)?;
-    save::save_mixer(&conn, session)?;
-    save::save_piano_roll(&conn, session)?;
-    save::save_sampler_configs(&conn, instruments)?;
-    save::save_automation(&conn, session)?;
-    save::save_custom_synthdefs(&conn, session)?;
-    save::save_vst_plugins(&conn, session)?;
-    save::save_drum_sequencers(&conn, instruments)?;
-    save::save_chopper_states(&conn, instruments)?;
-    save::save_midi_recording(&conn, session)?;
-    save::save_vst_param_values(&conn, instruments)?;
-    save::save_effect_vst_params(&conn, instruments)?;
-    save::save_arrangement(&conn, session)?;
+    let session_bytes = blob::serialize_session(session)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
+    let instrument_bytes = blob::serialize_instruments(instruments)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO project_blob (id, format_version, session_data, instrument_data) VALUES (1, 1, ?1, ?2)",
+        rusqlite::params![session_bytes, instrument_bytes],
+    )?;
 
     Ok(())
 }
 
-/// Load from SQLite
+/// Load project, auto-detecting blob vs legacy format
 pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let conn = SqlConnection::open(path)?;
 
+    let has_blob: bool = conn
+        .prepare("SELECT 1 FROM project_blob LIMIT 1")
+        .and_then(|mut s| s.exists([]))
+        .unwrap_or(false);
+
+    if has_blob {
+        load_project_blob(&conn)
+    } else {
+        load_project_legacy(&conn)
+    }
+}
+
+fn load_project_blob(conn: &SqlConnection) -> SqlResult<(SessionState, InstrumentState)> {
+    let (session_bytes, instrument_bytes): (Vec<u8>, Vec<u8>) = conn.query_row(
+        "SELECT session_data, instrument_data FROM project_blob WHERE id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+
+    let session = blob::deserialize_session(&session_bytes)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
+    let instruments = blob::deserialize_instruments(&instrument_bytes)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
+
+    Ok((session, instruments))
+}
+
+fn load_project_legacy(conn: &SqlConnection) -> SqlResult<(SessionState, InstrumentState)> {
     let has_layer_group_col = conn
         .prepare("SELECT next_layer_group_id FROM session LIMIT 0")
         .is_ok();
@@ -74,29 +89,29 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
             (a, b, c, 0)
         };
 
-    let mut instruments = load::load_instruments(&conn)?;
-    load::load_eq_bands(&conn, &mut instruments)?;
-    load::load_source_params(&conn, &mut instruments)?;
-    load::load_filter_params(&conn, &mut instruments)?;
-    load::load_effects(&conn, &mut instruments)?;
-    load::load_sends(&conn, &mut instruments)?;
-    load::load_modulations(&conn, &mut instruments)?;
-    load::load_sampler_configs(&conn, &mut instruments)?;
-    let buses = load::load_buses(&conn)?;
-    let (master_level, master_mute) = load::load_master(&conn);
-    let (piano_roll, musical) = load::load_piano_roll(&conn)?;
-    let mut automation = load::load_automation(&conn)?;
-    let custom_synthdefs = load::load_custom_synthdefs(&conn)?;
-    let vst_plugins = load::load_vst_plugins(&conn)?;
-    load::load_drum_sequencers(&conn, &mut instruments)?;
-    load::load_chopper_states(&conn, &mut instruments)?;
-    load::load_vst_state_paths(&conn, &mut instruments)?;
-    load::load_vst_param_values(&conn, &mut instruments)?;
-    load::load_effect_vst_params(&conn, &mut instruments)?;
-    load::load_arpeggiator_settings(&conn, &mut instruments)?;
-    load::load_layer_groups(&conn, &mut instruments)?;
-    let midi_recording = load::load_midi_recording(&conn)?;
-    let arrangement = load::load_arrangement(&conn)?;
+    let mut instruments = load::load_instruments(conn)?;
+    load::load_eq_bands(conn, &mut instruments)?;
+    load::load_source_params(conn, &mut instruments)?;
+    load::load_filter_params(conn, &mut instruments)?;
+    load::load_effects(conn, &mut instruments)?;
+    load::load_sends(conn, &mut instruments)?;
+    load::load_modulations(conn, &mut instruments)?;
+    load::load_sampler_configs(conn, &mut instruments)?;
+    let buses = load::load_buses(conn)?;
+    let (master_level, master_mute) = load::load_master(conn);
+    let (piano_roll, musical) = load::load_piano_roll(conn)?;
+    let mut automation = load::load_automation(conn)?;
+    let custom_synthdefs = load::load_custom_synthdefs(conn)?;
+    let vst_plugins = load::load_vst_plugins(conn)?;
+    load::load_drum_sequencers(conn, &mut instruments)?;
+    load::load_chopper_states(conn, &mut instruments)?;
+    load::load_vst_state_paths(conn, &mut instruments)?;
+    load::load_vst_param_values(conn, &mut instruments)?;
+    load::load_effect_vst_params(conn, &mut instruments)?;
+    load::load_arpeggiator_settings(conn, &mut instruments)?;
+    load::load_layer_groups(conn, &mut instruments)?;
+    let midi_recording = load::load_midi_recording(conn)?;
+    let arrangement = load::load_arrangement(conn)?;
 
     // Restore selected_lane from DB, falling back to Some(0) if lanes exist
     automation.selected_lane = match selected_automation_lane {
@@ -137,12 +152,52 @@ pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     Ok((session, instrument_state))
 }
 
+#[allow(dead_code)]
+fn save_project_legacy(path: &Path, session: &SessionState, instruments: &InstrumentState) -> SqlResult<()> {
+    let conn = SqlConnection::open(path)?;
+
+    schema::create_tables_and_clear(&conn)?;
+
+    conn.execute(
+        "INSERT INTO session (id, name, created_at, modified_at, next_instrument_id, selected_instrument, selected_automation_lane, next_layer_group_id)
+             VALUES (1, 'default', datetime('now'), datetime('now'), ?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            &instruments.next_id,
+            instruments.selected.map(|s| s as i32),
+            session.automation.selected_lane.map(|s| s as i32),
+            &instruments.next_layer_group_id,
+        ],
+    )?;
+
+    save::save_instruments(&conn, instruments)?;
+    save::save_eq_bands(&conn, instruments)?;
+    save::save_source_params(&conn, instruments)?;
+    save::save_filter_params(&conn, instruments)?;
+    save::save_effects(&conn, instruments)?;
+    save::save_sends(&conn, instruments)?;
+    save::save_modulations(&conn, instruments)?;
+    save::save_mixer(&conn, session)?;
+    save::save_piano_roll(&conn, session)?;
+    save::save_sampler_configs(&conn, instruments)?;
+    save::save_automation(&conn, session)?;
+    save::save_custom_synthdefs(&conn, session)?;
+    save::save_vst_plugins(&conn, session)?;
+    save::save_drum_sequencers(&conn, instruments)?;
+    save::save_chopper_states(&conn, instruments)?;
+    save::save_midi_recording(&conn, session)?;
+    save::save_vst_param_values(&conn, instruments)?;
+    save::save_effect_vst_params(&conn, instruments)?;
+    save::save_arrangement(&conn, session)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::AutomationTarget;
     use crate::state::custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
-    use crate::state::instrument::{EffectSlot, EffectType, FilterConfig, FilterType, LfoConfig, LfoShape, LfoTarget, ModSource, OutputTarget, SourceType};
+    use crate::state::instrument::{EffectType, FilterConfig, FilterType, LfoConfig, LfoShape, LfoTarget, ModSource, OutputTarget, SourceType};
     use crate::state::param::ParamValue;
     use crate::state::sampler::Slice;
     use std::path::PathBuf;
@@ -184,7 +239,7 @@ mod tests {
         inst.level = 0.42;
         inst.pan = -0.2;
         inst.output_target = OutputTarget::Bus(2);
-        inst.effects.push(EffectSlot::new(EffectType::Delay));
+        inst.add_effect(EffectType::Delay);
 
         session.piano_roll.add_track(inst_id);
         session.piano_roll.toggle_note(0, 60, 0, 480, 100);
@@ -301,9 +356,11 @@ mod tests {
             inst.sends[0].level = 0.33;
             inst.sends[0].enabled = true;
 
-            inst.effects.push(EffectSlot::new(EffectType::Delay));
-            if let Some(param) = inst.effects[0].params.get_mut(0) {
-                param.value = ParamValue::Float(0.75);
+            let delay_id = inst.add_effect(EffectType::Delay);
+            if let Some(effect) = inst.effect_by_id_mut(delay_id) {
+                if let Some(param) = effect.params.get_mut(0) {
+                    param.value = ParamValue::Float(0.75);
+                }
             }
 
             if let Some(param) = inst.source_params.get_mut(0) {
@@ -586,6 +643,89 @@ mod tests {
         assert_eq!(arr.cursor_tick, 480);
         assert_eq!(arr.selected_lane, 0);
         assert_eq!(arr.selected_placement, Some(1));
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn legacy_to_blob_migration() {
+        // Step 1: Save using legacy SQLite format
+        let mut session = SessionState::new();
+        session.bpm = 140;
+        session.time_signature = (3, 4);
+        session.key = crate::state::music::Key::D;
+        session.scale = crate::state::music::Scale::Minor;
+        session.tuning_a4 = 432.0;
+        session.snap = true;
+        session.piano_roll.bpm = session.bpm as f32;
+        session.piano_roll.time_signature = session.time_signature;
+
+        let mut instruments = InstrumentState::new();
+        let inst_id = instruments.add_instrument(SourceType::Saw);
+        let inst = instruments.instrument_mut(inst_id).unwrap();
+        inst.name = "Migration".to_string();
+        inst.filter = Some(FilterConfig::new(FilterType::Hpf));
+        inst.level = 0.42;
+        inst.pan = -0.2;
+        inst.output_target = OutputTarget::Bus(2);
+        inst.add_effect(EffectType::Delay);
+
+        session.piano_roll.add_track(inst_id);
+        session.piano_roll.toggle_note(0, 60, 0, 480, 100);
+
+        let lane_id = session
+            .automation
+            .add_lane(AutomationTarget::InstrumentLevel(inst_id));
+        let lane = session.automation.lane_mut(lane_id).unwrap();
+        lane.add_point(0, 0.5);
+        lane.add_point(480, 0.75);
+
+        let path = temp_db_path();
+
+        // Save in legacy format
+        save_project_legacy(&path, &session, &instruments).expect("save legacy");
+
+        // Step 2: Load via auto-detecting load_project (should detect legacy)
+        let (legacy_session, legacy_instruments) = load_project(&path).expect("load legacy");
+        assert_eq!(legacy_session.bpm, 140);
+        assert_eq!(legacy_instruments.instruments.len(), 1);
+        assert_eq!(legacy_instruments.instruments[0].name, "Migration");
+
+        // Step 3: Re-save in blob format
+        save_project(&path, &legacy_session, &legacy_instruments).expect("save blob");
+
+        // Step 4: Re-load via auto-detecting load_project (should detect blob)
+        let (blob_session, blob_instruments) = load_project(&path).expect("load blob");
+
+        // Step 5: Assert fields match the legacy load
+        assert_eq!(blob_session.bpm, legacy_session.bpm);
+        assert_eq!(blob_session.time_signature, legacy_session.time_signature);
+        assert_eq!(blob_session.key, legacy_session.key);
+        assert_eq!(blob_session.scale, legacy_session.scale);
+        assert_eq!(blob_session.tuning_a4, legacy_session.tuning_a4);
+        assert_eq!(blob_session.snap, legacy_session.snap);
+
+        assert_eq!(blob_instruments.instruments.len(), legacy_instruments.instruments.len());
+        let blob_inst = &blob_instruments.instruments[0];
+        let leg_inst = &legacy_instruments.instruments[0];
+        assert_eq!(blob_inst.id, leg_inst.id);
+        assert_eq!(blob_inst.name, leg_inst.name);
+        assert!((blob_inst.level - leg_inst.level).abs() < 0.001);
+        assert!((blob_inst.pan - leg_inst.pan).abs() < 0.001);
+        assert_eq!(blob_inst.output_target, leg_inst.output_target);
+        assert_eq!(blob_inst.effects.len(), leg_inst.effects.len());
+        assert_eq!(blob_inst.effects[0].effect_type, leg_inst.effects[0].effect_type);
+
+        assert_eq!(blob_session.piano_roll.track_order.len(), legacy_session.piano_roll.track_order.len());
+        assert_eq!(blob_session.automation.lanes.len(), legacy_session.automation.lanes.len());
+        assert_eq!(
+            blob_session.automation.lanes[0].target,
+            legacy_session.automation.lanes[0].target
+        );
+        assert_eq!(
+            blob_session.automation.lanes[0].points.len(),
+            legacy_session.automation.lanes[0].points.len()
+        );
 
         std::fs::remove_file(&path).ok();
     }

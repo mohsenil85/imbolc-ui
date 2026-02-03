@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
+use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 
 pub type CustomSynthDefId = u32;
 
 /// Specification for a parameter extracted from .scd file
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamSpec {
     pub name: String,
     pub default: f32,
@@ -14,7 +15,7 @@ pub struct ParamSpec {
 }
 
 /// A user-imported custom SynthDef
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomSynthDef {
     pub id: CustomSynthDefId,
     pub name: String,              // Display name (derived from synthdef name)
@@ -24,7 +25,7 @@ pub struct CustomSynthDef {
 }
 
 /// Registry of all custom synthdefs
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CustomSynthDefRegistry {
     pub synthdefs: Vec<CustomSynthDef>,
     pub next_id: CustomSynthDefId,

@@ -1,6 +1,7 @@
 use super::AudioEngine;
 use super::{InstrumentNodes, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, VST_UGEN_INDEX};
-use crate::state::{CustomSynthDefRegistry, EffectType, FilterType, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState, SourceType};
+use std::collections::HashMap;
+use crate::state::{CustomSynthDefRegistry, EffectId, EffectType, FilterType, InstrumentId, InstrumentState, LfoTarget, ParamValue, SessionState, SourceType};
 
 impl AudioEngine {
     pub(super) fn source_synth_def(source: SourceType, registry: &CustomSynthDefRegistry) -> String {
@@ -41,7 +42,7 @@ impl AudioEngine {
             for &node_id in self.bus_node_map.values() {
                 let _ = client.free_node(node_id);
             }
-            for chain in self.voice_chains.drain(..) {
+            for chain in self.voice_allocator.drain_all() {
                 let _ = client.free_node(chain.group_id);
             }
         }
@@ -69,7 +70,8 @@ impl AudioEngine {
             let mut source_node: Option<i32> = None;
             let mut lfo_node: Option<i32> = None;
             let mut filter_node: Option<i32> = None;
-            let mut effect_nodes: Vec<i32> = Vec::new();
+            let mut effect_nodes: HashMap<EffectId, i32> = HashMap::new();
+            let mut effect_order: Vec<EffectId> = Vec::new();
 
             // Allocate the audio bus that voices/source write to
             let source_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "source_out");
@@ -289,7 +291,7 @@ impl AudioEngine {
             }
 
             // Effects
-            for (i, effect) in instrument.effects.iter().enumerate() {
+            for effect in instrument.effects.iter() {
                 if !effect.enabled {
                     continue;
                 }
@@ -297,7 +299,7 @@ impl AudioEngine {
                 self.next_node_id += 1;
                 let effect_out_bus = self.bus_allocator.get_or_alloc_audio_bus(
                     instrument.id,
-                    &format!("fx_{}_out", i),
+                    &format!("fx_{}_out", effect.id),
                 );
 
                 let mut params: Vec<(String, f32)> = vec![
@@ -382,7 +384,8 @@ impl AudioEngine {
                     }
                 }
 
-                effect_nodes.push(node_id);
+                effect_nodes.insert(effect.id, node_id);
+                effect_order.push(effect.id);
                 current_bus = effect_out_bus;
             }
 
@@ -427,16 +430,16 @@ impl AudioEngine {
                 filter: filter_node,
                 eq: eq_node,
                 effects: effect_nodes,
+                effect_order,
                 output: output_node_id,
             });
         }
 
-        // Store bus allocator state for voice bus allocation
-        self.next_voice_audio_bus = self.bus_allocator.next_audio_bus;
-        self.next_voice_control_bus = self.bus_allocator.next_control_bus;
+        // Sync voice allocator bus watermarks from bus allocator
+        self.voice_allocator.sync_bus_watermarks(self.bus_allocator.next_audio_bus, self.bus_allocator.next_control_bus);
 
         // Create send synths
-        for (instrument_idx, instrument) in state.instruments.iter().enumerate() {
+        for instrument in &state.instruments {
             // Get the instrument's source_out bus (where voices sum into)
             let instrument_audio_bus = self.bus_allocator.get_audio_bus(instrument.id, "source_out").unwrap_or(16);
 
@@ -469,7 +472,7 @@ impl AudioEngine {
                             .create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)
                             .map_err(|e| e.to_string())?;
                     }
-                    self.send_node_map.insert((instrument_idx, send.bus_id), node_id);
+                    self.send_node_map.insert((instrument.id, send.bus_id), node_id);
                 }
             }
         }
@@ -511,12 +514,11 @@ impl AudioEngine {
                     }
                 }
             }
-            let mut enabled_idx = 0;
             for effect in &instrument.effects {
                 if !effect.enabled { continue; }
                 if matches!(effect.effect_type, EffectType::Vst(_)) {
                     if let Some(&node) = self.node_map.get(&instrument.id)
-                        .and_then(|n| n.effects.get(enabled_idx)) {
+                        .and_then(|n| n.effects.get(&effect.id)) {
                         if let Some(ref client) = self.client {
                             for &(param_index, value) in &effect.vst_param_values {
                                 let _ = client.send_unit_cmd(
@@ -529,12 +531,399 @@ impl AudioEngine {
                         }
                     }
                 }
-                enabled_idx += 1;
             }
         }
 
         // (Re)create meter synth
         self.restart_meter();
+
+        Ok(())
+    }
+
+    /// Rebuild routing for a single instrument without tearing down the entire graph.
+    /// Frees only that instrument's nodes (source, filter, EQ, effects, output, sends)
+    /// and recreates them. Other instruments remain untouched.
+    pub fn rebuild_single_instrument_routing(
+        &mut self,
+        instrument_id: InstrumentId,
+        state: &InstrumentState,
+        session: &SessionState,
+    ) -> Result<(), String> {
+        if !self.is_running {
+            return Ok(());
+        }
+
+        let instrument = match state.instruments.iter().find(|i| i.id == instrument_id) {
+            Some(i) => i,
+            None => return Err(format!("Instrument {} not found", instrument_id)),
+        };
+
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        // 1. Free existing nodes for this instrument
+        if let Some(nodes) = self.node_map.remove(&instrument_id) {
+            for node_id in nodes.all_node_ids() {
+                let _ = client.free_node(node_id);
+            }
+        }
+
+        // Free this instrument's send nodes
+        let send_keys: Vec<(InstrumentId, u8)> = self.send_node_map.keys()
+            .filter(|(id, _)| *id == instrument_id)
+            .copied()
+            .collect();
+        for key in send_keys {
+            if let Some(node_id) = self.send_node_map.remove(&key) {
+                let _ = client.free_node(node_id);
+            }
+        }
+
+        // Free active voices for this instrument
+        let drained = self.voice_allocator.drain_instrument(instrument_id);
+        for voice in &drained {
+            let _ = client.free_node(voice.group_id);
+        }
+
+        // Remove old final bus entry
+        self.instrument_final_buses.remove(&instrument_id);
+
+        // 2. Recreate the signal chain for this instrument
+        // Reuse existing bus allocations where possible (don't reset allocator)
+        let mut source_node: Option<i32> = None;
+        let mut lfo_node: Option<i32> = None;
+        let mut filter_node: Option<i32> = None;
+        let mut effect_nodes: HashMap<EffectId, i32> = HashMap::new();
+        let mut effect_order: Vec<EffectId> = Vec::new();
+
+        let source_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "source_out");
+        let mut current_bus = source_out_bus;
+
+        // Source synth (AudioIn, BusIn, VST)
+        if instrument.source.is_audio_input() {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+
+            let mut params: Vec<(String, f32)> = vec![
+                ("out".to_string(), source_out_bus as f32),
+                ("instrument_id".to_string(), instrument.id as f32),
+            ];
+            for p in &instrument.source_params {
+                let val = match &p.value {
+                    crate::state::param::ParamValue::Float(v) => *v,
+                    crate::state::param::ParamValue::Int(v) => *v as f32,
+                    crate::state::param::ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                };
+                let val = if p.name == "gain" && !instrument.active { 0.0 } else { val };
+                params.push((p.name.clone(), val));
+            }
+
+            client.create_synth_in_group("imbolc_audio_in", node_id, GROUP_SOURCES, &params)
+                .map_err(|e| e.to_string())?;
+            source_node = Some(node_id);
+        } else if instrument.source.is_bus_in() {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+
+            let bus_id = instrument.source_params.iter()
+                .find(|p| p.name == "bus")
+                .map(|p| match &p.value {
+                    crate::state::param::ParamValue::Int(v) => *v as u8,
+                    _ => 1,
+                })
+                .unwrap_or(1);
+            let bus_audio_bus = self.bus_audio_buses.get(&bus_id).copied().unwrap_or(16);
+            let gain = instrument.source_params.iter()
+                .find(|p| p.name == "gain")
+                .map(|p| match &p.value {
+                    crate::state::param::ParamValue::Float(v) => *v,
+                    _ => 1.0,
+                })
+                .unwrap_or(1.0);
+
+            let params: Vec<(String, f32)> = vec![
+                ("out".to_string(), source_out_bus as f32),
+                ("in".to_string(), bus_audio_bus as f32),
+                ("gain".to_string(), gain),
+                ("instrument_id".to_string(), instrument.id as f32),
+            ];
+
+            client.create_synth_in_group("imbolc_bus_in", node_id, GROUP_SOURCES, &params)
+                .map_err(|e| e.to_string())?;
+            source_node = Some(node_id);
+        } else if instrument.source.is_vst() {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+
+            let params: Vec<(String, f32)> = vec![
+                ("out".to_string(), source_out_bus as f32),
+            ];
+
+            client.create_synth_in_group("imbolc_vst_instrument", node_id, GROUP_SOURCES, &params)
+                .map_err(|e| e.to_string())?;
+
+            if let SourceType::Vst(vst_id) = instrument.source {
+                if let Some(plugin) = session.vst_plugins.get(vst_id) {
+                    let _ = client.send_unit_cmd(
+                        node_id, VST_UGEN_INDEX, "/open",
+                        vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                    );
+                }
+            }
+            source_node = Some(node_id);
+        }
+
+        // LFO
+        let lfo_control_bus: Option<i32> = if instrument.lfo.enabled {
+            let lfo_node_id = self.next_node_id;
+            self.next_node_id += 1;
+            let lfo_out_bus = self.bus_allocator.get_or_alloc_control_bus(instrument.id, "lfo_out");
+
+            let params = vec![
+                ("out".to_string(), lfo_out_bus as f32),
+                ("rate".to_string(), instrument.lfo.rate),
+                ("depth".to_string(), instrument.lfo.depth),
+                ("shape".to_string(), instrument.lfo.shape.index() as f32),
+            ];
+
+            client.create_synth_in_group("imbolc_lfo", lfo_node_id, GROUP_SOURCES, &params)
+                .map_err(|e| e.to_string())?;
+
+            lfo_node = Some(lfo_node_id);
+            Some(lfo_out_bus)
+        } else {
+            None
+        };
+
+        // Filter
+        if let Some(ref filter) = instrument.filter {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+            let filter_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "filter_out");
+
+            let cutoff_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::FilterCutoff {
+                lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
+            } else { -1.0 };
+            let res_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::FilterResonance {
+                lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
+            } else { -1.0 };
+
+            let mut params = vec![
+                ("in".to_string(), current_bus as f32),
+                ("out".to_string(), filter_out_bus as f32),
+                ("cutoff".to_string(), filter.cutoff.value),
+                ("resonance".to_string(), filter.resonance.value),
+                ("cutoff_mod_in".to_string(), cutoff_mod_bus),
+                ("res_mod_in".to_string(), res_mod_bus),
+            ];
+            for p in &filter.extra_params {
+                let val = match &p.value {
+                    crate::state::param::ParamValue::Float(v) => *v,
+                    crate::state::param::ParamValue::Int(v) => *v as f32,
+                    crate::state::param::ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                };
+                params.push((p.name.clone(), val));
+            }
+
+            client.create_synth_in_group(Self::filter_synth_def(filter.filter_type), node_id, GROUP_PROCESSING, &params)
+                .map_err(|e| e.to_string())?;
+
+            filter_node = Some(node_id);
+            current_bus = filter_out_bus;
+        }
+
+        // EQ
+        let mut eq_node: Option<i32> = None;
+        if let Some(ref eq) = instrument.eq {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+            let eq_out_bus = self.bus_allocator.get_or_alloc_audio_bus(instrument.id, "eq_out");
+
+            let mut params: Vec<(String, f32)> = vec![
+                ("in".to_string(), current_bus as f32),
+                ("out".to_string(), eq_out_bus as f32),
+            ];
+            for (i, band) in eq.bands.iter().enumerate() {
+                params.push((format!("b{}_freq", i), band.freq));
+                params.push((format!("b{}_gain", i), band.gain));
+                params.push((format!("b{}_q", i), 1.0 / band.q));
+                params.push((format!("b{}_on", i), if band.enabled { 1.0 } else { 0.0 }));
+            }
+
+            client.create_synth_in_group("imbolc_eq12", node_id, GROUP_PROCESSING, &params)
+                .map_err(|e| e.to_string())?;
+
+            eq_node = Some(node_id);
+            current_bus = eq_out_bus;
+        }
+
+        // Effects
+        for effect in instrument.effects.iter() {
+            if !effect.enabled { continue; }
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+            let effect_out_bus = self.bus_allocator.get_or_alloc_audio_bus(
+                instrument.id,
+                &format!("fx_{}_out", effect.id),
+            );
+
+            let mut params: Vec<(String, f32)> = vec![
+                ("in".to_string(), current_bus as f32),
+                ("out".to_string(), effect_out_bus as f32),
+            ];
+            for p in &effect.params {
+                if effect.effect_type == EffectType::SidechainComp && p.name == "sc_bus" {
+                    let bus_id = match &p.value { ParamValue::Int(v) => *v as u8, _ => 0 };
+                    let sidechain_in = if bus_id == 0 { 0.0 } else {
+                        self.bus_audio_buses.get(&bus_id).copied().unwrap_or(0) as f32
+                    };
+                    params.push(("sidechain_in".to_string(), sidechain_in));
+                    continue;
+                }
+                if effect.effect_type == EffectType::ConvolutionReverb && p.name == "ir_buffer" {
+                    let buffer_id = match &p.value { ParamValue::Int(v) => *v, _ => -1 };
+                    let sc_bufnum = if buffer_id >= 0 {
+                        self.buffer_map.get(&(buffer_id as u32)).copied().unwrap_or(-1) as f32
+                    } else { -1.0 };
+                    params.push(("ir_buffer".to_string(), sc_bufnum));
+                    continue;
+                }
+                let val = match &p.value {
+                    ParamValue::Float(v) => *v,
+                    ParamValue::Int(v) => *v as f32,
+                    ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                };
+                params.push((p.name.clone(), val));
+            }
+
+            // LFO mod bus injection
+            if instrument.lfo.enabled {
+                if let Some(lfo_bus) = lfo_control_bus {
+                    match (instrument.lfo.target, effect.effect_type) {
+                        (LfoTarget::DelayTime, EffectType::Delay) => {
+                            params.push(("time_mod_in".to_string(), lfo_bus as f32));
+                        }
+                        (LfoTarget::DelayFeedback, EffectType::Delay) => {
+                            params.push(("feedback_mod_in".to_string(), lfo_bus as f32));
+                        }
+                        (LfoTarget::ReverbMix, EffectType::Reverb) => {
+                            params.push(("mix_mod_in".to_string(), lfo_bus as f32));
+                        }
+                        (LfoTarget::GateRate, EffectType::Gate) => {
+                            params.push(("rate_mod_in".to_string(), lfo_bus as f32));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            client.create_synth_in_group(
+                Self::effect_synth_def(effect.effect_type), node_id, GROUP_PROCESSING, &params,
+            ).map_err(|e| e.to_string())?;
+
+            if let EffectType::Vst(vst_id) = effect.effect_type {
+                if let Some(plugin) = session.vst_plugins.get(vst_id) {
+                    let _ = client.send_unit_cmd(
+                        node_id, VST_UGEN_INDEX, "/open",
+                        vec![rosc::OscType::String(plugin.plugin_path.to_string_lossy().to_string())],
+                    );
+                }
+            }
+
+            effect_nodes.insert(effect.id, node_id);
+            effect_order.push(effect.id);
+            current_bus = effect_out_bus;
+        }
+
+        // Output synth
+        let output_node_id = {
+            let node_id = self.next_node_id;
+            self.next_node_id += 1;
+            let any_solo = state.any_instrument_solo();
+            let mute = if any_solo { !instrument.solo } else { instrument.mute || session.master_mute };
+
+            let pan_mod_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::Pan {
+                lfo_control_bus.map(|b| b as f32).unwrap_or(-1.0)
+            } else { -1.0 };
+
+            let params = vec![
+                ("in".to_string(), current_bus as f32),
+                ("level".to_string(), instrument.level * session.master_level),
+                ("mute".to_string(), if mute { 1.0 } else { 0.0 }),
+                ("pan".to_string(), instrument.pan),
+                ("pan_mod_in".to_string(), pan_mod_bus),
+            ];
+
+            client.create_synth_in_group("imbolc_output", node_id, GROUP_OUTPUT, &params)
+                .map_err(|e| e.to_string())?;
+            node_id
+        };
+
+        self.instrument_final_buses.insert(instrument.id, current_bus);
+        self.node_map.insert(instrument.id, InstrumentNodes {
+            source: source_node,
+            lfo: lfo_node,
+            filter: filter_node,
+            eq: eq_node,
+            effects: effect_nodes,
+            effect_order,
+            output: output_node_id,
+        });
+
+        // Sync voice allocator bus watermarks
+        self.voice_allocator.sync_bus_watermarks(self.bus_allocator.next_audio_bus, self.bus_allocator.next_control_bus);
+
+        // Recreate sends for this instrument
+        let instrument_audio_bus = self.bus_allocator.get_audio_bus(instrument.id, "source_out").unwrap_or(16);
+        let send_lfo_bus = if instrument.lfo.enabled && instrument.lfo.target == LfoTarget::SendLevel {
+            self.bus_allocator.get_control_bus(instrument.id, "lfo_out")
+                .map(|b| b as f32)
+                .unwrap_or(-1.0)
+        } else { -1.0 };
+
+        for send in &instrument.sends {
+            if !send.enabled || send.level <= 0.0 { continue; }
+            if let Some(&bus_audio) = self.bus_audio_buses.get(&send.bus_id) {
+                let node_id = self.next_node_id;
+                self.next_node_id += 1;
+                let mut params = vec![
+                    ("in".to_string(), instrument_audio_bus as f32),
+                    ("out".to_string(), bus_audio as f32),
+                    ("level".to_string(), send.level),
+                ];
+                if send_lfo_bus >= 0.0 {
+                    params.push(("level_mod_in".to_string(), send_lfo_bus));
+                }
+                client.create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)
+                    .map_err(|e| e.to_string())?;
+                self.send_node_map.insert((instrument.id, send.bus_id), node_id);
+            }
+        }
+
+        // Restore VST param values
+        if matches!(instrument.source, SourceType::Vst(_)) {
+            if let Some(sn) = self.node_map.get(&instrument.id).and_then(|n| n.source) {
+                for &(param_index, value) in &instrument.vst_param_values {
+                    let _ = client.send_unit_cmd(
+                        sn, VST_UGEN_INDEX, "/set",
+                        vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+                    );
+                }
+            }
+        }
+        for effect in &instrument.effects {
+            if !effect.enabled { continue; }
+            if matches!(effect.effect_type, EffectType::Vst(_)) {
+                if let Some(&node) = self.node_map.get(&instrument.id)
+                    .and_then(|n| n.effects.get(&effect.id)) {
+                    for &(param_index, value) in &effect.vst_param_values {
+                        let _ = client.send_unit_cmd(
+                            node, VST_UGEN_INDEX, "/set",
+                            vec![rosc::OscType::Int(param_index as i32), rosc::OscType::Float(value)],
+                        );
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -597,7 +986,7 @@ impl AudioEngine {
         }
 
         // Set on all active voice source nodes (oscillator/sampler instruments)
-        for voice in &self.voice_chains {
+        for voice in self.voice_allocator.chains() {
             if voice.instrument_id == instrument_id {
                 let _ = client.set_param(voice.source_node, param, value);
             }

@@ -154,21 +154,35 @@ pub(crate) fn load_vst_param_values(conn: &SqlConnection, instruments: &mut [Ins
 }
 
 pub(crate) fn load_effect_vst_params(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT instrument_id, effect_position, param_index, value FROM effect_vst_params",
-    ) {
+    // Check if new schema uses effect_id or old schema uses effect_position
+    let has_effect_id = conn
+        .prepare("SELECT effect_id FROM effect_vst_params LIMIT 0")
+        .is_ok();
+    let query = if has_effect_id {
+        "SELECT instrument_id, effect_id, param_index, value FROM effect_vst_params"
+    } else {
+        "SELECT instrument_id, effect_position, param_index, value FROM effect_vst_params"
+    };
+
+    if let Ok(mut stmt) = conn.prepare(query) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, InstrumentId>(0)?,
-                row.get::<_, usize>(1)?,
+                row.get::<_, u32>(1)?,
                 row.get::<_, u32>(2)?,
                 row.get::<_, f64>(3)?,
             ))
         }) {
             for result in rows {
-                if let Ok((instrument_id, effect_pos, param_index, value)) = result {
+                if let Ok((instrument_id, effect_key, param_index, value)) = result {
                     if let Some(inst) = instruments.iter_mut().find(|s| s.id == instrument_id) {
-                        if let Some(effect) = inst.effects.get_mut(effect_pos) {
+                        // With new schema, effect_key is the EffectId; with old, it's position index
+                        let effect = if has_effect_id {
+                            inst.effects.iter_mut().find(|e| e.id == effect_key)
+                        } else {
+                            inst.effects.get_mut(effect_key as usize)
+                        };
+                        if let Some(effect) = effect {
                             effect.vst_param_values.push((param_index, value as f32));
                         }
                     }

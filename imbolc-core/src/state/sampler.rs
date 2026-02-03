@@ -1,10 +1,12 @@
 #![allow(dead_code)]
 
+use serde::{Serialize, Deserialize};
+
 pub type BufferId = u32;
 pub type SliceId = u32;
 
 /// A loaded sample buffer
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SampleBuffer {
     pub id: BufferId,
     pub path: String,
@@ -41,7 +43,7 @@ impl SampleBuffer {
 }
 
 /// A slice within a sample buffer
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Slice {
     pub id: SliceId,
     /// Start position as a fraction of the buffer (0.0-1.0)
@@ -76,7 +78,7 @@ impl Slice {
 }
 
 /// Sampler configuration for an instrument
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamplerConfig {
     pub buffer_id: Option<BufferId>,
     pub sample_name: Option<String>,
@@ -86,7 +88,7 @@ pub struct SamplerConfig {
     /// Whether to change playback rate based on MIDI note (pitch tracking)
     pub pitch_tracking: bool,
     /// Next slice ID for auto-increment
-    next_slice_id: SliceId,
+    pub(crate) next_slice_id: SliceId,
 }
 
 impl SamplerConfig {
@@ -176,10 +178,10 @@ impl Default for SamplerConfig {
 }
 
 /// Global sample buffer registry
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SampleRegistry {
     pub buffers: Vec<SampleBuffer>,
-    next_buffer_id: BufferId,
+    pub(crate) next_buffer_id: BufferId,
 }
 
 impl SampleRegistry {

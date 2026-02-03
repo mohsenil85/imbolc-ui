@@ -201,21 +201,21 @@ pub(crate) fn handle_global_action(
         "undo" => {
             let r = dispatch::dispatch_action(&Action::Undo, state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame);
+            apply_dispatch_result(r, state, panes, app_frame, audio);
             sync_piano_roll_to_selection(state, panes, audio, io_tx);
             sync_instrument_edit(state, panes);
         }
         "redo" => {
             let r = dispatch::dispatch_action(&Action::Redo, state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame);
+            apply_dispatch_result(r, state, panes, app_frame, audio);
             sync_piano_roll_to_selection(state, panes, audio, io_tx);
             sync_instrument_edit(state, panes);
         }
         "save" => {
             let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame);
+            apply_dispatch_result(r, state, panes, app_frame, audio);
         }
         "load" => {
             if state.dirty {
@@ -227,7 +227,7 @@ pub(crate) fn handle_global_action(
             } else {
                 let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
             }
         }
         "save_as" => {
@@ -250,12 +250,12 @@ pub(crate) fn handle_global_action(
             let r = dispatch::dispatch_action(
                 &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame);
+            apply_dispatch_result(r, state, panes, app_frame, audio);
         }
         "record_master" => {
             let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio, io_tx);
             pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame);
+            apply_dispatch_result(r, state, panes, app_frame, audio);
         }
         "copy" => {
             copy_from_active_pane(state, panes, audio, io_tx);
@@ -265,7 +265,7 @@ pub(crate) fn handle_global_action(
             if let Some(action) = action {
                 let r = dispatch::dispatch_action(&action, state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
             }
         }
         "paste" => {
@@ -273,7 +273,7 @@ pub(crate) fn handle_global_action(
             if let Some(action) = action {
                 let r = dispatch::dispatch_action(&action, state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
             }
         }
         "select_all" => {
@@ -450,7 +450,7 @@ pub(crate) fn handle_global_action(
                 let id = instrument.id;
                 let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
                 // Re-sync edit pane after deletion
                 sync_instrument_edit(state, panes);
             }
@@ -484,12 +484,14 @@ pub(crate) fn apply_status_events(events: &[StatusEvent], panes: &mut PaneManage
     }
 }
 
-/// Apply a DispatchResult to the UI layer: process nav intents, status events, project name
+/// Apply a DispatchResult to the UI layer: process nav intents, status events, project name,
+/// and audio control signals (stop_playback, reset_playhead).
 pub(crate) fn apply_dispatch_result(
     result: DispatchResult,
     state: &mut AppState,
     panes: &mut PaneManager,
     app_frame: &mut Frame,
+    audio: &mut AudioHandle,
 ) {
     // Process nav intents
     for intent in &result.nav {
@@ -517,6 +519,14 @@ pub(crate) fn apply_dispatch_result(
     // Process project name
     if let Some(ref name) = result.project_name {
         app_frame.set_project_name(name.to_string());
+    }
+
+    // Process audio control signals (avoids circular dispatch → audio → dispatch pattern)
+    if result.stop_playback {
+        audio.set_playing(false);
+    }
+    if result.reset_playhead {
+        audio.reset_playhead();
     }
 }
 

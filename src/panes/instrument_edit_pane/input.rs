@@ -322,9 +322,13 @@ impl InstrumentEditPane {
                     Action::Nav(crate::ui::NavAction::PushPane("vst_params"))
                 } else if section == Section::Effects {
                     let idx = local_idx.min(self.effects.len().saturating_sub(1));
-                    if self.effects.get(idx).map(|e| e.effect_type.is_vst()).unwrap_or(false) {
-                        if let Some(instrument_id) = self.instrument_id {
-                            Action::Instrument(InstrumentAction::OpenVstEffectParams(instrument_id, idx))
+                    if let Some(effect) = self.effects.get(idx) {
+                        if effect.effect_type.is_vst() {
+                            if let Some(instrument_id) = self.instrument_id {
+                                Action::Instrument(InstrumentAction::OpenVstEffectParams(instrument_id, effect.id))
+                            } else {
+                                Action::None
+                            }
                         } else {
                             Action::None
                         }

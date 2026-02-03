@@ -92,15 +92,15 @@ pub(crate) fn save_vst_param_values(conn: &SqlConnection, instruments: &Instrume
 
 pub(crate) fn save_effect_vst_params(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO effect_vst_params (instrument_id, effect_position, param_index, value)
+        "INSERT INTO effect_vst_params (instrument_id, effect_id, param_index, value)
              VALUES (?1, ?2, ?3, ?4)",
     )?;
     for inst in &instruments.instruments {
-        for (pos, effect) in inst.effects.iter().enumerate() {
+        for effect in &inst.effects {
             for (idx, value) in &effect.vst_param_values {
                 stmt.execute(rusqlite::params![
                     inst.id,
-                    pos as i32,
+                    effect.id,
                     *idx as i32,
                     *value as f64,
                 ])?;

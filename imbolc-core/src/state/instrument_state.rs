@@ -1,13 +1,16 @@
 use super::drum_sequencer::DrumSequencerState;
 use super::instrument::*;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstrumentState {
     pub instruments: Vec<Instrument>,
     pub selected: Option<usize>,
     pub next_id: InstrumentId,
+    #[serde(default = "default_sampler_buffer_id")]
     pub next_sampler_buffer_id: u32,
     /// Set by dispatch when editing an instrument; read by InstrumentEditPane on_enter
+    #[serde(skip)]
     pub editing_instrument_id: Option<InstrumentId>,
     /// Counter for allocating layer group IDs
     pub next_layer_group_id: u32,
@@ -148,6 +151,10 @@ impl Default for InstrumentState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn default_sampler_buffer_id() -> u32 {
+    20000
 }
 
 #[cfg(test)]

@@ -10,6 +10,8 @@ pub use effect::*;
 pub use lfo::*;
 pub use envelope::*;
 
+use serde::{Serialize, Deserialize};
+
 use super::drum_sequencer::DrumSequencerState;
 use super::param::Param;
 use super::sampler::SamplerConfig;
@@ -18,7 +20,7 @@ pub type InstrumentId = u32;
 
 pub const MAX_BUSES: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputTarget {
     Master,
     Bus(u8), // 1-8
@@ -30,7 +32,7 @@ impl Default for OutputTarget {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MixerSend {
     pub bus_id: u8,
     pub level: f32,
@@ -43,7 +45,7 @@ impl MixerSend {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MixerBus {
     pub id: u8,
     pub name: String,
@@ -66,7 +68,7 @@ impl MixerBus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModulatedParam {
     pub value: f32,
     pub min: f32,
@@ -74,14 +76,14 @@ pub struct ModulatedParam {
     pub mod_source: Option<ModSource>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModSource {
     Lfo(LfoConfig),
     Envelope(EnvConfig),
     InstrumentParam(InstrumentId, String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instrument {
     pub id: InstrumentId,
     pub name: String,
@@ -117,6 +119,8 @@ pub struct Instrument {
     pub convolution_ir_path: Option<String>,
     /// Layer group ID: instruments sharing the same group sound together
     pub layer_group: Option<u32>,
+    /// Counter for allocating unique EffectIds
+    pub next_effect_id: EffectId,
 }
 
 impl Instrument {
@@ -160,6 +164,57 @@ impl Instrument {
             chord_shape: None,
             convolution_ir_path: None,
             layer_group: None,
+            next_effect_id: 0,
         }
+    }
+
+    /// Add an effect and return its stable EffectId
+    pub fn add_effect(&mut self, effect_type: EffectType) -> EffectId {
+        let id = self.next_effect_id;
+        self.next_effect_id += 1;
+        self.effects.push(EffectSlot::new(id, effect_type));
+        id
+    }
+
+    /// Find an effect by its stable EffectId
+    pub fn effect_by_id(&self, id: EffectId) -> Option<&EffectSlot> {
+        self.effects.iter().find(|e| e.id == id)
+    }
+
+    /// Find a mutable effect by its stable EffectId
+    pub fn effect_by_id_mut(&mut self, id: EffectId) -> Option<&mut EffectSlot> {
+        self.effects.iter_mut().find(|e| e.id == id)
+    }
+
+    /// Get the position of an effect in the effects chain by EffectId
+    pub fn effect_position(&self, id: EffectId) -> Option<usize> {
+        self.effects.iter().position(|e| e.id == id)
+    }
+
+    /// Remove an effect by its EffectId, returns true if removed
+    pub fn remove_effect(&mut self, id: EffectId) -> bool {
+        if let Some(pos) = self.effect_position(id) {
+            self.effects.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Move an effect up or down by its EffectId
+    pub fn move_effect(&mut self, id: EffectId, direction: i8) -> bool {
+        if let Some(pos) = self.effect_position(id) {
+            let new_pos = (pos as i8 + direction).max(0) as usize;
+            if new_pos < self.effects.len() {
+                self.effects.swap(pos, new_pos);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Recalculate next_effect_id from existing effects (used after loading)
+    pub fn recalculate_next_effect_id(&mut self) {
+        self.next_effect_id = self.effects.iter().map(|e| e.id).max().map_or(0, |m| m + 1);
     }
 }

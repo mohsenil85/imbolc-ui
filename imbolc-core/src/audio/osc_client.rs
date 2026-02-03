@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::UdpSocket;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
@@ -14,37 +14,37 @@ const SCOPE_BUFFER_SIZE: usize = 200;
 /// Shared meter + waveform + visualization data accessible from both threads.
 #[derive(Clone, Default)]
 pub struct AudioMonitor {
-    meter_data: Arc<Mutex<(f32, f32)>>,
-    audio_in_waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
+    meter_data: Arc<RwLock<(f32, f32)>>,
+    audio_in_waveforms: Arc<RwLock<HashMap<u32, VecDeque<f32>>>>,
     /// 7-band spectrum data
-    spectrum_data: Arc<Mutex<[f32; 7]>>,
+    spectrum_data: Arc<RwLock<[f32; 7]>>,
     /// LUFS data: (peak_l, peak_r, rms_l, rms_r)
-    lufs_data: Arc<Mutex<(f32, f32, f32, f32)>>,
+    lufs_data: Arc<RwLock<(f32, f32, f32, f32)>>,
     /// Oscilloscope ring buffer
-    scope_buffer: Arc<Mutex<VecDeque<f32>>>,
+    scope_buffer: Arc<RwLock<VecDeque<f32>>>,
 }
 
 impl AudioMonitor {
     pub fn new() -> Self {
         Self {
-            meter_data: Arc::new(Mutex::new((0.0_f32, 0.0_f32))),
-            audio_in_waveforms: Arc::new(Mutex::new(HashMap::new())),
-            spectrum_data: Arc::new(Mutex::new([0.0; 7])),
-            lufs_data: Arc::new(Mutex::new((0.0, 0.0, 0.0, 0.0))),
-            scope_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(SCOPE_BUFFER_SIZE))),
+            meter_data: Arc::new(RwLock::new((0.0_f32, 0.0_f32))),
+            audio_in_waveforms: Arc::new(RwLock::new(HashMap::new())),
+            spectrum_data: Arc::new(RwLock::new([0.0; 7])),
+            lufs_data: Arc::new(RwLock::new((0.0, 0.0, 0.0, 0.0))),
+            scope_buffer: Arc::new(RwLock::new(VecDeque::with_capacity(SCOPE_BUFFER_SIZE))),
         }
     }
 
     pub fn meter_peak(&self) -> (f32, f32) {
         self.meter_data
-            .lock()
+            .read()
             .map(|data| *data)
             .unwrap_or((0.0, 0.0))
     }
 
     pub fn audio_in_waveform(&self, instrument_id: u32) -> Vec<f32> {
         self.audio_in_waveforms
-            .lock()
+            .read()
             .map(|waveforms| {
                 waveforms
                     .get(&instrument_id)
@@ -56,21 +56,21 @@ impl AudioMonitor {
 
     pub fn spectrum_bands(&self) -> [f32; 7] {
         self.spectrum_data
-            .lock()
+            .read()
             .map(|data| *data)
             .unwrap_or([0.0; 7])
     }
 
     pub fn lufs_data(&self) -> (f32, f32, f32, f32) {
         self.lufs_data
-            .lock()
+            .read()
             .map(|data| *data)
             .unwrap_or((0.0, 0.0, 0.0, 0.0))
     }
 
     pub fn scope_buffer(&self) -> Vec<f32> {
         self.scope_buffer
-            .lock()
+            .read()
             .map(|buf| buf.iter().copied().collect())
             .unwrap_or_default()
     }
@@ -79,12 +79,12 @@ impl AudioMonitor {
 pub struct OscClient {
     socket: UdpSocket,
     server_addr: String,
-    meter_data: Arc<Mutex<(f32, f32)>>,
+    meter_data: Arc<RwLock<(f32, f32)>>,
     /// Waveform data per audio input instrument: instrument_id -> ring buffer of peak values
-    audio_in_waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
-    spectrum_data: Arc<Mutex<[f32; 7]>>,
-    lufs_data: Arc<Mutex<(f32, f32, f32, f32)>>,
-    scope_buffer: Arc<Mutex<VecDeque<f32>>>,
+    audio_in_waveforms: Arc<RwLock<HashMap<u32, VecDeque<f32>>>>,
+    spectrum_data: Arc<RwLock<[f32; 7]>>,
+    lufs_data: Arc<RwLock<(f32, f32, f32, f32)>>,
+    scope_buffer: Arc<RwLock<VecDeque<f32>>>,
     _recv_thread: Option<JoinHandle<()>>,
 }
 
@@ -204,11 +204,11 @@ impl OscClientLike for NullOscClient {
 
 /// Recursively process an OSC packet (handles bundles wrapping messages)
 struct OscRefs {
-    meter: Arc<Mutex<(f32, f32)>>,
-    waveforms: Arc<Mutex<HashMap<u32, VecDeque<f32>>>>,
-    spectrum: Arc<Mutex<[f32; 7]>>,
-    lufs: Arc<Mutex<(f32, f32, f32, f32)>>,
-    scope: Arc<Mutex<VecDeque<f32>>>,
+    meter: Arc<RwLock<(f32, f32)>>,
+    waveforms: Arc<RwLock<HashMap<u32, VecDeque<f32>>>>,
+    spectrum: Arc<RwLock<[f32; 7]>>,
+    lufs: Arc<RwLock<(f32, f32, f32, f32)>>,
+    scope: Arc<RwLock<VecDeque<f32>>>,
 }
 
 fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
@@ -223,7 +223,7 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                     Some(OscType::Float(v)) => *v,
                     _ => 0.0,
                 };
-                if let Ok(mut data) = refs.meter.lock() {
+                if let Ok(mut data) = refs.meter.write() {
                     *data = (peak_l, peak_r);
                 }
             } else if msg.addr == "/audio_in_level" && msg.args.len() >= 4 {
@@ -237,7 +237,7 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                     Some(OscType::Float(v)) => *v,
                     _ => 0.0,
                 };
-                if let Ok(mut waveforms) = refs.waveforms.lock() {
+                if let Ok(mut waveforms) = refs.waveforms.write() {
                     let buffer = waveforms.entry(instrument_id).or_insert_with(VecDeque::new);
                     buffer.push_back(peak);
                     while buffer.len() > WAVEFORM_BUFFER_SIZE {
@@ -253,7 +253,7 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                         _ => 0.0,
                     };
                 }
-                if let Ok(mut data) = refs.spectrum.lock() {
+                if let Ok(mut data) = refs.spectrum.write() {
                     *data = bands;
                 }
             } else if msg.addr == "/lufs" && msg.args.len() >= 6 {
@@ -274,7 +274,7 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                     Some(OscType::Float(v)) => *v,
                     _ => 0.0,
                 };
-                if let Ok(mut data) = refs.lufs.lock() {
+                if let Ok(mut data) = refs.lufs.write() {
                     *data = (peak_l, peak_r, rms_l, rms_r);
                 }
             } else if msg.addr == "/scope" && msg.args.len() >= 3 {
@@ -283,7 +283,7 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                     Some(OscType::Float(v)) => *v,
                     _ => 0.0,
                 };
-                if let Ok(mut buf) = refs.scope.lock() {
+                if let Ok(mut buf) = refs.scope.write() {
                     buf.push_back(peak);
                     while buf.len() > SCOPE_BUFFER_SIZE {
                         buf.pop_front();
@@ -364,13 +364,13 @@ impl OscClient {
 
     /// Get current peak levels (left, right) from the meter synth
     pub fn meter_peak(&self) -> (f32, f32) {
-        self.meter_data.lock().map(|d| *d).unwrap_or((0.0, 0.0))
+        self.meter_data.read().map(|d| *d).unwrap_or((0.0, 0.0))
     }
 
     /// Get waveform data for an audio input instrument (returns a copy of the buffer)
     pub fn audio_in_waveform(&self, instrument_id: u32) -> Vec<f32> {
         self.audio_in_waveforms
-            .lock()
+            .read()
             .map(|w| w.get(&instrument_id).map(|d| d.iter().copied().collect()).unwrap_or_default())
             .unwrap_or_default()
     }

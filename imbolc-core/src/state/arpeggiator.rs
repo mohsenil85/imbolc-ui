@@ -1,5 +1,7 @@
+use serde::{Serialize, Deserialize};
+
 /// Arpeggiator configuration, stored per-instrument.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArpeggiatorConfig {
     pub enabled: bool,
     pub direction: ArpDirection,
@@ -20,7 +22,7 @@ impl Default for ArpeggiatorConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArpDirection {
     Up,
     Down,
@@ -57,7 +59,7 @@ impl ArpDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArpRate {
     Quarter,
     Eighth,
@@ -105,7 +107,7 @@ impl ArpRate {
 }
 
 /// Chord shape definitions — interval offsets from root in semitones.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChordShape {
     Major,
     Minor,

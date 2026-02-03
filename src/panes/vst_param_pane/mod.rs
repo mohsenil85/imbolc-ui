@@ -54,8 +54,8 @@ impl VstParamPane {
                     None
                 }
             }
-            VstTarget::Effect(idx) => {
-                inst.effects.get(idx).and_then(|e| {
+            VstTarget::Effect(effect_id) => {
+                inst.effect_by_id(effect_id).and_then(|e| {
                     if let crate::state::EffectType::Vst(id) = e.effect_type {
                         Some(id)
                     } else {

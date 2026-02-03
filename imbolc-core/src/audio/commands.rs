@@ -73,6 +73,9 @@ pub enum AudioCmd {
 
     // ── Routing & mixing ──────────────────────────────────────────
     RebuildRouting,
+    RebuildInstrumentRouting {
+        instrument_id: InstrumentId,
+    },
     UpdateMixerParams,
     SetBusMixerParams {
         bus_id: u8,

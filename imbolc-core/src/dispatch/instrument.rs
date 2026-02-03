@@ -50,7 +50,7 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(update.id);
             result
         }
         InstrumentAction::SetParam(instrument_id, ref param, value) => {
@@ -193,34 +193,29 @@ pub(super) fn dispatch_instrument(
         }
         InstrumentAction::AddEffect(id, ref effect_type) => {
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
-                instrument.effects.push(crate::state::EffectSlot::new(*effect_type));
+                instrument.add_effect(*effect_type);
             }
             let mut result = DispatchResult::with_nav(NavIntent::Pop);
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(*id);
             result
         }
-        InstrumentAction::RemoveEffect(id, idx) => {
+        InstrumentAction::RemoveEffect(id, effect_id) => {
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
-                if *idx < instrument.effects.len() {
-                    instrument.effects.remove(*idx);
-                }
+                instrument.remove_effect(*effect_id);
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(*id);
             result
         }
-        InstrumentAction::MoveEffect(id, idx, direction) => {
+        InstrumentAction::MoveEffect(id, effect_id, direction) => {
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
-                let new_idx = (*idx as i8 + direction).max(0) as usize;
-                if *idx < instrument.effects.len() && new_idx < instrument.effects.len() {
-                    instrument.effects.swap(*idx, new_idx);
-                }
+                instrument.move_effect(*effect_id, *direction);
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(*id);
             result
         }
         InstrumentAction::SetFilter(id, filter_type) => {
@@ -229,12 +224,12 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(*id);
             result
         }
-        InstrumentAction::ToggleEffectBypass(id, idx) => {
+        InstrumentAction::ToggleEffectBypass(id, effect_id) => {
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
-                if let Some(effect) = instrument.effects.get_mut(*idx) {
+                if let Some(effect) = instrument.effect_by_id_mut(*effect_id) {
                     effect.enabled = !effect.enabled;
                 }
             }
@@ -252,7 +247,7 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(*id);
             result
         }
         InstrumentAction::CycleFilterType(id) => {
@@ -315,17 +310,18 @@ pub(super) fn dispatch_instrument(
             }
             result
         }
-        InstrumentAction::AdjustEffectParam(id, effect_idx, param_idx, delta) => {
+        InstrumentAction::AdjustEffectParam(id, effect_id, param_idx, delta) => {
             let mut record_target: Option<(AutomationTarget, f32)> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
-                if let Some(effect) = instrument.effects.get_mut(*effect_idx) {
+                let inst_id = instrument.id;
+                if let Some(effect) = instrument.effect_by_id_mut(*effect_id) {
                     if let Some(param) = effect.params.get_mut(*param_idx) {
                         let range = param.max - param.min;
                         match &mut param.value {
                             crate::state::ParamValue::Float(v) => {
                                 *v = (*v + delta * range * 0.02).clamp(param.min, param.max);
                                 if state.automation_recording && state.session.piano_roll.playing {
-                                    let target = AutomationTarget::EffectParam(instrument.id, *effect_idx, *param_idx);
+                                    let target = AutomationTarget::EffectParam(inst_id, *effect_id, *param_idx);
                                     record_target = Some((target.clone(), target.normalize_value(*v)));
                                 }
                             }
@@ -406,9 +402,9 @@ pub(super) fn dispatch_instrument(
             result.audio_dirty.instruments = true;
             result
         }
-        InstrumentAction::LoadIRResult(instrument_id, effect_idx, ref path) => {
+        InstrumentAction::LoadIRResult(instrument_id, effect_id, ref path) => {
             let instrument_id = *instrument_id;
-            let effect_idx = *effect_idx;
+            let effect_id = *effect_id;
             let path_str = path.to_string_lossy().to_string();
 
             let buffer_id = state.instruments.next_sampler_buffer_id;
@@ -420,7 +416,7 @@ pub(super) fn dispatch_instrument(
 
             if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
                 // Update the ir_buffer param on the convolution reverb effect
-                if let Some(effect) = instrument.effects.get_mut(effect_idx) {
+                if let Some(effect) = instrument.effect_by_id_mut(effect_id) {
                     if effect.effect_type == crate::state::EffectType::ConvolutionReverb {
                         for p in &mut effect.params {
                             if p.name == "ir_buffer" {
@@ -434,11 +430,11 @@ pub(super) fn dispatch_instrument(
 
             let mut result = DispatchResult::with_nav(NavIntent::Pop);
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(instrument_id);
             result
         }
-        InstrumentAction::OpenVstEffectParams(instrument_id, effect_idx) => {
-            DispatchResult::with_nav(NavIntent::OpenVstParams(*instrument_id, VstTarget::Effect(*effect_idx)))
+        InstrumentAction::OpenVstEffectParams(instrument_id, effect_id) => {
+            DispatchResult::with_nav(NavIntent::OpenVstParams(*instrument_id, VstTarget::Effect(*effect_id)))
         }
         InstrumentAction::SetEqParam(instrument_id, band_idx, ref param_name, value) => {
             let instrument_id = *instrument_id;
@@ -498,7 +494,7 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
-            result.audio_dirty.routing = true;
+            result.audio_dirty.routing_instrument = Some(instrument_id);
             result
         }
         InstrumentAction::LinkLayer(a, b) => {
