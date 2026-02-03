@@ -1,5 +1,5 @@
 use super::{InstrumentEditPane, Section};
-use crate::state::{Param, ParamValue};
+use crate::state::param::{adjust_freq_semitone, adjust_musical_step};
 use crate::ui::{Action, InstrumentAction, InstrumentUpdate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,36 +8,6 @@ pub(super) enum AdjustMode {
     Normal,
     Big,
     Musical,
-}
-
-/// Check if a parameter name represents a frequency-type parameter
-fn is_freq_param(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower.contains("freq") || lower.contains("cutoff") || lower.contains("formant") || lower.contains("bw")
-}
-
-/// Move a frequency value by one semitone up or down
-fn adjust_freq_semitone(value: f32, increase: bool, tuning_a4: f32, min: f32, max: f32) -> f32 {
-    let midi = 69.0 + 12.0 * (value / tuning_a4).ln() / 2.0_f32.ln();
-    let new_midi = if increase { midi.round() + 1.0 } else { midi.round() - 1.0 };
-    (tuning_a4 * 2.0_f32.powf((new_midi - 69.0) / 12.0)).clamp(min, max)
-}
-
-/// Snap to nearest "nice" step based on param range
-fn adjust_musical_step(value: f32, increase: bool, min: f32, max: f32) -> f32 {
-    let range = max - min;
-    let step = if range <= 1.0 {
-        0.1
-    } else if range <= 10.0 {
-        0.5
-    } else if range <= 100.0 {
-        1.0
-    } else {
-        10.0
-    };
-    let snapped = (value / step).round() * step;
-    let new_val = if increase { snapped + step } else { snapped - step };
-    new_val.clamp(min, max)
 }
 
 impl InstrumentEditPane {
@@ -65,9 +35,9 @@ impl InstrumentEditPane {
                 };
                 if let Some(param) = self.source_params.get_mut(param_idx) {
                     if mode == AdjustMode::Musical {
-                        adjust_param_musical(param, increase, tuning_a4);
+                        param.adjust_musical(increase, tuning_a4);
                     } else {
-                        adjust_param(param, increase, fraction);
+                        param.adjust(increase, fraction);
                     }
                 }
             }
@@ -100,9 +70,9 @@ impl InstrumentEditPane {
                             let extra_idx = idx - 3;
                             if let Some(param) = f.extra_params.get_mut(extra_idx) {
                                 if mode == AdjustMode::Musical {
-                                    adjust_param_musical(param, increase, tuning_a4);
+                                    param.adjust_musical(increase, tuning_a4);
                                 } else {
-                                    adjust_param(param, increase, fraction);
+                                    param.adjust(increase, fraction);
                                 }
                             }
                         }
@@ -113,9 +83,9 @@ impl InstrumentEditPane {
                 if let Some(effect) = self.effects.get_mut(local_idx) {
                     if let Some(param) = effect.params.first_mut() {
                         if mode == AdjustMode::Musical {
-                            adjust_param_musical(param, increase, tuning_a4);
+                            param.adjust_musical(increase, tuning_a4);
                         } else {
-                            adjust_param(param, increase, fraction);
+                            param.adjust(increase, fraction);
                         }
                     }
                 }
@@ -200,7 +170,7 @@ impl InstrumentEditPane {
                     local_idx
                 };
                 if let Some(param) = self.source_params.get_mut(param_idx) {
-                    zero_param(param);
+                    param.zero();
                 }
             }
             Section::Filter => {
@@ -212,7 +182,7 @@ impl InstrumentEditPane {
                         idx => {
                             let extra_idx = idx - 3;
                             if let Some(param) = f.extra_params.get_mut(extra_idx) {
-                                zero_param(param);
+                                param.zero();
                             }
                         }
                     }
@@ -221,7 +191,7 @@ impl InstrumentEditPane {
             Section::Effects => {
                 if let Some(effect) = self.effects.get_mut(local_idx) {
                     if let Some(param) = effect.params.first_mut() {
-                        zero_param(param);
+                        param.zero();
                     }
                 }
             }
@@ -253,7 +223,7 @@ impl InstrumentEditPane {
         match section {
             Section::Source => {
                 for param in &mut self.source_params {
-                    zero_param(param);
+                    param.zero();
                 }
             }
             Section::Filter => {
@@ -261,14 +231,14 @@ impl InstrumentEditPane {
                     f.cutoff.value = f.cutoff.min;
                     f.resonance.value = f.resonance.min;
                     for param in &mut f.extra_params {
-                        zero_param(param);
+                        param.zero();
                     }
                 }
             }
             Section::Effects => {
                 for effect in &mut self.effects {
                     for param in &mut effect.params {
-                        zero_param(param);
+                        param.zero();
                     }
                 }
             }
@@ -297,15 +267,9 @@ impl InstrumentEditPane {
                 } else {
                     local_idx
                 };
-                if let Some(param) = self.source_params.get(param_idx) {
-                    match &param.value {
-                        ParamValue::Float(v) => format!("{:.2}", v),
-                        ParamValue::Int(v) => format!("{}", v),
-                        ParamValue::Bool(v) => format!("{}", v),
-                    }
-                } else {
-                    String::new()
-                }
+                self.source_params.get(param_idx)
+                    .map(|p| p.value_string())
+                    .unwrap_or_default()
             }
             Section::Filter => {
                 if let Some(ref f) = self.filter {
@@ -314,15 +278,9 @@ impl InstrumentEditPane {
                         2 => format!("{:.2}", f.resonance.value),
                         idx => {
                             let extra_idx = idx - 3;
-                            if let Some(param) = f.extra_params.get(extra_idx) {
-                                match &param.value {
-                                    ParamValue::Float(v) => format!("{:.2}", v),
-                                    ParamValue::Int(v) => format!("{}", v),
-                                    ParamValue::Bool(v) => format!("{}", v),
-                                }
-                            } else {
-                                String::new()
-                            }
+                            f.extra_params.get(extra_idx)
+                                .map(|p| p.value_string())
+                                .unwrap_or_default()
                         }
                     }
                 } else {
@@ -343,46 +301,3 @@ impl InstrumentEditPane {
     }
 }
 
-fn adjust_param_musical(param: &mut Param, increase: bool, tuning_a4: f32) {
-    match &mut param.value {
-        ParamValue::Float(ref mut v) => {
-            if is_freq_param(&param.name) {
-                *v = adjust_freq_semitone(*v, increase, tuning_a4, param.min, param.max);
-            } else {
-                *v = adjust_musical_step(*v, increase, param.min, param.max);
-            }
-        }
-        ParamValue::Int(ref mut v) => {
-            let range = param.max - param.min;
-            let step = if range <= 10.0 { 1 } else if range <= 100.0 { 5 } else { 10 };
-            if increase { *v = (*v + step).min(param.max as i32); }
-            else { *v = (*v - step).max(param.min as i32); }
-        }
-        ParamValue::Bool(ref mut v) => { *v = !*v; }
-    }
-}
-
-pub(super) fn adjust_param(param: &mut Param, increase: bool, fraction: f32) {
-    let range = param.max - param.min;
-    match &mut param.value {
-        ParamValue::Float(ref mut v) => {
-            let delta = range * fraction;
-            if increase { *v = (*v + delta).min(param.max); }
-            else { *v = (*v - delta).max(param.min); }
-        }
-        ParamValue::Int(ref mut v) => {
-            let delta = ((range * fraction) as i32).max(1);
-            if increase { *v = (*v + delta).min(param.max as i32); }
-            else { *v = (*v - delta).max(param.min as i32); }
-        }
-        ParamValue::Bool(ref mut v) => { *v = !*v; }
-    }
-}
-
-pub(super) fn zero_param(param: &mut Param) {
-    match &mut param.value {
-        ParamValue::Float(ref mut v) => *v = param.min,
-        ParamValue::Int(ref mut v) => *v = param.min as i32,
-        ParamValue::Bool(ref mut v) => *v = false,
-    }
-}

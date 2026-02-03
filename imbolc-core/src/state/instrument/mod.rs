@@ -83,6 +83,102 @@ pub enum ModSource {
     InstrumentParam(InstrumentId, String),
 }
 
+// --- Instrument structure navigation (extracted from UI panes) ---
+
+/// Which section of an instrument a given editing row belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstrumentSection {
+    Source,
+    Filter,
+    Effects,
+    Lfo,
+    Envelope,
+}
+
+/// Total number of selectable rows for instrument editing.
+///
+/// Free function variant: accepts decomposed fields so callers holding
+/// cloned/shadow copies of instrument fields (e.g. InstrumentEditPane)
+/// can call without constructing a temporary Instrument.
+pub fn instrument_row_count(
+    source: SourceType,
+    source_params: &[Param],
+    filter: &Option<FilterConfig>,
+    effects: &[EffectSlot],
+) -> usize {
+    let sample_row = if source.is_sample() { 1 } else { 0 };
+    let source_rows = sample_row + source_params.len().max(1);
+    let filter_rows = if let Some(ref f) = filter {
+        3 + f.extra_params.len()
+    } else { 1 };
+    let effect_rows = effects.len().max(1);
+    let lfo_rows = 4;
+    let env_rows = if source.is_vst() { 0 } else { 4 };
+    source_rows + filter_rows + effect_rows + lfo_rows + env_rows
+}
+
+/// Which section a given row belongs to.
+///
+/// Free function variant for use with decomposed fields.
+pub fn instrument_section_for_row(
+    row: usize,
+    source: SourceType,
+    source_params: &[Param],
+    filter: &Option<FilterConfig>,
+    effects: &[EffectSlot],
+) -> InstrumentSection {
+    let sample_row = if source.is_sample() { 1 } else { 0 };
+    let source_rows = sample_row + source_params.len().max(1);
+    let filter_rows = if let Some(ref f) = filter {
+        3 + f.extra_params.len()
+    } else { 1 };
+    let effect_rows = effects.len().max(1);
+    let lfo_rows = 4;
+
+    if row < source_rows {
+        InstrumentSection::Source
+    } else if row < source_rows + filter_rows {
+        InstrumentSection::Filter
+    } else if row < source_rows + filter_rows + effect_rows {
+        InstrumentSection::Effects
+    } else if row < source_rows + filter_rows + effect_rows + lfo_rows {
+        InstrumentSection::Lfo
+    } else {
+        InstrumentSection::Envelope
+    }
+}
+
+/// Get section and local index for a given row.
+///
+/// Free function variant for use with decomposed fields.
+pub fn instrument_row_info(
+    row: usize,
+    source: SourceType,
+    source_params: &[Param],
+    filter: &Option<FilterConfig>,
+    effects: &[EffectSlot],
+) -> (InstrumentSection, usize) {
+    let sample_row = if source.is_sample() { 1 } else { 0 };
+    let source_rows = sample_row + source_params.len().max(1);
+    let filter_rows = if let Some(ref f) = filter {
+        3 + f.extra_params.len()
+    } else { 1 };
+    let effect_rows = effects.len().max(1);
+    let lfo_rows = 4;
+
+    if row < source_rows {
+        (InstrumentSection::Source, row)
+    } else if row < source_rows + filter_rows {
+        (InstrumentSection::Filter, row - source_rows)
+    } else if row < source_rows + filter_rows + effect_rows {
+        (InstrumentSection::Effects, row - source_rows - filter_rows)
+    } else if row < source_rows + filter_rows + effect_rows + lfo_rows {
+        (InstrumentSection::Lfo, row - source_rows - filter_rows - effect_rows)
+    } else {
+        (InstrumentSection::Envelope, row - source_rows - filter_rows - effect_rows - lfo_rows)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instrument {
     pub id: InstrumentId,
@@ -216,5 +312,115 @@ impl Instrument {
     /// Recalculate next_effect_id from existing effects (used after loading)
     pub fn recalculate_next_effect_id(&mut self) {
         self.next_effect_id = self.effects.iter().map(|e| e.id).max().map_or(0, |m| m + 1);
+    }
+
+    // --- Structure navigation convenience methods ---
+
+    /// Total number of selectable rows for instrument editing.
+    pub fn total_editable_rows(&self) -> usize {
+        instrument_row_count(self.source, &self.source_params, &self.filter, &self.effects)
+    }
+
+    /// Which section a given row belongs to.
+    pub fn section_for_row(&self, row: usize) -> InstrumentSection {
+        instrument_section_for_row(row, self.source, &self.source_params, &self.filter, &self.effects)
+    }
+
+    /// Get section and local index for a given row.
+    pub fn row_info(&self, row: usize) -> (InstrumentSection, usize) {
+        instrument_row_info(row, self.source, &self.source_params, &self.filter, &self.effects)
+    }
+
+    /// Decode a flat cursor position over the effects chain into (EffectId, Option<param_index>).
+    /// Returns None if cursor is out of range. None param_index means the effect header row.
+    pub fn decode_effect_cursor(&self, cursor: usize) -> Option<(EffectId, Option<usize>)> {
+        let mut pos = 0;
+        for effect in &self.effects {
+            if cursor == pos {
+                return Some((effect.id, None));
+            }
+            pos += 1;
+            for pi in 0..effect.params.len() {
+                if cursor == pos {
+                    return Some((effect.id, Some(pi)));
+                }
+                pos += 1;
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_count_basic() {
+        let inst = Instrument::new(1, SourceType::Saw);
+        let count = inst.total_editable_rows();
+        // Saw: no sample row, default params + filter(disabled=1) + effects(empty=1) + lfo(4) + env(4)
+        let expected = inst.source_params.len().max(1) + 1 + 1 + 4 + 4;
+        assert_eq!(count, expected);
+    }
+
+    #[test]
+    fn section_for_row_first_is_source() {
+        let inst = Instrument::new(1, SourceType::Saw);
+        assert_eq!(inst.section_for_row(0), InstrumentSection::Source);
+    }
+
+    #[test]
+    fn row_info_returns_local_index() {
+        let inst = Instrument::new(1, SourceType::Saw);
+        let source_rows = inst.source_params.len().max(1);
+        // First row after source section should be Filter with local_idx 0
+        let (section, local_idx) = inst.row_info(source_rows);
+        assert_eq!(section, InstrumentSection::Filter);
+        assert_eq!(local_idx, 0);
+    }
+
+    #[test]
+    fn row_info_roundtrips_all_sections() {
+        let inst = Instrument::new(1, SourceType::Saw);
+        let total = inst.total_editable_rows();
+        // Every row should resolve to a valid section
+        let mut saw_sections = vec![];
+        for i in 0..total {
+            saw_sections.push(inst.section_for_row(i));
+        }
+        assert!(saw_sections.contains(&InstrumentSection::Source));
+        assert!(saw_sections.contains(&InstrumentSection::Lfo));
+        assert!(saw_sections.contains(&InstrumentSection::Envelope));
+    }
+
+    #[test]
+    fn vst_has_no_envelope_rows() {
+        // SourceType::Vst(0) is a VST instrument
+        let inst = Instrument::new(1, SourceType::Vst(0));
+        let total = inst.total_editable_rows();
+        for i in 0..total {
+            assert_ne!(inst.section_for_row(i), InstrumentSection::Envelope);
+        }
+    }
+
+    #[test]
+    fn decode_effect_cursor_empty() {
+        let inst = Instrument::new(1, SourceType::Saw);
+        assert!(inst.effects.is_empty());
+        assert_eq!(inst.decode_effect_cursor(0), None);
+    }
+
+    #[test]
+    fn decode_effect_cursor_with_effects() {
+        let mut inst = Instrument::new(1, SourceType::Saw);
+        let id1 = inst.add_effect(EffectType::Delay);
+        let id2 = inst.add_effect(EffectType::Reverb);
+        // Effect 1 header at pos 0
+        assert_eq!(inst.decode_effect_cursor(0), Some((id1, None)));
+        // Effect 1 params at pos 1..
+        let params1 = inst.effects[0].params.len();
+        // Effect 2 header at pos 1+params1
+        assert_eq!(inst.decode_effect_cursor(1 + params1), Some((id2, None)));
     }
 }

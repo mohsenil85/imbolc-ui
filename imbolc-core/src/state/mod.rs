@@ -4,6 +4,7 @@ pub mod arrangement;
 pub mod clipboard;
 pub mod custom_synthdef;
 pub mod drum_sequencer;
+pub mod grid;
 pub mod instrument;
 pub mod instrument_state;
 pub mod midi_recording;
@@ -22,8 +23,9 @@ pub use arrangement::{ArrangementState, Clip, ClipId, ClipPlacement, PlayMode, P
 pub use clipboard::{Clipboard, ClipboardContents, ClipboardNote};
 pub use custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
 pub use instrument::*;
+pub use instrument::{InstrumentSection, instrument_row_count, instrument_section_for_row, instrument_row_info};
 pub use instrument_state::InstrumentState;
-pub use param::{Param, ParamValue};
+pub use param::{Param, ParamValue, adjust_freq_semitone, adjust_musical_step, is_freq_param};
 pub use sampler::BufferId;
 pub use session::{MixerSelection, MusicalSettings, SessionState, MAX_BUSES};
 pub use undo::UndoHistory;
