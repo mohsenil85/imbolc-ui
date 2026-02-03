@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use audio::AudioHandle;
 use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
-use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, LogoPane, MidiSettingsPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, MidiSettingsPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult,
@@ -65,7 +65,6 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(SampleChopperPane::new(pane_keymap(&mut keymaps, "sample_chopper"), file_browser_km)));
     panes.add_pane(Box::new(AddEffectPane::new(pane_keymap(&mut keymaps, "add_effect"))));
     panes.add_pane(Box::new(FileBrowserPane::new(pane_keymap(&mut keymaps, "file_browser"))));
-    panes.add_pane(Box::new(LogoPane::new(pane_keymap(&mut keymaps, "logo"))));
     panes.add_pane(Box::new(TrackPane::new(pane_keymap(&mut keymaps, "track"))));
     panes.add_pane(Box::new(WaveformPane::new(pane_keymap(&mut keymaps, "waveform"))));
     panes.add_pane(Box::new(AutomationPane::new(pane_keymap(&mut keymaps, "automation"))));

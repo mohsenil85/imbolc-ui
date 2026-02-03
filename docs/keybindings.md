@@ -26,7 +26,6 @@ document as a guide to intent and conventions, not an exhaustive list.
 | `F3` | Track |
 | `F4` | Mixer |
 | `F5` | Server |
-| `F6` | Logo |
 | `F7` | Automation |
 | `F8` | Parametric EQ |
 | `` ` `` / `~` | Back / Forward |

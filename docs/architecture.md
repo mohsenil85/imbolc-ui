@@ -129,7 +129,6 @@ is called only when the layer stack resolves a key to an action string; otherwis
 | `mixer` | `MixerPane` | `F4` | Mixer channels, buses, master |
 | `server` | `ServerPane` | `F5` | SuperCollider server status/control |
 | `track` | `TrackPane` | `F3` | Timeline overview (Arrangement view) |
-| `logo` | `LogoPane` | `F6` | Logo splash |
 | `automation` | `AutomationPane` | `F7` | Automation lanes and point editing |
 | `waveform` | `WaveformPane` | `F2` (context) | Recorded/input waveform view |
 | `home` | `HomePane` | — | Welcome screen |
