@@ -6,21 +6,15 @@ use std::any::Any;
 
 
 use crate::state::{
-    AppState, EffectSlot, EnvConfig, EqConfig, FilterConfig, Instrument, InstrumentId, LfoConfig,
-    Param, SourceType,
+    AppState, EffectSlot, EnvConfig, EqConfig, FilterConfig, Instrument, InstrumentId,
+    InstrumentSection, LfoConfig, Param, SourceType,
+    instrument::{instrument_row_count, instrument_section_for_row, instrument_row_info},
 };
 use crate::ui::widgets::TextInput;
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, MouseEvent, PadKeyboard, Pane, PianoKeyboard, ToggleResult};
 
-/// Which section a row belongs to
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section {
-    Source,
-    Filter,
-    Effects,
-    Lfo,
-    Envelope,
-}
+/// Local alias for pane code compatibility
+type Section = InstrumentSection;
 
 pub struct InstrumentEditPane {
     keymap: Keymap,
@@ -155,61 +149,17 @@ impl InstrumentEditPane {
 
     /// Total number of selectable rows across all sections
     fn total_rows(&self) -> usize {
-        let sample_row = if self.source.is_sample() { 1 } else { 0 };
-        let source_rows = sample_row + self.source_params.len().max(1);
-        let filter_rows = if let Some(ref f) = self.filter {
-            3 + f.extra_params.len()
-        } else { 1 };
-        let effect_rows = self.effects.len().max(1);
-        let lfo_rows = 4;
-        let env_rows = if self.source.is_vst() { 0 } else { 4 };
-        source_rows + filter_rows + effect_rows + lfo_rows + env_rows
+        instrument_row_count(self.source, &self.source_params, &self.filter, &self.effects)
     }
 
     /// Which section does a given row belong to?
     fn section_for_row(&self, row: usize) -> Section {
-        let sample_row = if self.source.is_sample() { 1 } else { 0 };
-        let source_rows = sample_row + self.source_params.len().max(1);
-        let filter_rows = if let Some(ref f) = self.filter {
-            3 + f.extra_params.len()
-        } else { 1 };
-        let effect_rows = self.effects.len().max(1);
-        let lfo_rows = 4;
-
-        if row < source_rows {
-            Section::Source
-        } else if row < source_rows + filter_rows {
-            Section::Filter
-        } else if row < source_rows + filter_rows + effect_rows {
-            Section::Effects
-        } else if row < source_rows + filter_rows + effect_rows + lfo_rows {
-            Section::Lfo
-        } else {
-            Section::Envelope
-        }
+        instrument_section_for_row(row, self.source, &self.source_params, &self.filter, &self.effects)
     }
 
     /// Get section and local index for a row
     fn row_info(&self, row: usize) -> (Section, usize) {
-        let sample_row = if self.source.is_sample() { 1 } else { 0 };
-        let source_rows = sample_row + self.source_params.len().max(1);
-        let filter_rows = if let Some(ref f) = self.filter {
-            3 + f.extra_params.len()
-        } else { 1 };
-        let effect_rows = self.effects.len().max(1);
-        let lfo_rows = 4;
-
-        if row < source_rows {
-            (Section::Source, row)
-        } else if row < source_rows + filter_rows {
-            (Section::Filter, row - source_rows)
-        } else if row < source_rows + filter_rows + effect_rows {
-            (Section::Effects, row - source_rows - filter_rows)
-        } else if row < source_rows + filter_rows + effect_rows + lfo_rows {
-            (Section::Lfo, row - source_rows - filter_rows - effect_rows)
-        } else {
-            (Section::Envelope, row - source_rows - filter_rows - effect_rows - lfo_rows)
-        }
+        instrument_row_info(row, self.source, &self.source_params, &self.filter, &self.effects)
     }
 
     fn current_section(&self) -> Section {

@@ -117,20 +117,7 @@ impl MixerPane {
     /// Decode effect cursor into (effect_id, param_index_within_effect) where None = header
     fn decode_effect_cursor(&self, state: &AppState) -> Option<(crate::state::EffectId, Option<usize>)> {
         let (_, inst) = self.detail_instrument(state)?;
-        let mut pos = 0;
-        for effect in &inst.effects {
-            if self.detail_cursor == pos {
-                return Some((effect.id, None));
-            }
-            pos += 1;
-            for pi in 0..effect.params.len() {
-                if self.detail_cursor == pos {
-                    return Some((effect.id, Some(pi)));
-                }
-                pos += 1;
-            }
-        }
-        None
+        inst.decode_effect_cursor(self.detail_cursor)
     }
 
     fn calc_scroll_offset(selected: usize, total: usize, visible: usize) -> usize {
