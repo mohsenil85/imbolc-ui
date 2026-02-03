@@ -85,7 +85,7 @@ pub(super) fn dispatch_instrument(
                                 None => vec![pitch],
                             };
                             for p in &pitches {
-                                let _ = audio.spawn_voice(target_id, *p, vel_f, 0.0, &state.instruments, &state.session);
+                                let _ = audio.spawn_voice(target_id, *p, vel_f, 0.0);
                                 audio.push_active_note(target_id, *p, 240);
                             }
                         }
@@ -111,7 +111,7 @@ pub(super) fn dispatch_instrument(
                                     None => vec![pitch],
                                 };
                                 for p in &expanded {
-                                    let _ = audio.spawn_voice(target_id, *p, vel_f, 0.0, &state.instruments, &state.session);
+                                    let _ = audio.spawn_voice(target_id, *p, vel_f, 0.0);
                                     audio.push_active_note(target_id, *p, 240);
                                 }
                             }

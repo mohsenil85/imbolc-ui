@@ -14,3 +14,13 @@ pub enum ParamValue {
     Int(i32),
     Bool(bool),
 }
+
+impl ParamValue {
+    pub fn to_f32(&self) -> f32 {
+        match self {
+            ParamValue::Float(v) => *v,
+            ParamValue::Int(v) => *v as f32,
+            ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+        }
+    }
+}

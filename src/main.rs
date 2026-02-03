@@ -132,7 +132,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
 
     // Auto-start SuperCollider and apply status events
     {
-        let startup_events = setup::auto_start_sc(&mut audio, &state);
+        let startup_events = setup::auto_start_sc(&mut audio);
         apply_status_events(&startup_events, &mut panes);
     }
 

@@ -1,13 +1,11 @@
 use crate::audio::devices;
 use crate::audio::{self, AudioHandle};
-use crate::state::AppState;
 use crate::ui::StatusEvent;
 
 /// Auto-start SuperCollider server, connect, and load synthdefs.
 /// Returns status events for the UI layer to forward to the server pane.
 pub fn auto_start_sc(
     audio: &mut AudioHandle,
-    state: &AppState,
 ) -> Vec<StatusEvent> {
     if std::env::var("IMBOLC_NO_AUDIO").is_ok() {
         return Vec::new();
@@ -38,7 +36,7 @@ pub fn auto_start_sc(
                     // Wait for scsynth to finish processing /d_loadDir
                     std::thread::sleep(std::time::Duration::from_millis(200));
                     // Rebuild routing
-                    let _ = audio.rebuild_instrument_routing(&state.instruments, &state.session);
+                    let _ = audio.rebuild_instrument_routing();
                 }
                 Err(e) => {
                     events.push(StatusEvent {

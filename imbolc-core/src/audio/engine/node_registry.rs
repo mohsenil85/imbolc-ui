@@ -30,15 +30,23 @@ impl NodeRegistry {
         self.created_at.remove(&node_id);
     }
 
-    /// Returns `true` if the node is believed to be alive.
-    pub fn is_live(&self, node_id: i32) -> bool {
-        self.live_nodes.contains(&node_id)
-    }
-
     /// Mark all nodes as dead (e.g. after a server crash).
     pub fn invalidate_all(&mut self) {
         self.live_nodes.clear();
         self.created_at.clear();
+    }
+
+    /// Number of nodes currently believed to be alive.
+    pub fn live_count(&self) -> usize {
+        self.live_nodes.len()
+    }
+}
+
+#[cfg(test)]
+impl NodeRegistry {
+    /// Returns `true` if the node is believed to be alive.
+    pub fn is_live(&self, node_id: i32) -> bool {
+        self.live_nodes.contains(&node_id)
     }
 
     /// Check whether a node is tracked as live.  If it is not, log a warning
@@ -53,11 +61,6 @@ impl NodeRegistry {
             );
             false
         }
-    }
-
-    /// Number of nodes currently believed to be alive.
-    pub fn live_count(&self) -> usize {
-        self.live_nodes.len()
     }
 }
 

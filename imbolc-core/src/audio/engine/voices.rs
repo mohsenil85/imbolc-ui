@@ -103,13 +103,8 @@ impl AudioEngine {
             ];
             // Source params
             for p in &instrument.source_params {
-                let val = match &p.value {
-                    ParamValue::Float(v) => *v,
-                    ParamValue::Int(v) => *v as f32,
-                    ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
-                };
                 args.push(rosc::OscType::String(p.name.clone()));
-                args.push(rosc::OscType::Float(val));
+                args.push(rosc::OscType::Float(p.value.to_f32()));
             }
             // Wire control inputs
             args.push(rosc::OscType::String("freq_in".to_string()));

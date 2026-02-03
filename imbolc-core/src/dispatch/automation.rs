@@ -103,7 +103,7 @@ pub(super) fn dispatch_automation(
                 // Map normalized value to actual range
                 let (min, max) = target.default_range();
                 let actual_value = min + value * (max - min);
-                let _ = audio.apply_automation(target, actual_value, &state.instruments, &state.session);
+                let _ = audio.apply_automation(target, actual_value);
             }
         }
         AutomationAction::DeletePointsInRange(lane_id, start_tick, end_tick) => {

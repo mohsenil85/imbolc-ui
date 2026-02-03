@@ -15,7 +15,7 @@ use super::ServerStatus;
 use crate::action::AudioDirty;
 use crate::state::arrangement::PlayMode;
 use crate::state::automation::AutomationTarget;
-use crate::state::{AppState, BufferId, EffectId, InstrumentId, InstrumentState, SessionState};
+use crate::state::{AppState, BufferId, EffectId, InstrumentId};
 
 /// Audio-owned read state: values that the audio thread is the authority on.
 /// UI reads these for display; audio feedback updates them.
@@ -473,11 +473,7 @@ impl AudioHandle {
 
     // ── Routing & mixing ──────────────────────────────────────────
 
-    pub fn rebuild_instrument_routing(
-        &mut self,
-        _instruments: &InstrumentState,
-        _session: &SessionState,
-    ) -> Result<(), String> {
+    pub fn rebuild_instrument_routing(&mut self) -> Result<(), String> {
         self.send_cmd(AudioCmd::RebuildRouting)
     }
 
@@ -496,11 +492,7 @@ impl AudioHandle {
         })
     }
 
-    pub fn update_all_instrument_mixer_params(
-        &self,
-        _instruments: &InstrumentState,
-        _session: &SessionState,
-    ) -> Result<(), String> {
+    pub fn update_all_instrument_mixer_params(&self) -> Result<(), String> {
         self.send_cmd(AudioCmd::UpdateMixerParams)
     }
 
@@ -579,8 +571,6 @@ impl AudioHandle {
         pitch: u8,
         velocity: f32,
         offset_secs: f64,
-        _instruments: &InstrumentState,
-        _session: &SessionState,
     ) -> Result<(), String> {
         self.send_cmd(AudioCmd::SpawnVoice {
             instrument_id,
@@ -595,7 +585,6 @@ impl AudioHandle {
         instrument_id: InstrumentId,
         pitch: u8,
         offset_secs: f64,
-        _instruments: &InstrumentState,
     ) -> Result<(), String> {
         self.send_cmd(AudioCmd::ReleaseVoice {
             instrument_id,
@@ -736,8 +725,6 @@ impl AudioHandle {
         &self,
         target: &AutomationTarget,
         value: f32,
-        _instruments: &InstrumentState,
-        _session: &SessionState,
     ) -> Result<(), String> {
         self.send_cmd(AudioCmd::ApplyAutomation {
             target: target.clone(),
