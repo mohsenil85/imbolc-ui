@@ -18,18 +18,25 @@ graph TD
     Audio -->|OSC Bundles (UDP)| SC[SuperCollider (scsynth)]
     SC -->|OSC Reply (UDP)| Audio
     SC -->|Audio Out| Speakers
+    
+    subgraph Shared Memory
+    Monitor[AudioMonitor (Arc/Mutex)]
+    end
+    
+    Audio -.->|Writes Meters/Scope| Monitor
+    Main -.->|Reads Meters/Scope| Monitor
 ```
 
 ## Threading Model & Audio Processing
 
-The core of Imbolc's timing stability lies in the `AudioThread` loop (`imbolc-core/src/audio/handle.rs` and `audio_thread.rs`).
+The core of Imbolc's timing stability lies in the `AudioThread` loop (`imbolc-core/src/audio/audio_thread.rs`).
 
 ### 1. The Audio Thread Loop
 The audio thread does not rely on the UI framerate. It runs a tight loop that:
-1.  **Drains Commands:** Processes pending `AudioCmd`s from the main thread (non-blocking).
+1.  **Drains Commands:** Processes pending `AudioCmd`s from the main thread (using `recv_timeout` to avoid busy waiting).
 2.  **Checks Time:** Calculates the precise elapsed `Duration` since the last tick using `std::time::Instant`.
 3.  **Ticks:** If sufficient time has passed (>= 1ms), it calls `tick()`, converting the elapsed duration into **musical ticks** based on the current BPM.
-4.  **Yields:** Sleeps for a short duration (`~1ms`) to yield CPU resources to the OS.
+4.  **Polls Engine:** Checks for server health, compilation results, and recording state changes.
 
 ### 2. Decoupled Playback Logic
 Playback logic is decoupled from wall-clock time. The sequencer uses an **f64 fractional tick accumulator** to convert elapsed wall-clock time into musical ticks. Each cycle, the fractional remainder is preserved rather than truncated:
@@ -40,93 +47,92 @@ let tick_delta = *tick_accumulator as u32;
 *tick_accumulator -= tick_delta as f64;
 ```
 
-This prevents the systematic +-1 tick jitter that truncation would cause (at 120 BPM / 480 TPB, one tick is ~1.04ms — with a 1ms thread tick, truncation would lose ~0.04ms per cycle, causing the playhead to stall most cycles and lurch forward on others). The f64 accumulator also provides ~15 digits of precision, avoiding the drift that f32 (~7 digits) would introduce over long sessions. The drum sequencer and arpeggiator use the same f64 accumulator pattern.
+This prevents the systematic jitter that truncation would cause. The f64 accumulator provides ~15 digits of precision, avoiding drift over long sessions.
 
 ### 3. Low Latency & Jitter Compensation (The "Schedule Ahead" Pattern)
-To prevent audible jitter caused by the 1ms sleep interval, OS scheduling, or garbage collection (if we were using a GC language), Imbolc uses **OSC Bundles with Timestamps**. This is the key to its tight timing.
+To prevent audible jitter, Imbolc uses **OSC Bundles with Timestamps**.
 
 When a note is triggered:
 1.  The sequencer determines the note starts at `tick X`.
-2.  It calculates the exact offset in seconds from "now" (`ticks_from_now * secs_per_tick`).
+2.  It calculates the exact offset in seconds from "now".
 3.  It calls `osc_time_from_now(offset)` (`imbolc-core/src/audio/osc_client.rs`), which computes an absolute NTP timestamp.
 4.  This timestamp is attached to the OSC bundle sent to SuperCollider.
 
-**The Result:** SuperCollider receives the message *before* the sound needs to play and schedules it for the *exact* sample frame requested. This yields sample-accurate timing independent of Rust thread jitter or network stack latency (as long as the latency is less than the schedule-ahead window).
-
-All sound-producing paths use this pattern: piano roll voices, drum sequencer hits, and arpeggiator notes are all sent as timestamped bundles. Automation parameter updates are also batched — all lanes that fire on the same tick are collected into a single OSC bundle, ensuring correlated parameters (e.g. filter cutoff + resonance) arrive in the same SC audio block.
+**The Result:** SuperCollider receives the message *before* the sound needs to play and schedules it for the *exact* sample frame requested.
 
 ### 4. Monotonic Clock for Timetags
-OSC timetags use NTP epoch timestamps. Rather than calling `SystemTime::now()` each time (which is subject to NTP clock adjustments mid-session), timetags are derived from a **monotonic clock anchor**:
+OSC timetags use NTP epoch timestamps. Timetags are derived from a **monotonic clock anchor** to prevent clock adjustments (like NTP syncs) from causing glitches during a session:
 
 ```rust
-// Captured once at init via LazyLock
+// Captured once at init
 static CLOCK_ANCHOR: LazyLock<(Instant, f64)> = LazyLock::new(|| {
     let wall = SystemTime::now().duration_since(UNIX_EPOCH)...;
     (Instant::now(), wall)
 });
-
-pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
-    let (anchor_instant, anchor_wall) = &*CLOCK_ANCHOR;
-    let elapsed = anchor_instant.elapsed().as_secs_f64();
-    let total_secs = anchor_wall + elapsed + offset_secs;
-    // Convert to NTP epoch ...
-}
 ```
 
-The `Instant` (monotonic) provides jitter-free elapsed time. The initial `SystemTime` reading is used only as the epoch anchor. This prevents clock adjustments during a session from shifting timetags.
-
-### 5. Loop Boundary Handling
-When the playhead wraps around a loop point, the sequencer scans **two tick ranges** to avoid dropping notes near the boundary:
-*   `[old_playhead, loop_end)` — notes in the tail of the current loop iteration
-*   `[loop_start, new_playhead)` — notes at the start of the next iteration
-
-Each note carries a precomputed `ticks_from_old_playhead` value for correct OSC offset timing across the wrap.
-
-### 6. Arpeggiator Sub-Step Precision
-When the arpeggiator catches up multiple steps in a single tick (e.g. after a brief stall), each step receives an incrementing `step_offset` so they are spaced in time rather than all landing at the same instant. The offset is `step_index * step_duration_secs`.
+### 5. Sequencer Features
+The sequencer (`imbolc-core/src/audio/playback.rs`) supports advanced features handled at the tick level:
+*   **Loop Boundary Scanning:** Correctly handles notes wrapping around the loop point by scanning two ranges (`[old, end)` and `[start, new]`).
+*   **Swing:** Delays offbeat notes by a calculated offset.
+*   **Humanization:** Adds random jitter to timing and velocity for a more natural feel.
+*   **Probability:** Per-note probability checks before spawning voices.
+*   **Arpeggiator:** Handled in `arpeggiator_tick.rs`, converting held notes into rhythmic patterns with sub-step precision.
 
 ## Concurrency & State Management
 
-State sharing is minimized to prevent locking on the critical path.
-
 ### Command / Feedback Pattern
-*   **Main -> Audio:** `Sender<AudioCmd>`. Commands like `SpawnVoice`, `UpdateState`, `SetBpm`.
-*   **Shadow State:** The audio thread maintains its own "shadow copy" of relevant state (`InstrumentSnapshot`, `SessionSnapshot`, `PianoRollSnapshot`, `AutomationSnapshot`). These are updated via `AudioCmd::UpdateState`. This avoids `Mutex` contention on complex state objects during audio processing.
-*   **Audio -> Main:** `Sender<AudioFeedback>`. Events like `PlayheadPosition`, `ServerStatus`, `RecordingState`. The main thread drains this queue every frame to update the UI.
+*   **Main -> Audio:** `Sender<AudioCmd>`. Commands like `SpawnVoice`, `UpdateState`, `SetBpm`, `StartInstrumentRender`.
+*   **Shadow State:** The audio thread maintains its own "shadow copy" of relevant state (`InstrumentSnapshot`, `SessionSnapshot`, `PianoRollSnapshot`).
+*   **Audio -> Main:** `Sender<AudioFeedback>`. Events like `PlayheadPosition`, `ServerStatus`, `RecordingState`, `VstParamsDiscovered`.
 
-### Shared Monitoring State (The Exception)
-For high-frequency visual data (meters, waveforms) where occasional dropped frames are acceptable but blocking the audio thread is not:
-*   `AudioMonitor` holds `Arc<Mutex<...>>` for meters, spectrum data, and oscilloscope buffers.
-*   This is the *only* shared mutex state. It is optimized for extremely short lock durations (copying a small vector or a few floats).
+### Shared Monitoring State
+For high-frequency visual data, `AudioMonitor` holds `Arc<RwLock<...>>` for:
+*   Peak Meters
+*   Spectrum Data (7-band)
+*   Oscilloscope Buffer (`scope_buffer`)
+*   LUFS metering
+
+This avoids passing massive amounts of data through the channel, while keeping lock contention minimal.
 
 ## Audio Engine Internals
 
-The `AudioEngine` (`imbolc-core/src/audio/engine/mod.rs`) acts as the "driver" for `scsynth`.
+The `AudioEngine` acts as the driver for `scsynth`. It manages the node graph, resource allocation, and VST integration.
 
 ### Node Management & Routing Graph
-Imbolc enforces a strict topological sort using SuperCollider Groups to ensure signal flow correctness within a single audio block:
-1.  **Group 100 (Sources):** Oscillators, Samplers, Audio Input.
-2.  **Group 200 (Processing):** Filters, Insert Effects, Mixer processing.
-3.  **Group 300 (Output):** Master bus, Hardware output.
-4.  **Group 400 (Record):** Disk recording (DiskOut).
+Imbolc enforces a strict topological sort using SuperCollider Groups:
 
-This guarantees that a signal generated in Group 100 is available for processing in Group 200 immediately, preventing one-block latency delays between modules.
+1.  **Group 100 (Sources):** Oscillators, Samplers, VST Instruments, Audio Input.
+2.  **Group 200 (Processing):** Filters, EQs, Insert Effects.
+3.  **Group 300 (Output):** Master bus, Hardware output, Send effects (returns).
+4.  **Group 400 (Record):** Disk recording (DiskOut).
+5.  **Group 999 (Safety):** Safety limiter to prevent ear-blasting feedback.
+
+### Instrument Signal Chain
+Each instrument is built with a deterministic chain of synth nodes:
+`Source` -> `LFO` -> `Filter` -> `EQ` -> `Effects (Chain)` -> `Output`
 
 ### Voice Allocation
-Polyphony is managed via `VoiceChain`s. When a note plays:
-1.  `AudioEngine` allocates a new `Group` inside the **Sources** group.
-2.  It allocates unique audio/control buses for that voice.
-3.  It creates a chain of synths (MIDI controls -> Oscillator/Sampler -> Envelope) within that voice group.
-4.  It sends the entire setup as a single OSC bundle.
+Polyphony is managed by `VoiceAllocator` (`imbolc-core/src/audio/engine/voice_allocator.rs`).
+When a note plays:
+1.  **Stealing:** If max voices reached, the allocator picks a victim (released voices first, then quietest/oldest).
+2.  **Allocation:** A new `Group` is created inside Group 100.
+3.  **Chain:** Inside this group, a `imbolc_midi` control node and a `Source` synth are created.
+4.  **Pooling:** Control buses (freq, gate, velocity) are pooled and reused to reduce overhead.
+
+### VST Integration
+VSTs are hosted inside SuperCollider using `VSTPlugin`.
+*   **VST Instruments:** A persistent `imbolc_vst_instrument` synth is created. MIDI events are sent via `/u_cmd` to the VSTPlugin UGen.
+*   **VST Effects:** Wrapped in `imbolc_vst_effect`.
+*   **State:** VST state (programs) is saved/loaded via temporary files passed to the plugin.
 
 ## Key Files Guide
 
-*   `imbolc-core/src/audio/handle.rs`: The main thread's interface to the audio system.
-*   `imbolc-core/src/audio/audio_thread.rs`: The dedicated thread loop; owns the tick accumulator.
-*   `imbolc-core/src/audio/playback.rs`: The sequencer logic — fractional tick accumulator, loop-boundary scanning, automation batching.
-*   `imbolc-core/src/audio/drum_tick.rs`: Drum sequencer tick logic with f64 step accumulator.
-*   `imbolc-core/src/audio/arpeggiator_tick.rs`: Arpeggiator tick logic with sub-step offset precision.
-*   `imbolc-core/src/audio/osc_client.rs`: UDP socket management, monotonic NTP timestamp calculation, OSC message helpers.
-*   `imbolc-core/src/audio/engine/mod.rs`: The central `AudioEngine` struct managing the server state.
-*   `imbolc-core/src/audio/engine/voices.rs`: Logic for spawning and releasing polyphonic voices; timestamped drum hit bundles.
-*   `imbolc-core/src/audio/engine/automation.rs`: Automation application — single-shot and batched bundle modes.
+*   `imbolc-core/src/audio/audio_thread.rs`: The main audio loop, command processing, and tick orchestration.
+*   `imbolc-core/src/audio/playback.rs`: Sequencer logic (notes, swing, humanize, probability).
+*   `imbolc-core/src/audio/osc_client.rs`: UDP socket, NTP timestamping, `AudioMonitor`.
+*   `imbolc-core/src/audio/engine/mod.rs`: The central `AudioEngine` struct.
+*   `imbolc-core/src/audio/engine/routing.rs`: Builds the synth node graph (`build_instrument_chain`).
+*   `imbolc-core/src/audio/engine/voices.rs`: Logic for spawning voices (`spawn_voice`, `spawn_sampler_voice`).
+*   `imbolc-core/src/audio/engine/voice_allocator.rs`: Smart voice stealing and resource pooling.
+*   `imbolc-core/src/audio/engine/vst.rs`: VST-specific command handling.
