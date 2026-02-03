@@ -539,6 +539,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 let ars = audio.read_state();
                 state.audio_playhead = ars.playhead;
                 state.audio_bpm = ars.bpm;
+                state.server_status = ars.server_status;
             }
 
             // Render

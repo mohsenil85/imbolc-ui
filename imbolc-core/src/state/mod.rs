@@ -31,6 +31,8 @@ pub use vst_plugin::{VstParamSpec, VstPlugin, VstPluginId, VstPluginKind, VstPlu
 
 use std::path::PathBuf;
 
+use crate::audio::ServerStatus;
+
 /// State for a render-to-WAV operation in progress
 #[derive(Debug, Clone)]
 pub struct PendingRender {
@@ -145,6 +147,8 @@ pub struct AppState {
     pub audio_playhead: u32,
     /// Audio-owned BPM (updated from AudioReadState each frame)
     pub audio_bpm: f32,
+    /// SC server status (updated from AudioReadState each frame)
+    pub server_status: ServerStatus,
 }
 
 impl AppState {
@@ -173,6 +177,7 @@ impl AppState {
             midi_connected_port: None,
             audio_playhead: 0,
             audio_bpm: 120.0,
+            server_status: ServerStatus::Stopped,
         }
     }
 
@@ -200,6 +205,7 @@ impl AppState {
             midi_connected_port: None,
             audio_playhead: 0,
             audio_bpm: 120.0,
+            server_status: ServerStatus::Stopped,
         }
     }
 

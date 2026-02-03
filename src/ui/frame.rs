@@ -1,4 +1,5 @@
 use super::{Color, Rect, RenderBuf, Style};
+use crate::audio::ServerStatus;
 use crate::state::AppState;
 
 /// Block characters for vertical meter: ▁▂▃▄▅▆▇█ (U+2581–U+2588)
@@ -191,6 +192,43 @@ impl Frame {
             let x = area.x + 1;
             buf.draw_str(x, bottom_y, &cpu_text, Style::new().fg(cpu_color));
             buf.draw_str(x + cpu_text.len() as u16, bottom_y, &lat_text, Style::new().fg(lat_color));
+        }
+
+        // Right-aligned SC and MIDI status indicators on bottom border
+        if area.width > 50 {
+            let bottom_y = area.y + area.height.saturating_sub(1);
+            let right_edge = area.x + area.width.saturating_sub(4); // avoid meter column
+
+            let sc_dot_color = match state.server_status {
+                ServerStatus::Connected => Color::METER_LOW,
+                ServerStatus::Starting | ServerStatus::Running => Color::SOLO_COLOR,
+                ServerStatus::Stopped => Color::DARK_GRAY,
+                ServerStatus::Error => Color::MUTE_COLOR,
+            };
+
+            let midi_connected = state.midi_connected_port.is_some();
+            let midi_dot_color = if midi_connected {
+                Color::METER_LOW
+            } else {
+                Color::DARK_GRAY
+            };
+
+            let label_style = Style::new().fg(Color::GRAY);
+
+            // Draw from right to left: "● SC  ● MIDI "
+            // MIDI indicator
+            let midi_label = " MIDI ";
+            let midi_label_x = right_edge.saturating_sub(midi_label.len() as u16);
+            buf.draw_str(midi_label_x, bottom_y, midi_label, label_style);
+            let midi_dot_x = midi_label_x.saturating_sub(1);
+            buf.set_cell(midi_dot_x, bottom_y, '●', Style::new().fg(midi_dot_color));
+
+            // SC indicator
+            let sc_label = " SC  ";
+            let sc_label_x = midi_dot_x.saturating_sub(sc_label.len() as u16);
+            buf.draw_str(sc_label_x, bottom_y, sc_label, label_style);
+            let sc_dot_x = sc_label_x.saturating_sub(1);
+            buf.set_cell(sc_dot_x, bottom_y, '●', Style::new().fg(sc_dot_color));
         }
     }
 
