@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use crate::audio::AudioHandle;
 use crate::audio::commands::AudioCmd;
 use crate::state::AppState;
+use crate::state::automation::AutomationTarget;
 use crate::action::{DispatchResult, VstParamAction, VstTarget};
 use crate::state::instrument::Instrument;
 use crate::state::vst_plugin::VstPluginId;
+use crate::dispatch::automation::record_automation_point;
 
 /// Compute VST state file path for an instrument source
 fn vst_state_path(instrument_id: u32, plugin_name: &str) -> PathBuf {
@@ -105,6 +107,14 @@ pub(super) fn dispatch_vst_param(
                     eprintln!("[audio] SetVstParam dropped: {}", e);
                 }
             }
+            // Record automation when recording + playing
+            if state.automation_recording && state.session.piano_roll.playing {
+                record_automation_point(
+                    state,
+                    AutomationTarget::VstParam(*instrument_id, *param_index),
+                    value,
+                );
+            }
             DispatchResult::none()
         }
         VstParamAction::AdjustParam(instrument_id, target, param_index, delta) => {
@@ -201,5 +211,73 @@ pub(super) fn dispatch_vst_param(
             }
             DispatchResult::none()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::instrument::SourceType;
+
+    fn setup() -> (AppState, AudioHandle) {
+        let state = AppState::new();
+        let audio = AudioHandle::new();
+        (state, audio)
+    }
+
+    #[test]
+    fn set_param_records_when_recording() {
+        let (mut state, mut audio) = setup();
+        let id = state.instruments.add_instrument(SourceType::Saw);
+        state.automation_recording = true;
+        state.session.piano_roll.playing = true;
+        state.audio_playhead = 100;
+
+        dispatch_vst_param(
+            &VstParamAction::SetParam(id, VstTarget::Source, 0, 0.7),
+            &mut state,
+            &mut audio,
+        );
+
+        let target = AutomationTarget::VstParam(id, 0);
+        let lane = state.session.automation.lane_for_target(&target);
+        assert!(lane.is_some(), "VstParam lane should be created");
+        assert_eq!(lane.unwrap().points.len(), 1);
+    }
+
+    #[test]
+    fn set_param_no_record_when_not_recording() {
+        let (mut state, mut audio) = setup();
+        let id = state.instruments.add_instrument(SourceType::Saw);
+        state.automation_recording = false;
+        state.session.piano_roll.playing = true;
+
+        dispatch_vst_param(
+            &VstParamAction::SetParam(id, VstTarget::Source, 0, 0.7),
+            &mut state,
+            &mut audio,
+        );
+
+        let target = AutomationTarget::VstParam(id, 0);
+        assert!(state.session.automation.lane_for_target(&target).is_none());
+    }
+
+    #[test]
+    fn set_param_updates_state_regardless() {
+        let (mut state, mut audio) = setup();
+        let id = state.instruments.add_instrument(SourceType::Saw);
+        state.automation_recording = false;
+
+        dispatch_vst_param(
+            &VstParamAction::SetParam(id, VstTarget::Source, 0, 0.7),
+            &mut state,
+            &mut audio,
+        );
+
+        // State should be updated even without recording
+        let inst = state.instruments.instrument(id).unwrap();
+        let val = inst.vst_param_values.iter().find(|(idx, _)| *idx == 0);
+        assert!(val.is_some());
+        assert!((val.unwrap().1 - 0.7).abs() < f32::EPSILON);
     }
 }

@@ -104,10 +104,35 @@ impl ServerPane {
             }
         }
 
+        // Diagnostics section
+        buf.draw_line(
+            Rect::new(x, y, w, 1),
+            &[("── Diagnostics ──", Style::new().fg(Color::DARK_GRAY))],
+        );
+        y += 1;
+
+        for check in &self.diagnostics {
+            if y >= rect.y + rect.height - 2 {
+                break;
+            }
+            let (marker, marker_color, label_color) = if check.passed {
+                ("[ok] ", Color::METER_LOW, Color::WHITE)
+            } else {
+                ("[--] ", Color::MUTE_COLOR, Color::DARK_GRAY)
+            };
+            buf.draw_line(
+                Rect::new(x, y, w, 1),
+                &[
+                    (marker, Style::new().fg(marker_color)),
+                    (check.label.as_str(), Style::new().fg(label_color)),
+                ],
+            );
+            y += 1;
+        }
+        y += 1;
+
         // Server log section
-        let help_lines_count: u16 = 2;
-        let bottom_reserved = help_lines_count + 2;
-        let log_bottom = rect.y + rect.height - bottom_reserved;
+        let log_bottom = rect.y + rect.height - 2;
         if y < log_bottom {
             buf.draw_line(
                 Rect::new(x, y, w, 1),
@@ -125,20 +150,6 @@ impl ServerPane {
                 let truncated: String = line_text.chars().take(w as usize).collect();
                 buf.draw_line(Rect::new(x, y, w, 1), &[(&truncated, log_style)]);
                 y += 1;
-            }
-        }
-
-        // Help text at bottom
-        let _ = y;
-        let help_style = Style::new().fg(Color::DARK_GRAY);
-        let help_lines = [
-            "s: start  k: kill  c: connect  d: disconnect  b: build  l: load",
-            "r: refresh devices  Tab: next section",
-        ];
-        for (i, line_text) in help_lines.iter().enumerate() {
-            let hy = rect.y + rect.height - (help_lines.len() as u16 + 1) + i as u16;
-            if hy > inner.y && hy < rect.y + rect.height - 1 {
-                buf.draw_line(Rect::new(x, hy, w, 1), &[(*line_text, help_style)]);
             }
         }
     }

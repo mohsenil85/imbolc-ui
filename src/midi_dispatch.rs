@@ -18,15 +18,9 @@ pub fn process_midi_event(event: &MidiEvent, state: &AppState) -> Option<Action>
             let target = mapping.target.clone();
             let mapped_value = mapping.map_value(*value);
 
-            if state.automation_recording && state.session.piano_roll.playing {
-                // Record to automation lane
-                let normalized = target.normalize_value(mapped_value);
-                Some(Action::Automation(AutomationAction::RecordValue(target, normalized)))
-            } else {
-                // Live parameter control: apply via RecordValue which routes through audio engine
-                let normalized = target.normalize_value(mapped_value);
-                Some(Action::Automation(AutomationAction::RecordValue(target, normalized)))
-            }
+            // RecordValue always applies to audio engine; recording logic is in the dispatch handler
+            let normalized = target.normalize_value(mapped_value);
+            Some(Action::Automation(AutomationAction::RecordValue(target, normalized)))
         }
 
         MidiEvent::NoteOn { channel, note, velocity } => {

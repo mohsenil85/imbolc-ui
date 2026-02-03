@@ -91,19 +91,16 @@ pub(super) fn dispatch_automation(
             }
         }
         AutomationAction::RecordValue(target, value) => {
-            // Find or create lane for this target
-            let lane_id = state.session.automation.add_lane(target.clone());
-            let playhead = state.audio_playhead;
-            if let Some(lane) = state.session.automation.lane_mut(lane_id) {
-                lane.add_point(playhead, *value);
-                result.audio_dirty.automation = true;
-            }
-            // Apply immediately for audio feedback
+            // Always apply immediately for audio feedback (e.g. MIDI CC)
             if audio.is_running() {
-                // Map normalized value to actual range
                 let (min, max) = target.default_range();
                 let actual_value = min + value * (max - min);
                 let _ = audio.apply_automation(target, actual_value);
+            }
+            // Only record to automation lane when recording + playing
+            if state.automation_recording && state.session.piano_roll.playing {
+                record_automation_point(state, target.clone(), *value);
+                result.audio_dirty.automation = true;
             }
         }
         AutomationAction::DeletePointsInRange(lane_id, start_tick, end_tick) => {
@@ -321,6 +318,67 @@ mod tests {
         state.audio_playhead = 0;
         record_automation_point(&mut state, target, 0.5);
         assert!(state.session.automation.lane(lane_id).unwrap().points.is_empty());
+    }
+
+    #[test]
+    fn record_value_no_points_when_not_recording() {
+        let (mut state, mut audio) = setup();
+        // Not recording — RecordValue should NOT add any points
+        state.automation_recording = false;
+        state.session.piano_roll.playing = true;
+        let target = AutomationTarget::InstrumentLevel(0);
+        dispatch_automation(&AutomationAction::RecordValue(target.clone(), 0.5), &mut state, &mut audio);
+        // No lane should be created
+        assert!(state.session.automation.lane_for_target(&target).is_none());
+    }
+
+    #[test]
+    fn record_value_no_points_when_not_playing() {
+        let (mut state, mut audio) = setup();
+        // Recording but not playing — RecordValue should NOT add points
+        state.automation_recording = true;
+        state.session.piano_roll.playing = false;
+        let target = AutomationTarget::InstrumentLevel(0);
+        dispatch_automation(&AutomationAction::RecordValue(target.clone(), 0.5), &mut state, &mut audio);
+        assert!(state.session.automation.lane_for_target(&target).is_none());
+    }
+
+    #[test]
+    fn record_value_adds_points_when_recording_and_playing() {
+        let (mut state, mut audio) = setup();
+        state.automation_recording = true;
+        state.session.piano_roll.playing = true;
+        state.audio_playhead = 100;
+        let target = AutomationTarget::InstrumentLevel(0);
+        let result = dispatch_automation(&AutomationAction::RecordValue(target.clone(), 0.5), &mut state, &mut audio);
+        assert!(result.audio_dirty.automation);
+        let lane = state.session.automation.lane_for_target(&target).unwrap();
+        assert_eq!(lane.points.len(), 1);
+        assert_eq!(lane.points[0].tick, 100);
+    }
+
+    #[test]
+    fn record_value_uses_thinning() {
+        let (mut state, mut audio) = setup();
+        state.automation_recording = true;
+        state.session.piano_roll.playing = true;
+        let target = AutomationTarget::InstrumentLevel(0);
+
+        // First point
+        state.audio_playhead = 0;
+        dispatch_automation(&AutomationAction::RecordValue(target.clone(), 0.5), &mut state, &mut audio);
+        let lane_id = state.session.automation.lane_for_target(&target).unwrap().id;
+        assert_eq!(state.session.automation.lane(lane_id).unwrap().points.len(), 1);
+
+        // Second point: too close in value and tick — should be thinned out
+        state.audio_playhead = 10;
+        dispatch_automation(&AutomationAction::RecordValue(target.clone(), 0.502), &mut state, &mut audio);
+        assert_eq!(state.session.automation.lane(lane_id).unwrap().points.len(), 1);
+
+        // Third point: enough tick delta — should be added
+        state.audio_playhead = 100;
+        dispatch_automation(&AutomationAction::RecordValue(target.clone(), 0.502), &mut state, &mut audio);
+        assert_eq!(state.session.automation.lane(lane_id).unwrap().points.len(), 2);
     }
 
     #[test]

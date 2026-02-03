@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::audio::ServerStatus;
 use crate::state::arrangement::{ClipId, PlacementId};
-use crate::state::{EqConfig, EffectId, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
+use crate::state::{EqConfig, EffectId, EffectType, EffectSlot, EnvConfig, FilterConfig, FilterType, InstrumentId, LfoConfig, MixerSelection, MusicalSettings, Param, SourceType, VstPluginKind};
 use crate::state::ClipboardNote;
 use crate::state::drum_sequencer::DrumStep;
 use crate::state::automation::{AutomationLaneId, AutomationTarget, CurveType};
@@ -27,6 +27,7 @@ pub struct InstrumentUpdate {
     pub filter: Option<FilterConfig>,
     pub eq: Option<EqConfig>,
     pub effects: Vec<EffectSlot>,
+    pub lfo: LfoConfig,
     pub amp_envelope: EnvConfig,
     pub polyphonic: bool,
     pub active: bool,

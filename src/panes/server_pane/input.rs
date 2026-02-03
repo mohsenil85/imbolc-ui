@@ -18,6 +18,7 @@ impl ServerPane {
             "record_master" => Action::Server(ServerAction::RecordMaster),
             "refresh_devices" => {
                 self.refresh_devices();
+                self.refresh_diagnostics();
                 self.refresh_log();
                 if self.server_running {
                     Action::Server(ServerAction::Restart {

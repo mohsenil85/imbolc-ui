@@ -2,12 +2,18 @@ mod input;
 mod rendering;
 
 use std::any::Any;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::audio::devices::{self, AudioDevice};
 use crate::audio::ServerStatus;
 use crate::state::AppState;
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, Pane};
+
+pub(super) struct DiagnosticCheck {
+    pub label: String,
+    pub passed: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ServerPaneFocus {
@@ -28,6 +34,7 @@ pub struct ServerPane {
     device_config_dirty: bool,
     log_lines: Vec<String>,
     log_path: PathBuf,
+    pub(super) diagnostics: Vec<DiagnosticCheck>,
 }
 
 impl ServerPane {
@@ -63,7 +70,7 @@ impl ServerPane {
             .join("imbolc")
             .join("scsynth.log");
 
-        Self {
+        let mut pane = Self {
             keymap,
             status: ServerStatus::Stopped,
             message: String::new(),
@@ -75,7 +82,10 @@ impl ServerPane {
             device_config_dirty: false,
             log_lines: Vec::new(),
             log_path,
-        }
+            diagnostics: Vec::new(),
+        };
+        pane.refresh_diagnostics();
+        pane
     }
 
     pub fn set_status(&mut self, status: ServerStatus, message: &str) {
@@ -154,6 +164,113 @@ impl ServerPane {
                 .unwrap_or(0),
             None => 0,
         };
+    }
+
+    pub(super) fn refresh_diagnostics(&mut self) {
+        self.diagnostics.clear();
+
+        // 1. scsynth
+        let scsynth_paths = &[
+            "scsynth",
+            "/Applications/SuperCollider.app/Contents/Resources/scsynth",
+            "/usr/local/bin/scsynth",
+            "/usr/bin/scsynth",
+        ];
+        match Self::find_executable(scsynth_paths) {
+            Some(path) => self.diagnostics.push(DiagnosticCheck {
+                label: format!("scsynth ({})", path),
+                passed: true,
+            }),
+            None => self.diagnostics.push(DiagnosticCheck {
+                label: "scsynth (not found)".to_string(),
+                passed: false,
+            }),
+        }
+
+        // 2. sclang
+        let sclang_paths = &[
+            "sclang",
+            "/Applications/SuperCollider.app/Contents/MacOS/sclang",
+            "/usr/local/bin/sclang",
+            "/usr/bin/sclang",
+        ];
+        match Self::find_executable(sclang_paths) {
+            Some(path) => self.diagnostics.push(DiagnosticCheck {
+                label: format!("sclang ({})", path),
+                passed: true,
+            }),
+            None => self.diagnostics.push(DiagnosticCheck {
+                label: "sclang (not found)".to_string(),
+                passed: false,
+            }),
+        }
+
+        // 3. Synthdefs
+        let builtin_dir = Path::new("synthdefs");
+        let builtin_count = Self::count_scsyndef_files(builtin_dir);
+        let custom_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("imbolc")
+            .join("synthdefs");
+        let custom_count = Self::count_scsyndef_files(&custom_dir);
+        let total = builtin_count + custom_count;
+        self.diagnostics.push(DiagnosticCheck {
+            label: format!("Synthdefs ({} built-in, {} custom)", builtin_count, custom_count),
+            passed: total > 0,
+        });
+
+        // 4. Audio devices
+        let device_count = self.devices.len();
+        self.diagnostics.push(DiagnosticCheck {
+            label: format!("Audio devices ({} found)", device_count),
+            passed: device_count > 0,
+        });
+
+        // 5. Config directory
+        let config_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("imbolc");
+        let config_exists = config_dir.is_dir();
+        self.diagnostics.push(DiagnosticCheck {
+            label: "Config directory".to_string(),
+            passed: config_exists,
+        });
+    }
+
+    fn find_executable(paths: &[&str]) -> Option<String> {
+        for path in paths {
+            if path.starts_with('/') {
+                if Path::new(path).exists() {
+                    return Some(path.to_string());
+                }
+            } else {
+                // Use `which` for bare names
+                if let Ok(output) = Command::new("which").arg(path).output() {
+                    if output.status.success() {
+                        let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if !resolved.is_empty() {
+                            return Some(resolved);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn count_scsyndef_files(dir: &Path) -> usize {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| {
+                        e.path()
+                            .extension()
+                            .map_or(false, |ext| ext == "scsyndef")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     fn cycle_focus(&mut self) {
