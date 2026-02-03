@@ -29,6 +29,7 @@ SynthDef(\imbolc_eq12, { |in=1024, out=1026, lag=0.02,
     var b9f, b9g, b9r, b9;
     var b10f, b10g, b10r, b10;
     var b11f, b11g, b11r, b11;
+    var fadein = Line.kr(0, 1, 0.01);
 
     // Band 0: Low Shelf
     b0f = b0_freq.lag(lag).clip(20, 20000);
@@ -114,6 +115,6 @@ SynthDef(\imbolc_eq12, { |in=1024, out=1026, lag=0.02,
     b11 = BHiShelf.ar(sig, b11f, b11r, b11g);
     sig = Select.ar(b11_on, [sig, b11]);
 
-    Out.ar(out, sig);
+    Out.ar(out, sig * fadein);
 }).writeDefFile(dir);
 )

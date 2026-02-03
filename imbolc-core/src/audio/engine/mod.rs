@@ -30,6 +30,7 @@ pub const GROUP_SOURCES: i32 = 100;
 pub const GROUP_PROCESSING: i32 = 200;
 pub const GROUP_OUTPUT: i32 = 300;
 pub const GROUP_RECORD: i32 = 400;
+pub const GROUP_SAFETY: i32 = 999;
 
 // Wavetable buffer range for VOsc (imbolc_wavetable SynthDef)
 pub const WAVETABLE_BUFNUM_START: i32 = 100;
@@ -112,6 +113,8 @@ pub struct AudioEngine {
     pub(crate) instrument_final_buses: HashMap<InstrumentId, i32>,
     /// Voice allocation, tracking, stealing, and control bus pooling
     pub(crate) voice_allocator: VoiceAllocator,
+    /// Safety limiter synth node ID (persistent, never freed during routing rebuilds)
+    safety_node_id: Option<i32>,
     /// Meter synth node ID
     meter_node_id: Option<i32>,
     /// Analysis synth node IDs (spectrum, LUFS, scope)
@@ -153,6 +156,7 @@ impl AudioEngine {
             bus_node_map: HashMap::new(),
             instrument_final_buses: HashMap::new(),
             voice_allocator: VoiceAllocator::new(),
+            safety_node_id: None,
             meter_node_id: None,
             analysis_node_ids: Vec::new(),
             buffer_map: HashMap::new(),
@@ -690,11 +694,12 @@ mod tests {
             state.add_instrument(SourceType::Saw);
             engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
             let group_count = backend.count(|op| matches!(op, TestOp::CreateGroup { .. }));
-            assert_eq!(group_count, 4, "four execution groups");
+            assert_eq!(group_count, 5, "five execution groups");
             assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_SOURCES)).is_some());
             assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_PROCESSING)).is_some());
             assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_OUTPUT)).is_some());
             assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_RECORD)).is_some());
+            assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_SAFETY)).is_some());
         }
 
         #[test]

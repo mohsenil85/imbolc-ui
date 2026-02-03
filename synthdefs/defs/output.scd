@@ -25,4 +25,8 @@ SynthDef(\imbolc_bus_out, { |in=1024, level=0.8, mute=0, pan=0, lag=0.02|
     var panned = Balance2.ar(sig[0], sig[1], pan.lag(lag));
     Out.ar(0, panned * level.lag(lag) * (1 - mute));
 }).writeDefFile(dir);
+
+SynthDef(\imbolc_safety, { |ceiling=0.95|
+    ReplaceOut.ar(0, Limiter.ar(In.ar(0, 2), ceiling, 0.01));
+}).writeDefFile(dir);
 )

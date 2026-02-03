@@ -28,6 +28,7 @@ impl AudioEngine {
         }
 
         self.ensure_groups()?;
+        self.ensure_safety_limiter()?;
 
         // Free all existing synths and voices
         if let Some(ref client) = self.client {

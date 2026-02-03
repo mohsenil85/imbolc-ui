@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use super::{AudioEngine, ServerStatus, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, GROUP_RECORD};
+use super::{AudioEngine, ServerStatus, GROUP_SOURCES, GROUP_PROCESSING, GROUP_OUTPUT, GROUP_RECORD, GROUP_SAFETY};
 use crate::audio::osc_client::{AudioMonitor, OscClient};
 use regex::Regex;
 
@@ -384,21 +384,21 @@ impl AudioEngine {
         self.analysis_node_ids.clear();
 
         if let Some(ref client) = self.client {
-            // Create meter synth
+            // Create meter synth (in GROUP_SAFETY so it reads post-limiter signal)
             let node_id = self.next_node_id;
             self.next_node_id += 1;
             let args: Vec<rosc::OscType> = vec![
                 rosc::OscType::String("imbolc_meter".to_string()),
                 rosc::OscType::Int(node_id),
                 rosc::OscType::Int(3), // addAfter
-                rosc::OscType::Int(GROUP_OUTPUT),
+                rosc::OscType::Int(GROUP_SAFETY),
             ];
             if client.send_message("/s_new", args).is_ok() {
                 self.node_registry.register(node_id);
                 self.meter_node_id = Some(node_id);
             }
 
-            // Create analysis synths (spectrum, LUFS, scope)
+            // Create analysis synths (spectrum, LUFS, scope) in GROUP_SAFETY
             for synth_def in &["imbolc_spectrum", "imbolc_lufs_meter", "imbolc_scope"] {
                 let node_id = self.next_node_id;
                 self.next_node_id += 1;
@@ -406,7 +406,7 @@ impl AudioEngine {
                     rosc::OscType::String(synth_def.to_string()),
                     rosc::OscType::Int(node_id),
                     rosc::OscType::Int(3), // addAfter
-                    rosc::OscType::Int(GROUP_OUTPUT),
+                    rosc::OscType::Int(GROUP_SAFETY),
                 ];
                 if client.send_message("/s_new", args).is_ok() {
                     self.node_registry.register(node_id);
@@ -419,6 +419,9 @@ impl AudioEngine {
     pub fn disconnect(&mut self) {
         self.stop_recording();
         if let Some(ref client) = self.client {
+            if let Some(node_id) = self.safety_node_id.take() {
+                let _ = client.free_node(node_id);
+            }
             if let Some(node_id) = self.meter_node_id.take() {
                 let _ = client.free_node(node_id);
             }
@@ -465,7 +468,30 @@ impl AudioEngine {
         client.create_group(GROUP_PROCESSING, 1, 0).map_err(|e| e.to_string())?;
         client.create_group(GROUP_OUTPUT, 1, 0).map_err(|e| e.to_string())?;
         client.create_group(GROUP_RECORD, 1, 0).map_err(|e| e.to_string())?;
+        client.create_group(GROUP_SAFETY, 1, 0).map_err(|e| e.to_string())?;
         self.groups_created = true;
+        Ok(())
+    }
+
+    pub(super) fn ensure_safety_limiter(&mut self) -> Result<(), String> {
+        if self.safety_node_id.is_some() {
+            return Ok(());
+        }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+        let node_id = self.next_node_id;
+        self.next_node_id += 1;
+        let args: Vec<rosc::OscType> = vec![
+            rosc::OscType::String("imbolc_safety".to_string()),
+            rosc::OscType::Int(node_id),
+            rosc::OscType::Int(0), // addToHead
+            rosc::OscType::Int(GROUP_SAFETY),
+            rosc::OscType::String("ceiling".to_string()),
+            rosc::OscType::Float(0.95),
+        ];
+        if client.send_message("/s_new", args).is_ok() {
+            self.node_registry.register(node_id);
+            self.safety_node_id = Some(node_id);
+        }
         Ok(())
     }
 
