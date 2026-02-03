@@ -162,6 +162,66 @@ impl AudioEngine {
                             args.push(rosc::OscType::String("release_mod_in".to_string()));
                             args.push(rosc::OscType::Float(lfo_bus as f32));
                         }
+                        LfoTarget::FmIndex => {
+                            args.push(rosc::OscType::String("index_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::WavetablePosition => {
+                            args.push(rosc::OscType::String("position_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::FormantFreq => {
+                            args.push(rosc::OscType::String("formant_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::SyncRatio => {
+                            args.push(rosc::OscType::String("sync_ratio_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Pressure => {
+                            args.push(rosc::OscType::String("pressure_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Embouchure => {
+                            args.push(rosc::OscType::String("embouchure_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::GrainSize => {
+                            args.push(rosc::OscType::String("grain_size_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::GrainDensity => {
+                            args.push(rosc::OscType::String("density_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::FbFeedback => {
+                            args.push(rosc::OscType::String("feedback_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::RingModDepth => {
+                            args.push(rosc::OscType::String("mod_depth_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::ChaosParam => {
+                            args.push(rosc::OscType::String("chaos_param_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::AdditiveRolloff => {
+                            args.push(rosc::OscType::String("rolloff_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::MembraneTension => {
+                            args.push(rosc::OscType::String("tension_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Decay => {
+                            args.push(rosc::OscType::String("decay_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Sustain => {
+                            args.push(rosc::OscType::String("sustain_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
                         _ => {} // Routing-level targets handled in routing.rs
                     }
                 }
@@ -371,6 +431,14 @@ impl AudioEngine {
                         }
                         LfoTarget::Release => {
                             args.push(rosc::OscType::String("release_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Decay => {
+                            args.push(rosc::OscType::String("decay_mod_in".to_string()));
+                            args.push(rosc::OscType::Float(lfo_bus as f32));
+                        }
+                        LfoTarget::Sustain => {
+                            args.push(rosc::OscType::String("sustain_mod_in".to_string()));
                             args.push(rosc::OscType::Float(lfo_bus as f32));
                         }
                         _ => {} // Routing-level targets handled in routing.rs
