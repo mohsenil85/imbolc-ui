@@ -423,14 +423,7 @@ pub(super) fn dispatch_piano_roll(
             }
             return DispatchResult::none();
         }
-        PianoRollAction::MoveCursor(_, _)
-        | PianoRollAction::SetBpm(_)
-        | PianoRollAction::Zoom(_)
-        | PianoRollAction::ScrollOctave(_) => {
-            // Handled inside PianoRollPane — no state mutation needed
-        }
     }
-    DispatchResult::none()
 }
 
 #[cfg(test)]

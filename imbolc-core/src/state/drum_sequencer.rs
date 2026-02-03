@@ -2,8 +2,6 @@ use super::sampler::{BufferId, Slice, SliceId};
 use serde::{Serialize, Deserialize};
 
 pub const NUM_PADS: usize = 12;
-#[allow(dead_code)]
-pub const MAX_STEPS: usize = 64;
 pub const DEFAULT_STEPS: usize = 16;
 pub const NUM_PATTERNS: usize = 4;
 

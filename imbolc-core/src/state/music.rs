@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::{Serialize, Deserialize};
 
 /// Musical key (pitch class)
@@ -89,65 +87,3 @@ impl Scale {
     }
 }
 
-/// Snap a frequency to the nearest scale degree
-/// `tuning_a4` is the reference frequency for A4 (default 440.0)
-pub fn snap_freq_to_scale(freq: f32, key: Key, scale: Scale, tuning_a4: f32) -> f32 {
-    if freq <= 0.0 {
-        return freq;
-    }
-
-    // Convert freq to MIDI note number (continuous)
-    let midi_note = 69.0 + 12.0 * (freq / tuning_a4).ln() / (2.0_f32).ln();
-
-    // Find nearest scale degree
-    let intervals = scale.intervals();
-    let root_semitone = key.semitone();
-
-    let rounded_note = midi_note.round() as i32;
-
-    // Search nearby notes for closest scale degree
-    let mut best_note = rounded_note;
-    let mut best_dist = i32::MAX;
-
-    for offset in -2..=2 {
-        let candidate = rounded_note + offset;
-        let relative = ((candidate - root_semitone) % 12 + 12) % 12;
-        if intervals.contains(&relative) {
-            let dist = (candidate as f32 - midi_note).abs() as i32;
-            if dist < best_dist {
-                best_dist = dist;
-                best_note = candidate;
-            }
-        }
-    }
-
-    // Convert back to frequency
-    tuning_a4 * (2.0_f32).powf((best_note as f32 - 69.0) / 12.0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snap_freq_negative_or_zero_returns_input() {
-        assert!((snap_freq_to_scale(-1.0, Key::C, Scale::Major, 440.0) + 1.0).abs() < 0.0001);
-        assert!(snap_freq_to_scale(0.0, Key::C, Scale::Major, 440.0).abs() < 0.0001);
-    }
-
-    #[test]
-    fn snap_freq_c_major_keeps_scale_degree() {
-        let snapped = snap_freq_to_scale(440.0, Key::C, Scale::Major, 440.0);
-        assert!((snapped - 440.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn snap_freq_c_major_prefers_nearest_scale_tone() {
-        // C#4 is closer to C4 than D4, so expect snap to C4 in C major.
-        let c_sharp_4 = 277.18;
-        let snapped = snap_freq_to_scale(c_sharp_4, Key::C, Scale::Major, 440.0);
-        let c4 = 261.63;
-        let d4 = 293.66;
-        assert!((snapped - c4).abs() < (snapped - d4).abs());
-    }
-}

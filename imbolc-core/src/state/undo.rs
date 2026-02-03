@@ -118,7 +118,6 @@ pub fn is_undoable(action: &Action) -> bool {
             | crate::action::PianoRollAction::ToggleLoop
             | crate::action::PianoRollAction::SetLoopStart(_)
             | crate::action::PianoRollAction::SetLoopEnd(_)
-            | crate::action::PianoRollAction::SetBpm(_)
             | crate::action::PianoRollAction::CycleTimeSig
             | crate::action::PianoRollAction::TogglePolyMode(_)
             | crate::action::PianoRollAction::AdjustSwing(_)

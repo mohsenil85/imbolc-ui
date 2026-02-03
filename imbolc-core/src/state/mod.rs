@@ -268,22 +268,6 @@ impl AppState {
         }
     }
 
-    /// Collect mixer updates for all instruments (instrument_id, level, mute)
-    #[allow(dead_code)]
-    pub fn collect_instrument_updates(&self) -> Vec<(InstrumentId, f32, bool)> {
-        self.instruments
-            .instruments
-            .iter()
-            .map(|s| {
-                (
-                    s.id,
-                    s.level * self.session.master_level,
-                    self.effective_instrument_mute(s),
-                )
-            })
-            .collect()
-    }
-
     /// Move mixer selection left/right
     pub fn mixer_move(&mut self, delta: i8) {
         self.session.mixer_selection = match self.session.mixer_selection {

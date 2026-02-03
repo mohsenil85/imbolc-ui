@@ -22,9 +22,6 @@ pub(super) fn dispatch_instrument(
         InstrumentAction::Delete(inst_id) => crud::handle_delete(state, *inst_id),
         InstrumentAction::Edit(id) => crud::handle_edit(state, *id),
         InstrumentAction::Update(update) => crud::handle_update(state, update),
-        InstrumentAction::SetParam(instrument_id, ref param, value) => {
-            sample::handle_set_param(state, audio, *instrument_id, param, *value)
-        }
         InstrumentAction::PlayNote(pitch, velocity) => {
             playback::handle_play_note(state, audio, *pitch, *velocity)
         }

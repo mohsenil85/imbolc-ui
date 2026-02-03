@@ -88,8 +88,6 @@ pub enum InstrumentAction {
     Delete(InstrumentId),
     Edit(InstrumentId),
     Update(Box<InstrumentUpdate>),
-    #[allow(dead_code)]
-    SetParam(InstrumentId, String, f32),
     AddEffect(InstrumentId, EffectType),
     RemoveEffect(InstrumentId, EffectId),
     MoveEffect(InstrumentId, EffectId, i8),
@@ -145,18 +143,10 @@ pub enum MixerAction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PianoRollAction {
     ToggleNote { pitch: u8, tick: u32, duration: u32, velocity: u8, track: usize },
-    #[allow(dead_code)]
-    MoveCursor(i8, i32),
     PlayStop,
     ToggleLoop,
     SetLoopStart(u32),
     SetLoopEnd(u32),
-    #[allow(dead_code)]
-    SetBpm(f32),
-    #[allow(dead_code)]
-    Zoom(i8),
-    #[allow(dead_code)]
-    ScrollOctave(i8),
     CycleTimeSig,
     TogglePolyMode(usize),
     PlayNote { pitch: u8, velocity: u8, instrument_id: InstrumentId, track: usize },
@@ -545,7 +535,6 @@ impl AudioDirty {
     }
 }
 
-#[allow(dead_code)]
 impl DispatchResult {
     pub fn none() -> Self {
         Self::default()

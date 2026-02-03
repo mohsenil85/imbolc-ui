@@ -2,28 +2,6 @@ use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::action::{DispatchResult, NavIntent};
 
-pub(super) fn handle_set_param(
-    state: &mut AppState,
-    audio: &mut AudioHandle,
-    instrument_id: crate::state::InstrumentId,
-    param: &str,
-    value: f32,
-) -> DispatchResult {
-    // Update state
-    if let Some(instrument) = state.instruments.instrument_mut(instrument_id) {
-        if let Some(p) = instrument.source_params.iter_mut().find(|p| p.name == *param) {
-            p.value = crate::state::ParamValue::Float(value);
-        }
-    }
-    // Update audio engine in real-time
-    if audio.is_running() {
-        let _ = audio.set_source_param(instrument_id, param, value);
-    }
-    let mut result = DispatchResult::none();
-    result.audio_dirty.instruments = true;
-    result
-}
-
 pub(super) fn handle_load_sample_result(
     state: &mut AppState,
     audio: &mut AudioHandle,

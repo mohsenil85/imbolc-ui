@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::state::persistence::{save_project, load_project};
-    use crate::state::persistence::legacy::save_project_legacy;
     use crate::state::AutomationTarget;
     use crate::state::custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
     use crate::state::instrument::{EffectType, FilterConfig, FilterType, LfoConfig, LfoShape, LfoTarget, ModSource, OutputTarget, SourceType};
@@ -452,89 +451,6 @@ mod tests {
         assert_eq!(arr.cursor_tick, 480);
         assert_eq!(arr.selected_lane, 0);
         assert_eq!(arr.selected_placement, Some(1));
-
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn legacy_to_blob_migration() {
-        // Step 1: Save using legacy SQLite format
-        let mut session = SessionState::new();
-        session.bpm = 140;
-        session.time_signature = (3, 4);
-        session.key = crate::state::music::Key::D;
-        session.scale = crate::state::music::Scale::Minor;
-        session.tuning_a4 = 432.0;
-        session.snap = true;
-        session.piano_roll.bpm = session.bpm as f32;
-        session.piano_roll.time_signature = session.time_signature;
-
-        let mut instruments = InstrumentState::new();
-        let inst_id = instruments.add_instrument(SourceType::Saw);
-        let inst = instruments.instrument_mut(inst_id).unwrap();
-        inst.name = "Migration".to_string();
-        inst.filter = Some(FilterConfig::new(FilterType::Hpf));
-        inst.level = 0.42;
-        inst.pan = -0.2;
-        inst.output_target = OutputTarget::Bus(2);
-        inst.add_effect(EffectType::Delay);
-
-        session.piano_roll.add_track(inst_id);
-        session.piano_roll.toggle_note(0, 60, 0, 480, 100);
-
-        let lane_id = session
-            .automation
-            .add_lane(AutomationTarget::InstrumentLevel(inst_id));
-        let lane = session.automation.lane_mut(lane_id).unwrap();
-        lane.add_point(0, 0.5);
-        lane.add_point(480, 0.75);
-
-        let path = temp_db_path();
-
-        // Save in legacy format
-        save_project_legacy(&path, &session, &instruments).expect("save legacy");
-
-        // Step 2: Load via auto-detecting load_project (should detect legacy)
-        let (legacy_session, legacy_instruments) = load_project(&path).expect("load legacy");
-        assert_eq!(legacy_session.bpm, 140);
-        assert_eq!(legacy_instruments.instruments.len(), 1);
-        assert_eq!(legacy_instruments.instruments[0].name, "Migration");
-
-        // Step 3: Re-save in blob format
-        save_project(&path, &legacy_session, &legacy_instruments).expect("save blob");
-
-        // Step 4: Re-load via auto-detecting load_project (should detect blob)
-        let (blob_session, blob_instruments) = load_project(&path).expect("load blob");
-
-        // Step 5: Assert fields match the legacy load
-        assert_eq!(blob_session.bpm, legacy_session.bpm);
-        assert_eq!(blob_session.time_signature, legacy_session.time_signature);
-        assert_eq!(blob_session.key, legacy_session.key);
-        assert_eq!(blob_session.scale, legacy_session.scale);
-        assert_eq!(blob_session.tuning_a4, legacy_session.tuning_a4);
-        assert_eq!(blob_session.snap, legacy_session.snap);
-
-        assert_eq!(blob_instruments.instruments.len(), legacy_instruments.instruments.len());
-        let blob_inst = &blob_instruments.instruments[0];
-        let leg_inst = &legacy_instruments.instruments[0];
-        assert_eq!(blob_inst.id, leg_inst.id);
-        assert_eq!(blob_inst.name, leg_inst.name);
-        assert!((blob_inst.level - leg_inst.level).abs() < 0.001);
-        assert!((blob_inst.pan - leg_inst.pan).abs() < 0.001);
-        assert_eq!(blob_inst.output_target, leg_inst.output_target);
-        assert_eq!(blob_inst.effects.len(), leg_inst.effects.len());
-        assert_eq!(blob_inst.effects[0].effect_type, leg_inst.effects[0].effect_type);
-
-        assert_eq!(blob_session.piano_roll.track_order.len(), legacy_session.piano_roll.track_order.len());
-        assert_eq!(blob_session.automation.lanes.len(), legacy_session.automation.lanes.len());
-        assert_eq!(
-            blob_session.automation.lanes[0].target,
-            legacy_session.automation.lanes[0].target
-        );
-        assert_eq!(
-            blob_session.automation.lanes[0].points.len(),
-            legacy_session.automation.lanes[0].points.len()
-        );
 
         std::fs::remove_file(&path).ok();
     }

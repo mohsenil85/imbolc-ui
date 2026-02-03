@@ -1,9 +1,4 @@
 mod blob;
-mod conversion;
-pub(crate) mod legacy;
-mod load;
-mod save;
-mod schema;
 mod tests;
 
 use std::path::Path;
@@ -44,20 +39,10 @@ pub fn save_project(path: &Path, session: &SessionState, instruments: &Instrumen
     Ok(())
 }
 
-/// Load project, auto-detecting blob vs legacy format
+/// Load project from blob format
 pub fn load_project(path: &Path) -> SqlResult<(SessionState, InstrumentState)> {
     let conn = SqlConnection::open(path)?;
-
-    let has_blob: bool = conn
-        .prepare("SELECT 1 FROM project_blob LIMIT 1")
-        .and_then(|mut s| s.exists([]))
-        .unwrap_or(false);
-
-    if has_blob {
-        load_project_blob(&conn)
-    } else {
-        legacy::load_project_legacy(&conn)
-    }
+    load_project_blob(&conn)
 }
 
 /// Current blob format version. Increment when the serialized schema changes.
