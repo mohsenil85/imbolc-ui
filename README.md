@@ -27,6 +27,7 @@ IMBOLC_NO_AUDIO=1 cargo run
 - **Automation:** per-track automation lanes for parameters (including VST params).
 - **Analysis:** Real-time master level meter, spectrum analyzer, oscilloscope, and waveform view for audio input.
 - **Low-latency playback:** Dedicated audio thread (~1ms tick) using **OSC bundles with NTP timetags** for sample-accurate scheduling, decoupled from UI jitter.
+- **Smart Voice Stealing:** Advanced polyphony management with multi-criteria scoring (prioritizing released voices, then lower velocity and older notes), optimized same-pitch retriggering, 5ms anti-click fades for stolen voices, and intelligent lifecycle cleanup.
 
 ## UI tour (defaults)
 
