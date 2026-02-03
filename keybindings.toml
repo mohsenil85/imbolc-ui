@@ -13,7 +13,6 @@ bindings = [
   { key = "F3", action = "switch:track", description = "Track" },
   { key = "F4", action = "switch:mixer", description = "Mixer" },
   { key = "F5", action = "switch:server", description = "Audio server" },
-  { key = "F6", action = "switch:logo", description = "Logo" },
   { key = "F7", action = "switch:automation", description = "Automation" },
   { key = "F8", action = "switch:eq", description = "Parametric EQ" },
   { key = "Ctrl+o", action = "open_project_browser", description = "Project browser" },
@@ -282,11 +281,6 @@ bindings = [
   { key = "Home", action = "goto_top", description = "Go to top" },
   { key = "End", action = "goto_bottom", description = "Go to bottom" },
   { key = "&", action = "toggle_hidden", description = "Toggle hidden files" },
-]
-
-[layers.logo]
-bindings = [
-  { key = "q", action = "quit", description = "Quit" },
 ]
 
 [layers.sample_chopper]

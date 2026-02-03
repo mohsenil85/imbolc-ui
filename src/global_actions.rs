@@ -308,9 +308,6 @@ pub(crate) fn handle_global_action(
         "switch:server" => {
             switch_to_pane("server", panes, state, app_frame, layer_stack, audio, io_tx);
         }
-        "switch:logo" => {
-            switch_to_pane("logo", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
         "switch:automation" => {
             switch_to_pane("automation", panes, state, app_frame, layer_stack, audio, io_tx);
         }
