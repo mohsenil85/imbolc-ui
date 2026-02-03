@@ -351,11 +351,11 @@ impl AudioEngine {
     }
 
     /// Send a batch of automation messages as a single timestamped bundle.
-    pub fn send_automation_bundle(&self, messages: Vec<BackendMessage>) -> Result<(), String> {
+    pub fn send_automation_bundle(&self, messages: Vec<BackendMessage>, offset_secs: f64) -> Result<(), String> {
         if messages.is_empty() {
             return Ok(());
         }
         let backend = self.backend.as_ref().ok_or("Not connected")?;
-        backend.send_bundle(messages, 0.0).map_err(|e| e.to_string())
+        backend.send_bundle(messages, offset_secs).map_err(|e| e.to_string())
     }
 }

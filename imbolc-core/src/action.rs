@@ -235,6 +235,7 @@ pub enum ServerAction {
     Start { input_device: Option<String>, output_device: Option<String> },
     Stop,
     CompileSynthDefs,
+    CompileVstSynthDefs,
     LoadSynthDefs,
     Restart { input_device: Option<String>, output_device: Option<String> },
     RecordMaster,

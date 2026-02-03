@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use super::engine::AudioEngine;
+use super::engine::{AudioEngine, SCHEDULE_LOOKAHEAD_SECS};
 use crate::state::arpeggiator::{ArpDirection, ArpPlayState};
 use super::snapshot::{InstrumentSnapshot, SessionSnapshot};
 
@@ -54,7 +54,7 @@ pub fn tick_arpeggiator(
         arp.accumulator += elapsed.as_secs_f64() * steps_per_second;
 
         let step_duration_secs = if steps_per_second > 0.0 { 1.0 / steps_per_second } else { 0.0 };
-        let mut step_offset: f64 = 0.0;
+        let mut step_offset: f64 = SCHEDULE_LOOKAHEAD_SECS;
 
         while arp.accumulator >= 1.0 {
             arp.accumulator -= 1.0;

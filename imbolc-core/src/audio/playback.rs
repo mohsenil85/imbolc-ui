@@ -3,7 +3,7 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use super::commands::AudioFeedback;
-use super::engine::AudioEngine;
+use super::engine::{AudioEngine, SCHEDULE_LOOKAHEAD_SECS};
 use crate::state::arpeggiator::ArpPlayState;
 use super::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use crate::state::automation::AutomationTarget;
@@ -131,7 +131,7 @@ pub fn tick_playback(
                     continue;
                 }
 
-                let mut offset = ticks_from_old * secs_per_tick;
+                let mut offset = ticks_from_old * secs_per_tick + SCHEDULE_LOOKAHEAD_SECS;
                 // Apply swing: delay notes on offbeat positions (odd 8th notes)
                 if swing_amount > 0.0 {
                     let tpb = piano_roll.ticks_per_beat as f64;
@@ -175,7 +175,7 @@ pub fn tick_playback(
                     }
                 }
             }
-            let _ = engine.send_automation_bundle(automation_msgs);
+            let _ = engine.send_automation_bundle(automation_msgs, SCHEDULE_LOOKAHEAD_SECS);
         }
 
         let mut note_offs: Vec<(u32, u8, u32)> = Vec::new();
@@ -196,7 +196,7 @@ pub fn tick_playback(
                     arp.held_notes.retain(|&p| p != *pitch);
                     continue;
                 }
-                let offset = *remaining as f64 * secs_per_tick;
+                let offset = *remaining as f64 * secs_per_tick + SCHEDULE_LOOKAHEAD_SECS;
                 let _ = engine.release_voice(*instrument_id, *pitch, offset, instruments);
             }
         }

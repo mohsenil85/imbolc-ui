@@ -207,6 +207,7 @@ bindings = [
   { key = "c", action = "connect", description = "Connect to server" },
   { key = "d", action = "disconnect", description = "Disconnect" },
   { key = "b", action = "compile", description = "Build synthdefs" },
+  { key = "v", action = "compile_vst", description = "Build VST synthdefs" },
   { key = "l", action = "load_synthdefs", description = "Load synthdefs" },
   { key = "r", action = "refresh_devices", description = "Refresh audio devices" },
   { key = "R", action = "record_master", description = "Toggle master recording" },

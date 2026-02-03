@@ -12,6 +12,13 @@ use crate::state::arpeggiator::ArpPlayState;
 use super::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use crate::state::{InstrumentId, InstrumentState, SessionState};
 
+/// Deferred server connection: after spawning scsynth, wait before connecting
+/// so the server has time to initialize. Avoids blocking the audio thread.
+struct PendingServerConnect {
+    started_at: Instant,
+    server_addr: String,
+}
+
 struct RenderState {
     instrument_id: InstrumentId,
     loop_end: u32,
@@ -53,6 +60,8 @@ pub(crate) struct AudioThread {
     tick_accumulator: f64,
     /// Last time /status was polled from SuperCollider
     last_status_poll: Instant,
+    /// Deferred connection after server start (non-blocking restart)
+    pending_server_connect: Option<PendingServerConnect>,
 }
 
 fn config_synthdefs_dir() -> PathBuf {
@@ -92,6 +101,7 @@ impl AudioThread {
             last_export_progress: 0.0,
             tick_accumulator: 0.0,
             last_status_poll: Instant::now(),
+            pending_server_connect: None,
         }
     }
 
@@ -128,7 +138,8 @@ impl AudioThread {
     }
 
     fn drain_remaining_commands(&mut self) -> bool {
-        loop {
+        const MAX_DRAIN_PER_TICK: usize = 64;
+        for _ in 0..MAX_DRAIN_PER_TICK {
             match self.cmd_rx.try_recv() {
                 Ok(cmd) => {
                     if self.handle_cmd(cmd) {
@@ -139,6 +150,7 @@ impl AudioThread {
                 Err(mpsc::TryRecvError::Disconnected) => return true,
             }
         }
+        false
     }
 
     fn handle_cmd(&mut self, cmd: AudioCmd) -> bool {
@@ -180,6 +192,7 @@ impl AudioThread {
             }
             AudioCmd::RestartServer { input_device, output_device, server_addr } => {
                 self.engine.stop_server();
+                self.pending_server_connect = None;
                 self.send_server_status(ServerStatus::Stopped, "Restarting server...");
 
                 let start_result = self.engine.start_server_with_devices(
@@ -188,20 +201,12 @@ impl AudioThread {
                 );
                 match start_result {
                     Ok(()) => {
-                        self.send_server_status(ServerStatus::Running, "Server restarted, connecting...");
-                        let connect_result = self.engine.connect_with_monitor(&server_addr, self.monitor.clone());
-                        match connect_result {
-                            Ok(()) => {
-                                let message = match self.load_synthdefs_and_samples() {
-                                    Ok(()) => "Server restarted".to_string(),
-                                    Err(e) => format!("Restarted (synthdef warning: {})", e),
-                                };
-                                self.send_server_status(ServerStatus::Connected, message);
-                            }
-                            Err(err) => {
-                                self.send_server_status(ServerStatus::Error, err.to_string());
-                            }
-                        }
+                        // Defer connection: let scsynth initialize before connecting
+                        self.pending_server_connect = Some(PendingServerConnect {
+                            started_at: Instant::now(),
+                            server_addr,
+                        });
+                        self.send_server_status(ServerStatus::Starting, "Server starting...");
                     }
                     Err(err) => {
                         self.send_server_status(ServerStatus::Error, err);
@@ -645,6 +650,34 @@ impl AudioThread {
                 Err(e) => Err(e),
             };
             let _ = self.feedback_tx.send(AudioFeedback::CompileResult(result));
+        }
+
+        // Deferred server connection: wait for scsynth to initialize before connecting
+        if let Some(ref pending) = self.pending_server_connect {
+            if pending.started_at.elapsed() >= Duration::from_millis(500) {
+                let server_addr = pending.server_addr.clone();
+                self.pending_server_connect = None;
+
+                // Check if scsynth is still alive after startup
+                if let Some(msg) = self.engine.check_server_health() {
+                    self.send_server_status(ServerStatus::Error, msg);
+                } else {
+                    self.send_server_status(ServerStatus::Running, "Server started, connecting...");
+                    let connect_result = self.engine.connect_with_monitor(&server_addr, self.monitor.clone());
+                    match connect_result {
+                        Ok(()) => {
+                            let message = match self.load_synthdefs_and_samples() {
+                                Ok(()) => "Server restarted".to_string(),
+                                Err(e) => format!("Restarted (synthdef warning: {})", e),
+                            };
+                            self.send_server_status(ServerStatus::Connected, message);
+                        }
+                        Err(err) => {
+                            self.send_server_status(ServerStatus::Error, err.to_string());
+                        }
+                    }
+                }
+            }
         }
 
         if let Some(msg) = self.engine.check_server_health() {

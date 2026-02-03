@@ -25,4 +25,5 @@ SynthDef(\imbolc_vst_effect, { |in=1024, out=1026|
 }).writeDefFile(dir);
 
 "VST SynthDefs written to: ".post; dir.postln;
+0.exit;
 )

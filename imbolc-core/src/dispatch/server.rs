@@ -43,6 +43,17 @@ pub(super) fn dispatch_server(
                 }
             }
         }
+        ServerAction::CompileVstSynthDefs => {
+            let scd_path = std::path::Path::new("synthdefs/compile_vst.scd");
+            match audio.compile_synthdefs_async(scd_path) {
+                Ok(()) => {
+                    result.push_status(audio.status(), "Compiling VST synthdefs...");
+                }
+                Err(e) => {
+                    result.push_status(audio.status(), &e);
+                }
+            }
+        }
         ServerAction::LoadSynthDefs => {
             // Load built-in synthdefs
             let synthdef_dir = std::path::Path::new("synthdefs");

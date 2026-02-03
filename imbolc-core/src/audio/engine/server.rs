@@ -118,32 +118,18 @@ impl AudioEngine {
         }
 
         match child {
-            Some(mut c) => {
+            Some(c) => {
+                self.scsynth_process = Some(c);
                 self.server_status = ServerStatus::Running;
-                thread::sleep(Duration::from_millis(500));
 
-                // Verify scsynth didn't crash during startup
-                match c.try_wait() {
-                    Ok(Some(status)) => {
-                        self.server_status = ServerStatus::Error;
-                        Err(format!(
-                            "scsynth crashed ({}) — see {}",
-                            status, log_path.display()
-                        ))
-                    }
-                    _ => {
-                        self.scsynth_process = Some(c);
-
-                        // On Linux with pw-jack, WirePlumber may not auto-connect
-                        // SuperCollider's JACK outputs to the hardware. Explicitly
-                        // connect them so audio reaches the speakers.
-                        if use_pw_jack {
-                            Self::connect_jack_ports();
-                        }
-
-                        Ok(())
-                    }
+                // On Linux with pw-jack, WirePlumber may not auto-connect
+                // SuperCollider's JACK outputs to the hardware. Explicitly
+                // connect them so audio reaches the speakers.
+                if use_pw_jack {
+                    Self::connect_jack_ports();
                 }
+
+                Ok(())
             }
             None => {
                 self.server_status = ServerStatus::Error;

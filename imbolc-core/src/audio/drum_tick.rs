@@ -2,7 +2,7 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use super::commands::AudioFeedback;
-use super::engine::AudioEngine;
+use super::engine::{AudioEngine, SCHEDULE_LOOKAHEAD_SECS};
 use super::snapshot::{InstrumentSnapshot, SessionSnapshot};
 
 pub fn tick_drum_sequencer(
@@ -27,22 +27,38 @@ pub fn tick_drum_sequencer(
         let pattern_length = seq.pattern().length;
         let steps_per_beat = 4.0_f64;
         let steps_per_second = (bpm as f64 / 60.0) * steps_per_beat;
+        if steps_per_second <= 0.0 {
+            continue;
+        }
+        let secs_per_step_unit = 1.0 / steps_per_second;
 
+        let old_accum = seq.step_accumulator;
         seq.step_accumulator += elapsed.as_secs_f64() * steps_per_second;
 
-        // Swing: odd-numbered steps need a higher threshold to fire (delayed)
-        let next_step = (seq.current_step + 1) % pattern_length;
-        let swing_threshold: f64 = if seq.swing_amount > 0.0 && next_step % 2 == 1 {
-            1.0 + seq.swing_amount as f64 * 0.5
-        } else if seq.swing_amount > 0.0 && seq.current_step % 2 == 1 {
-            // After a swung step, the following even step comes sooner
-            1.0 - seq.swing_amount as f64 * 0.5
-        } else {
-            1.0
-        };
+        // Collect all steps that should fire in this tick with their precise offsets.
+        // Each entry: (step_index, pattern_index, offset_secs)
+        let mut steps_to_play: Vec<(usize, usize, f64)> = Vec::new();
+        let mut threshold_consumed: f64 = 0.0;
 
-        while seq.step_accumulator >= swing_threshold {
+        loop {
+            // Swing threshold depends on which step boundary we're crossing
+            let next_step = (seq.current_step + 1) % pattern_length;
+            let swing_threshold: f64 = if seq.swing_amount > 0.0 && next_step % 2 == 1 {
+                1.0 + seq.swing_amount as f64 * 0.5
+            } else if seq.swing_amount > 0.0 && seq.current_step % 2 == 1 {
+                1.0 - seq.swing_amount as f64 * 0.5
+            } else {
+                1.0
+            };
+
+            if seq.step_accumulator < swing_threshold {
+                break;
+            }
+
             seq.step_accumulator -= swing_threshold;
+            threshold_consumed += swing_threshold;
+
+            // Advance step
             let next = seq.current_step + 1;
             if next >= pattern_length {
                 // Pattern wrapped — advance chain if enabled
@@ -57,28 +73,38 @@ pub fn tick_drum_sequencer(
             } else {
                 seq.current_step = next;
             }
+
+            // Precise offset: time from tick start to this step crossing
+            let offset_secs = ((threshold_consumed - old_accum) * secs_per_step_unit).max(0.0)
+                + SCHEDULE_LOOKAHEAD_SECS;
+
+            steps_to_play.push((seq.current_step, seq.current_pattern, offset_secs));
         }
 
-        if seq.last_played_step != Some(seq.current_step) {
+        // Handle initial step when sequencer first starts (no threshold crossed yet)
+        if steps_to_play.is_empty() && seq.last_played_step != Some(seq.current_step) {
+            steps_to_play.push((seq.current_step, seq.current_pattern, SCHEDULE_LOOKAHEAD_SECS));
+        }
+
+        // Play each step with its precise offset
+        for &(step, pattern_idx, offset_secs) in &steps_to_play {
             if engine.is_running() && !instrument.mute {
-                let current_step = seq.current_step;
-                let current_pattern = seq.current_pattern;
-                let pattern = &seq.patterns[current_pattern];
+                let pattern = &seq.patterns[pattern_idx];
                 for (pad_idx, pad) in seq.pads.iter().enumerate() {
                     if let Some(buffer_id) = pad.buffer_id {
-                        if let Some(step) = pattern
+                        if let Some(step_data) = pattern
                             .steps
                             .get(pad_idx)
-                            .and_then(|s| s.get(current_step))
+                            .and_then(|s| s.get(step))
                         {
-                            if step.active {
+                            if step_data.active {
                                 // Probability check: skip hit if random exceeds probability
-                                if step.probability < 1.0 {
+                                if step_data.probability < 1.0 {
                                     *rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                                     let r = ((*rng_state >> 33) as f32) / (u32::MAX as f32);
-                                    if r > step.probability { continue; }
+                                    if r > step_data.probability { continue; }
                                 }
-                                let mut amp = (step.velocity as f32 / 127.0) * pad.level;
+                                let mut amp = (step_data.velocity as f32 / 127.0) * pad.level;
                                 // Velocity humanization
                                 if session.humanize_velocity > 0.0 {
                                     *rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -86,12 +112,12 @@ pub fn tick_drum_sequencer(
                                     let jitter = (r - 0.5) * 2.0 * session.humanize_velocity * (30.0 / 127.0);
                                     amp = (amp + jitter).clamp(0.01, 1.0);
                                 }
-                                let total_pitch = pad.pitch as i16 + step.pitch_offset as i16;
+                                let total_pitch = pad.pitch as i16 + step_data.pitch_offset as i16;
                                 let pitch_rate = 2.0_f32.powf(total_pitch as f32 / 12.0);
                                 let rate = if pad.reverse { -pitch_rate } else { pitch_rate };
                                 let _ = engine.play_drum_hit_to_instrument(
                                     buffer_id, amp, instrument.id,
-                                    pad.slice_start, pad.slice_end, rate, 0.0,
+                                    pad.slice_start, pad.slice_end, rate, offset_secs,
                                 );
                             }
                         }
@@ -100,9 +126,9 @@ pub fn tick_drum_sequencer(
             }
             let _ = feedback_tx.send(AudioFeedback::DrumSequencerStep {
                 instrument_id: instrument.id,
-                step: seq.current_step,
+                step,
             });
-            seq.last_played_step = Some(seq.current_step);
+            seq.last_played_step = Some(step);
         }
     }
 }

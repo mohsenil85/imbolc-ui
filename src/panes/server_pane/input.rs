@@ -13,6 +13,7 @@ impl ServerPane {
             "connect" => Action::Server(ServerAction::Connect),
             "disconnect" => Action::Server(ServerAction::Disconnect),
             "compile" => Action::Server(ServerAction::CompileSynthDefs),
+            "compile_vst" => Action::Server(ServerAction::CompileVstSynthDefs),
             "load_synthdefs" => Action::Server(ServerAction::LoadSynthDefs),
             "record_master" => Action::Server(ServerAction::RecordMaster),
             "refresh_devices" => {

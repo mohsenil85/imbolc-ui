@@ -36,6 +36,12 @@ pub const GROUP_SAFETY: i32 = 999;
 pub const WAVETABLE_BUFNUM_START: i32 = 100;
 pub const WAVETABLE_NUM_TABLES: i32 = 8;
 
+/// Fixed scheduling lookahead for sequenced playback (15ms).
+/// Events are scheduled this far ahead of "now" to absorb tick jitter.
+/// Only applies to sequenced playback (piano roll, drum sequencer, arpeggiator),
+/// not to live/manual triggers.
+pub const SCHEDULE_LOOKAHEAD_SECS: f64 = 0.015;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
     Stopped,
