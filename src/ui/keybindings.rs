@@ -6,6 +6,7 @@ use serde::Deserialize;
 use super::keymap::{KeyBinding, KeyPattern, Keymap};
 use super::layer::Layer;
 use super::KeyCode;
+use super::action_id::parse_action_id;
 
 /// Raw TOML structure for the v2 keybindings config file
 #[derive(Deserialize)]
@@ -138,17 +139,24 @@ fn merge_config(base: &mut KeybindingConfig, user: KeybindingConfig) {
     }
 }
 
-fn build_bindings(raw: &[RawBinding]) -> Vec<KeyBinding> {
+fn build_bindings(layer_name: &str, raw: &[RawBinding]) -> Vec<KeyBinding> {
     raw.iter()
         .filter_map(|b| {
-            match parse_key(&b.key) {
-                Some(pattern) => Some(KeyBinding {
+            let pattern = match parse_key(&b.key) {
+                Some(p) => p,
+                None => {
+                    eprintln!("Warning: ignoring unknown key '{}' in keybindings", b.key);
+                    return None;
+                }
+            };
+            match parse_action_id(layer_name, &b.action) {
+                Some(action_id) => Some(KeyBinding {
                     pattern,
-                    action: intern(b.action.clone()),
+                    action: action_id,
                     description: intern(b.description.clone()),
                 }),
                 None => {
-                    eprintln!("Warning: ignoring unknown key '{}' in keybindings", b.key);
+                    eprintln!("Warning: ignoring unknown action '{}' in layer '{}'", b.action, layer_name);
                     None
                 }
             }
@@ -161,7 +169,7 @@ fn build_layers(layers: &HashMap<String, LayerConfig>) -> Vec<Layer> {
         .iter()
         .map(|(name, config)| Layer {
             name: intern(name.clone()),
-            keymap: Keymap::from_bindings(build_bindings(&config.bindings)),
+            keymap: Keymap::from_bindings(build_bindings(name, &config.bindings)),
             transparent: config.transparent,
         })
         .collect()
@@ -175,7 +183,7 @@ fn build_pane_keymaps(layers: &HashMap<String, LayerConfig>) -> HashMap<String, 
         .map(|(name, config)| {
             (
                 name.clone(),
-                Keymap::from_bindings(build_bindings(&config.bindings)),
+                Keymap::from_bindings(build_bindings(name, &config.bindings)),
             )
         })
         .collect()

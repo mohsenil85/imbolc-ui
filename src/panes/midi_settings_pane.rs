@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::action::{Action, MidiAction};
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, MidiSettingsActionId};
 use crate::ui::{Rect, RenderBuf, Color, InputEvent, Keymap, Pane, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,9 +35,9 @@ impl Pane for MidiSettingsPane {
         "midi_settings"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         match action {
-            "switch_section" => {
+            ActionId::MidiSettings(MidiSettingsActionId::SwitchSection) => {
                 self.section = match self.section {
                     Section::Ports => Section::CcMappings,
                     Section::CcMappings => Section::Settings,
@@ -44,7 +45,7 @@ impl Pane for MidiSettingsPane {
                 };
                 Action::None
             }
-            "up" => {
+            ActionId::MidiSettings(MidiSettingsActionId::Up) => {
                 match self.section {
                     Section::Ports => {
                         self.port_cursor = self.port_cursor.saturating_sub(1);
@@ -56,7 +57,7 @@ impl Pane for MidiSettingsPane {
                 }
                 Action::None
             }
-            "down" => {
+            ActionId::MidiSettings(MidiSettingsActionId::Down) => {
                 match self.section {
                     Section::Ports => {
                         let max = state.midi_port_names.len().saturating_sub(1);
@@ -70,17 +71,17 @@ impl Pane for MidiSettingsPane {
                 }
                 Action::None
             }
-            "connect" => {
+            ActionId::MidiSettings(MidiSettingsActionId::Connect) => {
                 if self.section == Section::Ports && !state.midi_port_names.is_empty() {
                     Action::Midi(MidiAction::ConnectPort(self.port_cursor))
                 } else {
                     Action::None
                 }
             }
-            "disconnect" => {
+            ActionId::MidiSettings(MidiSettingsActionId::Disconnect) => {
                 Action::Midi(MidiAction::DisconnectPort)
             }
-            "remove_mapping" => {
+            ActionId::MidiSettings(MidiSettingsActionId::RemoveMapping) => {
                 if self.section == Section::CcMappings {
                     let mappings = &state.session.midi_recording.cc_mappings;
                     if let Some(m) = mappings.get(self.mapping_cursor) {
@@ -91,20 +92,20 @@ impl Pane for MidiSettingsPane {
                 }
                 Action::None
             }
-            "toggle_passthrough" => {
+            ActionId::MidiSettings(MidiSettingsActionId::TogglePassthrough) => {
                 Action::Midi(MidiAction::ToggleNotePassthrough)
             }
-            "set_channel_all" => {
+            ActionId::MidiSettings(MidiSettingsActionId::SetChannelAll) => {
                 Action::Midi(MidiAction::SetChannelFilter(None))
             }
-            "set_live_instrument" => {
+            ActionId::MidiSettings(MidiSettingsActionId::SetLiveInstrument) => {
                 if let Some(inst) = state.instruments.selected_instrument() {
                     Action::Midi(MidiAction::SetLiveInputInstrument(Some(inst.id)))
                 } else {
                     Action::None
                 }
             }
-            "clear_live_instrument" => {
+            ActionId::MidiSettings(MidiSettingsActionId::ClearLiveInstrument) => {
                 Action::Midi(MidiAction::SetLiveInputInstrument(None))
             }
             _ => Action::None,

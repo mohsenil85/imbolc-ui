@@ -2,6 +2,7 @@
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, Action, InputEvent, KeyCode, MouseButton, MouseEvent, MouseEventKind, PianoRollAction, translate_key};
+use crate::ui::action_id::{ActionId, PianoRollActionId, ModeActionId};
 
 use super::PianoRollPane;
 
@@ -16,10 +17,10 @@ impl PianoRollPane {
 }
 
 impl PianoRollPane {
-    pub(super) fn handle_action_impl(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    pub(super) fn handle_action_impl(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         match action {
             // Piano mode actions (from piano layer)
-            "piano:escape" => {
+            ActionId::Mode(ModeActionId::PianoEscape) => {
                 let was_active = self.piano.is_active();
                 self.piano.handle_escape();
                 if was_active && !self.piano.is_active() {
@@ -28,20 +29,20 @@ impl PianoRollPane {
                     Action::None
                 }
             }
-            "piano:octave_down" => {
+            ActionId::Mode(ModeActionId::PianoOctaveDown) => {
                 if self.piano.octave_down() {
                     self.center_view_on_piano_octave();
                 }
                 Action::None
             }
-            "piano:octave_up" => {
+            ActionId::Mode(ModeActionId::PianoOctaveUp) => {
                 if self.piano.octave_up() {
                     self.center_view_on_piano_octave();
                 }
                 Action::None
             }
-            "piano:space" => Action::PianoRoll(PianoRollAction::PlayStopRecord),
-            "piano:key" => {
+            ActionId::Mode(ModeActionId::PianoSpace) => Action::PianoRoll(PianoRollAction::PlayStopRecord),
+            ActionId::Mode(ModeActionId::PianoKey) => {
                 if let KeyCode::Char(c) = event.key {
                     let c = translate_key(c, state.keyboard_layout);
                     if let Some(pitches) = self.piano.key_to_pitches(c) {
@@ -61,7 +62,7 @@ impl PianoRollPane {
                 Action::None
             }
             // Normal grid navigation
-            "up" => {
+            ActionId::PianoRoll(PianoRollActionId::Up) => {
                 self.selection_anchor = None;
                 if self.cursor_pitch < 127 {
                     self.cursor_pitch += 1;
@@ -69,7 +70,7 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "down" => {
+            ActionId::PianoRoll(PianoRollActionId::Down) => {
                 self.selection_anchor = None;
                 if self.cursor_pitch > 0 {
                     self.cursor_pitch -= 1;
@@ -77,20 +78,20 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "right" => {
+            ActionId::PianoRoll(PianoRollActionId::Right) => {
                 self.selection_anchor = None;
                 self.cursor_tick += self.ticks_per_cell();
                 self.scroll_to_cursor();
                 Action::None
             }
-            "left" => {
+            ActionId::PianoRoll(PianoRollActionId::Left) => {
                 self.selection_anchor = None;
                 let step = self.ticks_per_cell();
                 self.cursor_tick = self.cursor_tick.saturating_sub(step);
                 self.scroll_to_cursor();
                 Action::None
             }
-            "select_up" => {
+            ActionId::PianoRoll(PianoRollActionId::SelectUp) => {
                 if self.selection_anchor.is_none() {
                     self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
                 }
@@ -100,7 +101,7 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "select_down" => {
+            ActionId::PianoRoll(PianoRollActionId::SelectDown) => {
                 if self.selection_anchor.is_none() {
                     self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
                 }
@@ -110,7 +111,7 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "select_right" => {
+            ActionId::PianoRoll(PianoRollActionId::SelectRight) => {
                 if self.selection_anchor.is_none() {
                     self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
                 }
@@ -118,7 +119,7 @@ impl PianoRollPane {
                 self.scroll_to_cursor();
                 Action::None
             }
-            "select_left" => {
+            ActionId::PianoRoll(PianoRollActionId::SelectLeft) => {
                 if self.selection_anchor.is_none() {
                     self.selection_anchor = Some((self.cursor_tick, self.cursor_pitch));
                 }
@@ -127,57 +128,57 @@ impl PianoRollPane {
                 self.scroll_to_cursor();
                 Action::None
             }
-            "toggle_note" => Action::PianoRoll(PianoRollAction::ToggleNote {
+            ActionId::PianoRoll(PianoRollActionId::ToggleNote) => Action::PianoRoll(PianoRollAction::ToggleNote {
                 pitch: self.cursor_pitch,
                 tick: self.cursor_tick,
                 duration: self.default_duration,
                 velocity: self.default_velocity,
                 track: self.current_track,
             }),
-            "grow_duration" => {
+            ActionId::PianoRoll(PianoRollActionId::GrowDuration) => {
                 self.adjust_default_duration(self.ticks_per_cell() as i32);
                 Action::None
             }
-            "shrink_duration" => {
+            ActionId::PianoRoll(PianoRollActionId::ShrinkDuration) => {
                 self.adjust_default_duration(-(self.ticks_per_cell() as i32));
                 Action::None
             }
-            "vel_up" => {
+            ActionId::PianoRoll(PianoRollActionId::VelUp) => {
                 self.adjust_default_velocity(10);
                 Action::None
             }
-            "vel_down" => {
+            ActionId::PianoRoll(PianoRollActionId::VelDown) => {
                 self.adjust_default_velocity(-10);
                 Action::None
             }
-            "play_stop" => Action::PianoRoll(PianoRollAction::PlayStop),
-            "loop" => Action::PianoRoll(PianoRollAction::ToggleLoop),
-            "loop_start" => Action::PianoRoll(PianoRollAction::SetLoopStart(self.cursor_tick)),
-            "loop_end" => Action::PianoRoll(PianoRollAction::SetLoopEnd(self.cursor_tick)),
-            "octave_up" => {
+            ActionId::PianoRoll(PianoRollActionId::PlayStop) => Action::PianoRoll(PianoRollAction::PlayStop),
+            ActionId::PianoRoll(PianoRollActionId::Loop) => Action::PianoRoll(PianoRollAction::ToggleLoop),
+            ActionId::PianoRoll(PianoRollActionId::LoopStart) => Action::PianoRoll(PianoRollAction::SetLoopStart(self.cursor_tick)),
+            ActionId::PianoRoll(PianoRollActionId::LoopEnd) => Action::PianoRoll(PianoRollAction::SetLoopEnd(self.cursor_tick)),
+            ActionId::PianoRoll(PianoRollActionId::OctaveUp) => {
                 self.selection_anchor = None;
                 self.cursor_pitch = (self.cursor_pitch as i16 + 12).min(127) as u8;
                 self.scroll_to_cursor();
                 Action::None
             }
-            "octave_down" => {
+            ActionId::PianoRoll(PianoRollActionId::OctaveDown) => {
                 self.selection_anchor = None;
                 self.cursor_pitch = (self.cursor_pitch as i16 - 12).max(0) as u8;
                 self.scroll_to_cursor();
                 Action::None
             }
-            "home" => {
+            ActionId::PianoRoll(PianoRollActionId::Home) => {
                 self.selection_anchor = None;
                 self.cursor_tick = 0;
                 self.view_start_tick = 0;
                 Action::None
             }
-            "end" => {
+            ActionId::PianoRoll(PianoRollActionId::End) => {
                 self.selection_anchor = None;
                 self.jump_to_end();
                 Action::None
             }
-            "zoom_in" => {
+            ActionId::PianoRoll(PianoRollActionId::ZoomIn) => {
                 if self.zoom_level > 1 {
                     self.zoom_level -= 1;
                     self.cursor_tick = self.snap_tick(self.cursor_tick);
@@ -185,7 +186,7 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "zoom_out" => {
+            ActionId::PianoRoll(PianoRollActionId::ZoomOut) => {
                 if self.zoom_level < 5 {
                     self.zoom_level += 1;
                     self.cursor_tick = self.snap_tick(self.cursor_tick);
@@ -193,28 +194,28 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "time_sig" => Action::PianoRoll(PianoRollAction::CycleTimeSig),
-            "toggle_poly" => Action::PianoRoll(PianoRollAction::TogglePolyMode(self.current_track)),
-            "render_to_wav" => Action::PianoRoll(PianoRollAction::RenderToWav(self.current_instrument_id(state))),
-            "bounce_to_wav" => {
+            ActionId::PianoRoll(PianoRollActionId::TimeSig) => Action::PianoRoll(PianoRollAction::CycleTimeSig),
+            ActionId::PianoRoll(PianoRollActionId::TogglePoly) => Action::PianoRoll(PianoRollAction::TogglePolyMode(self.current_track)),
+            ActionId::PianoRoll(PianoRollActionId::RenderToWav) => Action::PianoRoll(PianoRollAction::RenderToWav(self.current_instrument_id(state))),
+            ActionId::PianoRoll(PianoRollActionId::BounceToWav) => {
                 if state.pending_export.is_some() {
                     Action::PianoRoll(PianoRollAction::CancelExport)
                 } else {
                     Action::PianoRoll(PianoRollAction::BounceToWav)
                 }
             }
-            "export_stems" => {
+            ActionId::PianoRoll(PianoRollActionId::ExportStems) => {
                 if state.pending_export.is_some() {
                     Action::PianoRoll(PianoRollAction::CancelExport)
                 } else {
                     Action::PianoRoll(PianoRollAction::ExportStems)
                 }
             }
-            "toggle_automation" => {
+            ActionId::PianoRoll(PianoRollActionId::ToggleAutomation) => {
                 self.automation_overlay_visible = !self.automation_overlay_visible;
                 Action::None
             }
-            "automation_lane_prev" => {
+            ActionId::PianoRoll(PianoRollActionId::AutomationLanePrev) => {
                 if self.automation_overlay_visible {
                     match self.automation_overlay_lane_idx {
                         Some(idx) if idx > 0 => {
@@ -225,7 +226,7 @@ impl PianoRollPane {
                 }
                 Action::None
             }
-            "automation_lane_next" => {
+            ActionId::PianoRoll(PianoRollActionId::AutomationLaneNext) => {
                 if self.automation_overlay_visible {
                     let next = match self.automation_overlay_lane_idx {
                         Some(idx) => idx + 1,

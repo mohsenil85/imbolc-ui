@@ -7,6 +7,7 @@ use std::any::Any;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, MouseEvent, Pane, PianoKeyboard, ToggleResult};
+use crate::ui::action_id::ActionId;
 
 pub struct PianoRollPane {
     keymap: Keymap,
@@ -167,7 +168,7 @@ impl Pane for PianoRollPane {
         }
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         self.handle_action_impl(action, event, state)
     }
 
@@ -235,6 +236,7 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use crate::ui::{InputEvent, KeyCode, Modifiers, PianoRollAction};
+    use crate::ui::action_id::PianoRollActionId;
 
     fn dummy_event() -> InputEvent {
         InputEvent::new(KeyCode::Char('x'), Modifiers::default())
@@ -246,17 +248,17 @@ mod tests {
         let state = AppState::new();
 
         let start_pitch = pane.cursor_pitch;
-        pane.handle_action("up", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::Up), &dummy_event(), &state);
         assert_eq!(pane.cursor_pitch, start_pitch + 1);
 
-        pane.handle_action("down", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::Down), &dummy_event(), &state);
         assert_eq!(pane.cursor_pitch, start_pitch);
 
         let start_tick = pane.cursor_tick;
-        pane.handle_action("right", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::Right), &dummy_event(), &state);
         assert!(pane.cursor_tick > start_tick);
 
-        pane.handle_action("left", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::Left), &dummy_event(), &state);
         assert_eq!(pane.cursor_tick, start_tick);
     }
 
@@ -266,10 +268,10 @@ mod tests {
         let state = AppState::new();
 
         pane.zoom_level = 1;
-        pane.handle_action("zoom_in", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::ZoomIn), &dummy_event(), &state);
         assert_eq!(pane.zoom_level, 1);
 
-        pane.handle_action("zoom_out", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::ZoomOut), &dummy_event(), &state);
         assert_eq!(pane.zoom_level, 2);
     }
 
@@ -280,7 +282,7 @@ mod tests {
 
         pane.cursor_tick = 960;
         pane.view_start_tick = 480;
-        pane.handle_action("home", &dummy_event(), &state);
+        pane.handle_action(ActionId::PianoRoll(PianoRollActionId::Home), &dummy_event(), &state);
         assert_eq!(pane.cursor_tick, 0);
         assert_eq!(pane.view_start_tick, 0);
     }
@@ -290,7 +292,7 @@ mod tests {
         let mut pane = PianoRollPane::new(Keymap::new());
         let state = AppState::new();
 
-        let action = pane.handle_action("toggle_note", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::PianoRoll(PianoRollActionId::ToggleNote), &dummy_event(), &state);
         assert!(matches!(action, Action::PianoRoll(PianoRollAction::ToggleNote { .. })));
     }
 }

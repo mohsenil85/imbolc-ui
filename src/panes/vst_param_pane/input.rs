@@ -1,14 +1,15 @@
 use crate::state::automation::AutomationTarget;
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, VstParamsActionId};
 use crate::ui::{Action, AutomationAction, InputEvent, KeyCode, VstParamAction};
 
 use super::VstParamPane;
 
 impl VstParamPane {
-    pub(super) fn handle_action_impl(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    pub(super) fn handle_action_impl(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         if self.search_active {
             return match action {
-                "escape" | "cancel" => {
+                ActionId::VstParams(VstParamsActionId::Escape) | ActionId::VstParams(VstParamsActionId::Cancel) => {
                     self.search_active = false;
                     self.search_text.clear();
                     self.rebuild_filter(state);
@@ -24,7 +25,7 @@ impl VstParamPane {
         let target = self.target;
 
         match action {
-            "up" | "prev" => {
+            ActionId::VstParams(VstParamsActionId::Up) | ActionId::VstParams(VstParamsActionId::Prev) => {
                 if self.selected_param > 0 {
                     self.selected_param -= 1;
                     // Adjust scroll
@@ -34,13 +35,13 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "down" | "next" => {
+            ActionId::VstParams(VstParamsActionId::Down) | ActionId::VstParams(VstParamsActionId::Next) => {
                 if !self.filtered_indices.is_empty() && self.selected_param + 1 < self.filtered_indices.len() {
                     self.selected_param += 1;
                 }
                 Action::None
             }
-            "left" | "adjust_down" => {
+            ActionId::VstParams(VstParamsActionId::Left) | ActionId::VstParams(VstParamsActionId::AdjustDown) => {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
@@ -49,7 +50,7 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "right" | "adjust_up" => {
+            ActionId::VstParams(VstParamsActionId::Right) | ActionId::VstParams(VstParamsActionId::AdjustUp) => {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
@@ -58,7 +59,7 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "coarse_left" => {
+            ActionId::VstParams(VstParamsActionId::CoarseLeft) => {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
@@ -67,7 +68,7 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "coarse_right" => {
+            ActionId::VstParams(VstParamsActionId::CoarseRight) => {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
@@ -76,7 +77,7 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "reset" => {
+            ActionId::VstParams(VstParamsActionId::Reset) => {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
@@ -85,7 +86,7 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "automate" => {
+            ActionId::VstParams(VstParamsActionId::Automate) => {
                 if let Some(&param_idx) = self.filtered_indices.get(self.selected_param) {
                     let idx = self.get_param_index(param_idx, state);
                     if let Some(idx) = idx {
@@ -96,20 +97,20 @@ impl VstParamPane {
                 }
                 Action::None
             }
-            "discover" => {
+            ActionId::VstParams(VstParamsActionId::Discover) => {
                 Action::VstParam(VstParamAction::DiscoverParams(instrument_id, target))
             }
-            "search" => {
+            ActionId::VstParams(VstParamsActionId::Search) => {
                 self.search_active = true;
                 self.search_text.clear();
                 Action::None
             }
-            "goto_top" => {
+            ActionId::VstParams(VstParamsActionId::GotoTop) => {
                 self.selected_param = 0;
                 self.scroll_offset = 0;
                 Action::None
             }
-            "goto_bottom" => {
+            ActionId::VstParams(VstParamsActionId::GotoBottom) => {
                 if !self.filtered_indices.is_empty() {
                     self.selected_param = self.filtered_indices.len() - 1;
                 }

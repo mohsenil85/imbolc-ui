@@ -3,9 +3,10 @@ use super::{CHANNEL_WIDTH, NUM_VISIBLE_CHANNELS, NUM_VISIBLE_BUSES, METER_HEIGHT
 use crate::state::{AppState, InstrumentId, MixerSelection};
 use crate::ui::{Rect, Action, InputEvent, MixerAction, InstrumentAction, NavAction, MouseEvent, MouseEventKind, MouseButton};
 use crate::ui::layout_helpers::center_rect;
+use crate::ui::action_id::{ActionId, MixerActionId};
 
 impl MixerPane {
-    pub(super) fn handle_action_impl(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    pub(super) fn handle_action_impl(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         // Detail mode handling
         if self.detail_mode.is_some() {
             return self.handle_detail_action(action, state);
@@ -13,44 +14,44 @@ impl MixerPane {
 
         // Overview mode handling
         match action {
-            "prev" => { self.send_target = None; Action::Mixer(MixerAction::Move(-1)) }
-            "next" => { self.send_target = None; Action::Mixer(MixerAction::Move(1)) }
-            "first" => Action::Mixer(MixerAction::Jump(1)),
-            "last" => Action::Mixer(MixerAction::Jump(-1)),
-            "level_up" => {
+            ActionId::Mixer(MixerActionId::Prev) => { self.send_target = None; Action::Mixer(MixerAction::Move(-1)) }
+            ActionId::Mixer(MixerActionId::Next) => { self.send_target = None; Action::Mixer(MixerAction::Move(1)) }
+            ActionId::Mixer(MixerActionId::First) => Action::Mixer(MixerAction::Jump(1)),
+            ActionId::Mixer(MixerActionId::Last) => Action::Mixer(MixerAction::Jump(-1)),
+            ActionId::Mixer(MixerActionId::LevelUp) => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, 0.05))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(0.05))
                 }
             }
-            "level_down" => {
+            ActionId::Mixer(MixerActionId::LevelDown) => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, -0.05))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(-0.05))
                 }
             }
-            "level_up_big" => {
+            ActionId::Mixer(MixerActionId::LevelUpBig) => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, 0.10))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(0.10))
                 }
             }
-            "level_down_big" => {
+            ActionId::Mixer(MixerActionId::LevelDownBig) => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::AdjustSend(bus_id, -0.10))
                 } else {
                     Action::Mixer(MixerAction::AdjustLevel(-0.10))
                 }
             }
-            "mute" => Action::Mixer(MixerAction::ToggleMute),
-            "solo" => Action::Mixer(MixerAction::ToggleSolo),
-            "output" => Action::Mixer(MixerAction::CycleOutput),
-            "output_rev" => Action::Mixer(MixerAction::CycleOutputReverse),
-            "section" => { self.send_target = None; Action::Mixer(MixerAction::CycleSection) }
-            "send_next" => {
+            ActionId::Mixer(MixerActionId::Mute) => Action::Mixer(MixerAction::ToggleMute),
+            ActionId::Mixer(MixerActionId::Solo) => Action::Mixer(MixerAction::ToggleSolo),
+            ActionId::Mixer(MixerActionId::Output) => Action::Mixer(MixerAction::CycleOutput),
+            ActionId::Mixer(MixerActionId::OutputRev) => Action::Mixer(MixerAction::CycleOutputReverse),
+            ActionId::Mixer(MixerActionId::Section) => { self.send_target = None; Action::Mixer(MixerAction::CycleSection) }
+            ActionId::Mixer(MixerActionId::SendNext) => {
                 self.send_target = match self.send_target {
                     None => Some(1),
                     Some(8) => None,
@@ -58,7 +59,7 @@ impl MixerPane {
                 };
                 Action::None
             }
-            "send_prev" => {
+            ActionId::Mixer(MixerActionId::SendPrev) => {
                 self.send_target = match self.send_target {
                     None => Some(8),
                     Some(1) => None,
@@ -66,15 +67,15 @@ impl MixerPane {
                 };
                 Action::None
             }
-            "send_toggle" => {
+            ActionId::Mixer(MixerActionId::SendToggle) => {
                 if let Some(bus_id) = self.send_target {
                     Action::Mixer(MixerAction::ToggleSend(bus_id))
                 } else {
                     Action::None
                 }
             }
-            "clear_send" | "escape" => { self.send_target = None; Action::None }
-            "enter_detail" => {
+            ActionId::Mixer(MixerActionId::ClearSend) | ActionId::Mixer(MixerActionId::Escape) => { self.send_target = None; Action::None }
+            ActionId::Mixer(MixerActionId::EnterDetail) => {
                 if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
                     if idx < state.instruments.instruments.len() {
                         self.detail_mode = Some(idx);
@@ -172,61 +173,61 @@ impl MixerPane {
         }
     }
 
-    fn handle_detail_action(&mut self, action: &str, state: &AppState) -> Action {
+    fn handle_detail_action(&mut self, action: ActionId, state: &AppState) -> Action {
         let Some(inst_id) = self.detail_instrument_id(state) else {
             self.detail_mode = None;
             return Action::None;
         };
 
         match action {
-            "escape" | "clear_send" => {
+            ActionId::Mixer(MixerActionId::Escape) | ActionId::Mixer(MixerActionId::ClearSend) => {
                 self.detail_mode = None;
                 self.send_target = None;
                 Action::None
             }
-            "section" => {
+            ActionId::Mixer(MixerActionId::Section) => {
                 self.detail_section = self.detail_section.next();
                 self.detail_cursor = 0;
                 Action::None
             }
-            "section_prev" => {
+            ActionId::Mixer(MixerActionId::SectionPrev) => {
                 self.detail_section = self.detail_section.prev();
                 self.detail_cursor = 0;
                 Action::None
             }
-            "level_up" | "prev" => {
+            ActionId::Mixer(MixerActionId::LevelUp) | ActionId::Mixer(MixerActionId::Prev) => {
                 if self.detail_cursor > 0 {
                     self.detail_cursor -= 1;
                 }
                 Action::None
             }
-            "level_down" | "next" => {
+            ActionId::Mixer(MixerActionId::LevelDown) | ActionId::Mixer(MixerActionId::Next) => {
                 let max = self.max_cursor(state);
                 if self.detail_cursor < max {
                     self.detail_cursor += 1;
                 }
                 Action::None
             }
-            "level_up_big" | "first" => {
+            ActionId::Mixer(MixerActionId::LevelUpBig) | ActionId::Mixer(MixerActionId::First) => {
                 self.adjust_detail_param(state, inst_id, 5.0)
             }
-            "level_down_big" | "last" => {
+            ActionId::Mixer(MixerActionId::LevelDownBig) | ActionId::Mixer(MixerActionId::Last) => {
                 self.adjust_detail_param(state, inst_id, -5.0)
             }
-            "increase" | "fine_right" => {
+            ActionId::Mixer(MixerActionId::Increase) | ActionId::Mixer(MixerActionId::FineRight) => {
                 self.adjust_detail_param(state, inst_id, 1.0)
             }
-            "decrease" | "fine_left" => {
+            ActionId::Mixer(MixerActionId::Decrease) | ActionId::Mixer(MixerActionId::FineLeft) => {
                 self.adjust_detail_param(state, inst_id, -1.0)
             }
-            "mute" => Action::Mixer(MixerAction::ToggleMute),
-            "solo" => Action::Mixer(MixerAction::ToggleSolo),
-            "output" => Action::Mixer(MixerAction::CycleOutput),
-            "output_rev" => Action::Mixer(MixerAction::CycleOutputReverse),
-            "add_effect" => {
+            ActionId::Mixer(MixerActionId::Mute) => Action::Mixer(MixerAction::ToggleMute),
+            ActionId::Mixer(MixerActionId::Solo) => Action::Mixer(MixerAction::ToggleSolo),
+            ActionId::Mixer(MixerActionId::Output) => Action::Mixer(MixerAction::CycleOutput),
+            ActionId::Mixer(MixerActionId::OutputRev) => Action::Mixer(MixerAction::CycleOutputReverse),
+            ActionId::Mixer(MixerActionId::AddEffect) => {
                 Action::Nav(NavAction::PushPane("add_effect"))
             }
-            "remove_effect" => {
+            ActionId::Mixer(MixerActionId::RemoveEffect) => {
                 if self.detail_section == MixerSection::Effects {
                     if let Some((ei, _)) = self.decode_effect_cursor(state) {
                         let max_after = self.max_cursor(state).saturating_sub(1);
@@ -238,7 +239,7 @@ impl MixerPane {
                 }
                 Action::None
             }
-            "toggle_effect" => {
+            ActionId::Mixer(MixerActionId::ToggleEffect) => {
                 if self.detail_section == MixerSection::Effects {
                     if let Some((ei, _)) = self.decode_effect_cursor(state) {
                         return Action::Instrument(InstrumentAction::ToggleEffectBypass(inst_id, ei));
@@ -246,13 +247,13 @@ impl MixerPane {
                 }
                 Action::None
             }
-            "toggle_filter" => {
+            ActionId::Mixer(MixerActionId::ToggleFilter) => {
                 Action::Instrument(InstrumentAction::ToggleFilter(inst_id))
             }
-            "cycle_filter_type" => {
+            ActionId::Mixer(MixerActionId::CycleFilterType) => {
                 Action::Instrument(InstrumentAction::CycleFilterType(inst_id))
             }
-            "move_up" => {
+            ActionId::Mixer(MixerActionId::MoveUp) => {
                 if self.detail_section == MixerSection::Effects {
                     if let Some((ei, _)) = self.decode_effect_cursor(state) {
                         if ei > 0 {
@@ -262,7 +263,7 @@ impl MixerPane {
                 }
                 Action::None
             }
-            "move_down" => {
+            ActionId::Mixer(MixerActionId::MoveDown) => {
                 if self.detail_section == MixerSection::Effects {
                     if let Some((ei, _)) = self.decode_effect_cursor(state) {
                         return Action::Instrument(InstrumentAction::MoveEffect(inst_id, ei, 1));
@@ -270,9 +271,9 @@ impl MixerPane {
                 }
                 Action::None
             }
-            "pan_left" => Action::Mixer(MixerAction::AdjustPan(-0.05)),
-            "pan_right" => Action::Mixer(MixerAction::AdjustPan(0.05)),
-            "enter_detail" => {
+            ActionId::Mixer(MixerActionId::PanLeft) => Action::Mixer(MixerAction::AdjustPan(-0.05)),
+            ActionId::Mixer(MixerActionId::PanRight) => Action::Mixer(MixerAction::AdjustPan(0.05)),
+            ActionId::Mixer(MixerActionId::EnterDetail) => {
                 match self.detail_section {
                     MixerSection::Effects => {
                         Action::None
@@ -280,7 +281,7 @@ impl MixerPane {
                     _ => Action::None,
                 }
             }
-            "send_next" => {
+            ActionId::Mixer(MixerActionId::SendNext) => {
                 if self.detail_section == MixerSection::Sends {
                     let max = self.max_cursor(state);
                     if self.detail_cursor < max {
@@ -289,7 +290,7 @@ impl MixerPane {
                 }
                 Action::None
             }
-            "send_prev" => {
+            ActionId::Mixer(MixerActionId::SendPrev) => {
                 if self.detail_section == MixerSection::Sends {
                     if self.detail_cursor > 0 {
                         self.detail_cursor -= 1;
@@ -297,7 +298,7 @@ impl MixerPane {
                 }
                 Action::None
             }
-            "send_toggle" => {
+            ActionId::Mixer(MixerActionId::SendToggle) => {
                 if self.detail_section == MixerSection::Sends {
                     if let Some((_, inst)) = self.detail_instrument(state) {
                         if let Some(send) = inst.sends.get(self.detail_cursor) {

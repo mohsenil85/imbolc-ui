@@ -1,11 +1,12 @@
 use crate::state::automation::{AutomationTarget, CurveType};
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, AutomationActionId};
 use crate::ui::{Action, AutomationAction, InputEvent};
 
 use super::{AutomationFocus, AutomationPane, TargetPickerState};
 
 impl AutomationPane {
-    pub(super) fn handle_action_impl(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    pub(super) fn handle_action_impl(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         // If target picker is active, delegate to it
         if matches!(self.target_picker, TargetPickerState::Active { .. }) {
             return self.handle_target_picker_action(action, state);
@@ -13,7 +14,7 @@ impl AutomationPane {
 
         match action {
             // Focus switching
-            "switch_focus" => {
+            ActionId::Automation(AutomationActionId::SwitchFocus) => {
                 self.focus = match self.focus {
                     AutomationFocus::LaneList => AutomationFocus::Timeline,
                     AutomationFocus::Timeline => AutomationFocus::LaneList,
@@ -22,7 +23,7 @@ impl AutomationPane {
             }
 
             // Lane list actions
-            "up" | "prev" => {
+            ActionId::Automation(AutomationActionId::Up) | ActionId::Automation(AutomationActionId::Prev) => {
                 if self.focus == AutomationFocus::LaneList {
                     Action::Automation(AutomationAction::SelectLane(-1))
                 } else {
@@ -31,7 +32,7 @@ impl AutomationPane {
                     Action::None
                 }
             }
-            "down" | "next" => {
+            ActionId::Automation(AutomationActionId::Down) | ActionId::Automation(AutomationActionId::Next) => {
                 if self.focus == AutomationFocus::LaneList {
                     Action::Automation(AutomationAction::SelectLane(1))
                 } else {
@@ -40,7 +41,7 @@ impl AutomationPane {
                     Action::None
                 }
             }
-            "left" => {
+            ActionId::Automation(AutomationActionId::Left) => {
                 if self.focus == AutomationFocus::Timeline {
                     let tpc = self.ticks_per_cell();
                     self.cursor_tick = self.cursor_tick.saturating_sub(tpc);
@@ -51,7 +52,7 @@ impl AutomationPane {
                 }
                 Action::None
             }
-            "right" => {
+            ActionId::Automation(AutomationActionId::Right) => {
                 if self.focus == AutomationFocus::Timeline {
                     let tpc = self.ticks_per_cell();
                     self.cursor_tick += tpc;
@@ -60,7 +61,7 @@ impl AutomationPane {
             }
 
             // Add lane
-            "add_lane" => {
+            ActionId::Automation(AutomationActionId::AddLane) => {
                 let editing_clip = state.session.arrangement.editing_clip.is_some();
                 let mut options: Vec<AutomationTarget> = Vec::new();
                 if let Some(inst) = state.instruments.selected_instrument() {
@@ -84,7 +85,7 @@ impl AutomationPane {
             }
 
             // Remove lane
-            "remove_lane" => {
+            ActionId::Automation(AutomationActionId::RemoveLane) => {
                 if let Some(id) = self.selected_lane_id(state) {
                     Action::Automation(AutomationAction::RemoveLane(id))
                 } else {
@@ -93,7 +94,7 @@ impl AutomationPane {
             }
 
             // Toggle lane enabled
-            "toggle_enabled" => {
+            ActionId::Automation(AutomationActionId::ToggleEnabled) => {
                 if let Some(id) = self.selected_lane_id(state) {
                     Action::Automation(AutomationAction::ToggleLaneEnabled(id))
                 } else {
@@ -102,7 +103,7 @@ impl AutomationPane {
             }
 
             // Place/remove point (timeline)
-            "place_point" => {
+            ActionId::Automation(AutomationActionId::PlacePoint) => {
                 if self.focus == AutomationFocus::Timeline {
                     if let Some(id) = self.selected_lane_id(state) {
                         let tick = self.snap_tick(self.cursor_tick);
@@ -127,7 +128,7 @@ impl AutomationPane {
             }
 
             // Delete point at cursor
-            "delete_point" => {
+            ActionId::Automation(AutomationActionId::DeletePoint) => {
                 if self.focus == AutomationFocus::Timeline {
                     if let Some(id) = self.selected_lane_id(state) {
                         let tick = self.snap_tick(self.cursor_tick);
@@ -141,7 +142,7 @@ impl AutomationPane {
             }
 
             // Cycle curve type at cursor
-            "cycle_curve" => {
+            ActionId::Automation(AutomationActionId::CycleCurve) => {
                 if self.focus == AutomationFocus::Timeline {
                     if let Some(id) = self.selected_lane_id(state) {
                         let tick = self.snap_tick(self.cursor_tick);
@@ -162,7 +163,7 @@ impl AutomationPane {
             }
 
             // Clear lane
-            "clear_lane" => {
+            ActionId::Automation(AutomationActionId::ClearLane) => {
                 if let Some(id) = self.selected_lane_id(state) {
                     Action::Automation(AutomationAction::ClearLane(id))
                 } else {
@@ -171,42 +172,42 @@ impl AutomationPane {
             }
 
             // Toggle recording
-            "toggle_recording" => {
+            ActionId::Automation(AutomationActionId::ToggleRecording) => {
                 Action::Automation(AutomationAction::ToggleRecording)
             }
 
             // Lane arm/disarm
-            "toggle_arm" => {
+            ActionId::Automation(AutomationActionId::ToggleArm) => {
                 if let Some(id) = self.selected_lane_id(state) {
                     Action::Automation(AutomationAction::ToggleLaneArm(id))
                 } else {
                     Action::None
                 }
             }
-            "arm_all" => {
+            ActionId::Automation(AutomationActionId::ArmAll) => {
                 Action::Automation(AutomationAction::ArmAllLanes)
             }
-            "disarm_all" => {
+            ActionId::Automation(AutomationActionId::DisarmAll) => {
                 Action::Automation(AutomationAction::DisarmAllLanes)
             }
 
             // Zoom
-            "zoom_in" => {
+            ActionId::Automation(AutomationActionId::ZoomIn) => {
                 self.zoom_level = self.zoom_level.saturating_sub(1).max(1);
                 Action::None
             }
-            "zoom_out" => {
+            ActionId::Automation(AutomationActionId::ZoomOut) => {
                 self.zoom_level = (self.zoom_level + 1).min(5);
                 Action::None
             }
 
             // Home / End
-            "home" => {
+            ActionId::Automation(AutomationActionId::Home) => {
                 self.cursor_tick = 0;
                 self.view_start_tick = 0;
                 Action::None
             }
-            "end" => {
+            ActionId::Automation(AutomationActionId::End) => {
                 // Jump to the last point in the selected lane
                 if let Some(lane) = state.session.automation.selected() {
                     if let Some(last) = lane.points.last() {
@@ -219,7 +220,7 @@ impl AutomationPane {
             }
 
             // Play/stop (pass through to piano roll)
-            "play_stop" => {
+            ActionId::Automation(AutomationActionId::PlayStop) => {
                 Action::PianoRoll(crate::ui::PianoRollAction::PlayStop)
             }
 
@@ -228,18 +229,18 @@ impl AutomationPane {
     }
 
     /// Handle actions while the target picker is active
-    pub(super) fn handle_target_picker_action(&mut self, action: &str, _state: &AppState) -> Action {
+    pub(super) fn handle_target_picker_action(&mut self, action: ActionId, _state: &AppState) -> Action {
         if let TargetPickerState::Active { ref options, ref mut cursor } = self.target_picker {
             match action {
-                "up" | "prev" => {
+                ActionId::Automation(AutomationActionId::Up) | ActionId::Automation(AutomationActionId::Prev) => {
                     if *cursor > 0 { *cursor -= 1; }
                     Action::None
                 }
-                "down" | "next" => {
+                ActionId::Automation(AutomationActionId::Down) | ActionId::Automation(AutomationActionId::Next) => {
                     if *cursor + 1 < options.len() { *cursor += 1; }
                     Action::None
                 }
-                "confirm" | "add_lane" => {
+                ActionId::Automation(AutomationActionId::Confirm) | ActionId::Automation(AutomationActionId::AddLane) => {
                     if let Some(target) = options.get(*cursor).cloned() {
                         self.target_picker = TargetPickerState::Inactive;
                         Action::Automation(AutomationAction::AddLane(target))
@@ -247,7 +248,7 @@ impl AutomationPane {
                         Action::None
                     }
                 }
-                "cancel" | "escape" => {
+                ActionId::Automation(AutomationActionId::Cancel) | ActionId::Automation(AutomationActionId::Escape) => {
                     self.target_picker = TargetPickerState::Inactive;
                     Action::None
                 }

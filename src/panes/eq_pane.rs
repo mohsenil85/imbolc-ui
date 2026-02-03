@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::{AppState, EqBandType, EqConfig, InstrumentId};
+use crate::ui::action_id::{ActionId, EqActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, InstrumentAction, Keymap, Pane, Style};
 
@@ -33,7 +34,7 @@ impl Pane for EqPane {
         "eq"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         let instrument = match state.instruments.selected_instrument() {
             Some(i) => i,
             None => return Action::None,
@@ -41,32 +42,32 @@ impl Pane for EqPane {
         let instrument_id = instrument.id;
 
         match action {
-            "prev_band" => {
+            ActionId::Eq(EqActionId::PrevBand) => {
                 self.selected_band = self.selected_band.saturating_sub(1);
                 Action::None
             }
-            "next_band" => {
+            ActionId::Eq(EqActionId::NextBand) => {
                 self.selected_band = (self.selected_band + 1).min(11);
                 Action::None
             }
-            "prev_param" => {
+            ActionId::Eq(EqActionId::PrevParam) => {
                 self.selected_param = self.selected_param.saturating_sub(1);
                 Action::None
             }
-            "next_param" => {
+            ActionId::Eq(EqActionId::NextParam) => {
                 self.selected_param = (self.selected_param + 1).min(3);
                 Action::None
             }
-            "increase" | "increase_big" | "increase_tiny" => {
+            ActionId::Eq(EqActionId::Increase) | ActionId::Eq(EqActionId::IncreaseBig) | ActionId::Eq(EqActionId::IncreaseTiny) => {
                 adjust_param(instrument_id, &instrument.eq, self.selected_band, self.selected_param, true, action)
             }
-            "decrease" | "decrease_big" | "decrease_tiny" => {
+            ActionId::Eq(EqActionId::Decrease) | ActionId::Eq(EqActionId::DecreaseBig) | ActionId::Eq(EqActionId::DecreaseTiny) => {
                 adjust_param(instrument_id, &instrument.eq, self.selected_band, self.selected_param, false, action)
             }
-            "toggle_eq" => {
+            ActionId::Eq(EqActionId::ToggleEq) => {
                 Action::Instrument(InstrumentAction::ToggleEq(instrument_id))
             }
-            "toggle_band" => {
+            ActionId::Eq(EqActionId::ToggleBand) => {
                 if let Some(ref eq) = instrument.eq {
                     let band = &eq.bands[self.selected_band];
                     let new_val = if band.enabled { 0.0 } else { 1.0 };
@@ -179,7 +180,7 @@ fn adjust_param(
     band_idx: usize,
     param_idx: usize,
     increase: bool,
-    action: &str,
+    action: ActionId,
 ) -> Action {
     let eq = match eq {
         Some(eq) => eq,
@@ -197,17 +198,17 @@ fn adjust_param(
 
     let delta = match (param_idx, action) {
         // Freq: log-ish steps
-        (0, "increase_big") | (0, "decrease_big") => current * 0.2,
-        (0, "increase_tiny") | (0, "decrease_tiny") => current * 0.01,
-        (0, _) => current * 0.05,
+        (0, ActionId::Eq(EqActionId::IncreaseBig)) | (0, ActionId::Eq(EqActionId::DecreaseBig)) => current * 0.2,
+        (0, ActionId::Eq(EqActionId::IncreaseTiny)) | (0, ActionId::Eq(EqActionId::DecreaseTiny)) => current * 0.01,
+        (0, ActionId::Eq(EqActionId::Increase)) | (0, ActionId::Eq(EqActionId::Decrease)) => current * 0.05,
         // Gain: dB steps
-        (1, "increase_big") | (1, "decrease_big") => 3.0,
-        (1, "increase_tiny") | (1, "decrease_tiny") => 0.1,
-        (1, _) => 0.5,
+        (1, ActionId::Eq(EqActionId::IncreaseBig)) | (1, ActionId::Eq(EqActionId::DecreaseBig)) => 3.0,
+        (1, ActionId::Eq(EqActionId::IncreaseTiny)) | (1, ActionId::Eq(EqActionId::DecreaseTiny)) => 0.1,
+        (1, ActionId::Eq(EqActionId::Increase)) | (1, ActionId::Eq(EqActionId::Decrease)) => 0.5,
         // Q
-        (2, "increase_big") | (2, "decrease_big") => 1.0,
-        (2, "increase_tiny") | (2, "decrease_tiny") => 0.05,
-        (2, _) => 0.1,
+        (2, ActionId::Eq(EqActionId::IncreaseBig)) | (2, ActionId::Eq(EqActionId::DecreaseBig)) => 1.0,
+        (2, ActionId::Eq(EqActionId::IncreaseTiny)) | (2, ActionId::Eq(EqActionId::DecreaseTiny)) => 0.05,
+        (2, ActionId::Eq(EqActionId::Increase)) | (2, ActionId::Eq(EqActionId::Decrease)) => 0.1,
         _ => 0.0,
     };
 

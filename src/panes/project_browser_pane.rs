@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::state::AppState;
 use crate::state::recent_projects::RecentProjects;
+use crate::ui::action_id::{ActionId, ProjectBrowserActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
 
@@ -66,18 +67,18 @@ impl Pane for ProjectBrowserPane {
         self.refresh();
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         match action {
-            "close" => Action::Nav(NavAction::PopPane),
-            "up" => {
+            ActionId::ProjectBrowser(ProjectBrowserActionId::Close) => Action::Nav(NavAction::PopPane),
+            ActionId::ProjectBrowser(ProjectBrowserActionId::Up) => {
                 if self.selected > 0 { self.selected -= 1; }
                 Action::None
             }
-            "down" => {
+            ActionId::ProjectBrowser(ProjectBrowserActionId::Down) => {
                 if self.selected + 1 < self.entries.len() { self.selected += 1; }
                 Action::None
             }
-            "select" => {
+            ActionId::ProjectBrowser(ProjectBrowserActionId::Select) => {
                 if let Some(entry) = self.entries.get(self.selected) {
                     let path = entry.path.clone();
                     if state.dirty {
@@ -89,10 +90,10 @@ impl Pane for ProjectBrowserPane {
                 }
                 Action::None
             }
-            "new_project" => {
+            ActionId::ProjectBrowser(ProjectBrowserActionId::NewProject) => {
                 Action::Session(SessionAction::NewProject)
             }
-            "delete_entry" => {
+            ActionId::ProjectBrowser(ProjectBrowserActionId::DeleteEntry) => {
                 if let Some(entry) = self.entries.get(self.selected) {
                     let path = entry.path.clone();
                     let mut recent = RecentProjects::load();

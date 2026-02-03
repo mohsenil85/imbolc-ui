@@ -3,6 +3,7 @@ use std::any::Any;
 use crate::state::{AppState, SourceType};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, NavAction, InstrumentAction, SessionAction, Color, InputEvent, KeyCode, Keymap, MouseEvent, MouseEventKind, MouseButton, PadKeyboard, Pane, PianoKeyboard, Style, ToggleResult, translate_key};
+use crate::ui::action_id::{ActionId, InstrumentListActionId, ModeActionId};
 
 fn source_color(source: SourceType) -> Color {
     match source {
@@ -78,25 +79,25 @@ impl Pane for InstrumentPane {
         "instrument"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         // If we're in linking mode, intercept navigation to complete the link
         if let Some(from_id) = self.linking_from {
             match action {
-                "next" | "prev" | "goto_top" | "goto_bottom" => {
+                ActionId::InstrumentList(InstrumentListActionId::Next) | ActionId::InstrumentList(InstrumentListActionId::Prev) | ActionId::InstrumentList(InstrumentListActionId::GotoTop) | ActionId::InstrumentList(InstrumentListActionId::GotoBottom) => {
                     // Find the target instrument based on navigation direction
                     let target_id = match action {
-                        "next" => {
+                        ActionId::InstrumentList(InstrumentListActionId::Next) => {
                             let sel = state.instruments.selected.unwrap_or(0);
                             let next = (sel + 1).min(state.instruments.instruments.len().saturating_sub(1));
                             state.instruments.instruments.get(next).map(|i| i.id)
                         }
-                        "prev" => {
+                        ActionId::InstrumentList(InstrumentListActionId::Prev) => {
                             let sel = state.instruments.selected.unwrap_or(0);
                             let prev = sel.saturating_sub(1);
                             state.instruments.instruments.get(prev).map(|i| i.id)
                         }
-                        "goto_top" => state.instruments.instruments.first().map(|i| i.id),
-                        "goto_bottom" => state.instruments.instruments.last().map(|i| i.id),
+                        ActionId::InstrumentList(InstrumentListActionId::GotoTop) => state.instruments.instruments.first().map(|i| i.id),
+                        ActionId::InstrumentList(InstrumentListActionId::GotoBottom) => state.instruments.instruments.last().map(|i| i.id),
                         _ => None,
                     };
                     self.linking_from = None;
@@ -115,35 +116,35 @@ impl Pane for InstrumentPane {
         }
 
         match action {
-            "quit" => Action::Quit,
-            "next" => Action::Instrument(InstrumentAction::SelectNext),
-            "prev" => Action::Instrument(InstrumentAction::SelectPrev),
-            "goto_top" => Action::Instrument(InstrumentAction::SelectFirst),
-            "goto_bottom" => Action::Instrument(InstrumentAction::SelectLast),
-            "add" => Action::Nav(NavAction::SwitchPane("add")),
-            "delete" => {
+            ActionId::InstrumentList(InstrumentListActionId::Quit) => Action::Quit,
+            ActionId::InstrumentList(InstrumentListActionId::Next) => Action::Instrument(InstrumentAction::SelectNext),
+            ActionId::InstrumentList(InstrumentListActionId::Prev) => Action::Instrument(InstrumentAction::SelectPrev),
+            ActionId::InstrumentList(InstrumentListActionId::GotoTop) => Action::Instrument(InstrumentAction::SelectFirst),
+            ActionId::InstrumentList(InstrumentListActionId::GotoBottom) => Action::Instrument(InstrumentAction::SelectLast),
+            ActionId::InstrumentList(InstrumentListActionId::Add) => Action::Nav(NavAction::SwitchPane("add")),
+            ActionId::InstrumentList(InstrumentListActionId::Delete) => {
                 if let Some(instrument) = state.instruments.selected_instrument() {
                     Action::Instrument(InstrumentAction::Delete(instrument.id))
                 } else {
                     Action::None
                 }
             }
-            "edit" => {
+            ActionId::InstrumentList(InstrumentListActionId::Edit) => {
                 if let Some(instrument) = state.instruments.selected_instrument() {
                     Action::Instrument(InstrumentAction::Edit(instrument.id))
                 } else {
                     Action::None
                 }
             }
-            "save" => Action::Session(SessionAction::Save),
-            "load" => Action::Session(SessionAction::Load),
-            "link_layer" => {
+            ActionId::InstrumentList(InstrumentListActionId::Save) => Action::Session(SessionAction::Save),
+            ActionId::InstrumentList(InstrumentListActionId::Load) => Action::Session(SessionAction::Load),
+            ActionId::InstrumentList(InstrumentListActionId::LinkLayer) => {
                 if let Some(instrument) = state.instruments.selected_instrument() {
                     self.linking_from = Some(instrument.id);
                 }
                 Action::None
             }
-            "unlink_layer" => {
+            ActionId::InstrumentList(InstrumentListActionId::UnlinkLayer) => {
                 if let Some(instrument) = state.instruments.selected_instrument() {
                     Action::Instrument(InstrumentAction::UnlinkLayer(instrument.id))
                 } else {
@@ -152,7 +153,7 @@ impl Pane for InstrumentPane {
             }
 
             // Piano layer actions
-            "piano:escape" => {
+            ActionId::Mode(ModeActionId::PianoEscape) => {
                 let was_active = self.piano.is_active();
                 self.piano.handle_escape();
                 if was_active && !self.piano.is_active() {
@@ -161,9 +162,9 @@ impl Pane for InstrumentPane {
                     Action::None
                 }
             }
-            "piano:octave_down" => { self.piano.octave_down(); Action::None }
-            "piano:octave_up" => { self.piano.octave_up(); Action::None }
-            "piano:key" | "piano:space" => {
+            ActionId::Mode(ModeActionId::PianoOctaveDown) => { self.piano.octave_down(); Action::None }
+            ActionId::Mode(ModeActionId::PianoOctaveUp) => { self.piano.octave_up(); Action::None }
+            ActionId::Mode(ModeActionId::PianoKey) | ActionId::Mode(ModeActionId::PianoSpace) => {
                 if let KeyCode::Char(c) = event.key {
                     let c = translate_key(c, state.keyboard_layout);
                     if let Some(pitches) = self.piano.key_to_pitches(c) {
@@ -178,11 +179,11 @@ impl Pane for InstrumentPane {
             }
 
             // Pad layer actions
-            "pad:escape" => {
+            ActionId::Mode(ModeActionId::PadEscape) => {
                 self.pad_keyboard.deactivate();
                 Action::ExitPerformanceMode
             }
-            "pad:key" => {
+            ActionId::Mode(ModeActionId::PadKey) => {
                 if let KeyCode::Char(c) = event.key {
                     let c = translate_key(c, state.keyboard_layout);
                     if let Some(pad_idx) = self.pad_keyboard.key_to_pad(c) {
@@ -434,11 +435,12 @@ mod tests {
 
     #[test]
     fn delete_returns_selected_instrument_id() {
+        use crate::ui::action_id::{ActionId, InstrumentListActionId};
         let mut state = AppState::new();
         let id = state.add_instrument(SourceType::Saw);
         let mut pane = InstrumentPane::new(Keymap::new());
 
-        let action = pane.handle_action("delete", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::InstrumentList(InstrumentListActionId::Delete), &dummy_event(), &state);
         match action {
             Action::Instrument(InstrumentAction::Delete(got)) => assert_eq!(got, id),
             _ => panic!("Expected InstrumentAction::Delete"),
@@ -447,11 +449,12 @@ mod tests {
 
     #[test]
     fn edit_returns_selected_instrument_id() {
+        use crate::ui::action_id::{ActionId, InstrumentListActionId};
         let mut state = AppState::new();
         let id = state.add_instrument(SourceType::Sin);
         let mut pane = InstrumentPane::new(Keymap::new());
 
-        let action = pane.handle_action("edit", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::InstrumentList(InstrumentListActionId::Edit), &dummy_event(), &state);
         match action {
             Action::Instrument(InstrumentAction::Edit(got)) => assert_eq!(got, id),
             _ => panic!("Expected InstrumentAction::Edit"),
@@ -460,10 +463,11 @@ mod tests {
 
     #[test]
     fn add_navigates_to_add_pane() {
+        use crate::ui::action_id::{ActionId, InstrumentListActionId};
         let state = AppState::new();
         let mut pane = InstrumentPane::new(Keymap::new());
 
-        let action = pane.handle_action("add", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::InstrumentList(InstrumentListActionId::Add), &dummy_event(), &state);
         match action {
             Action::Nav(NavAction::SwitchPane(id)) => assert_eq!(id, "add"),
             _ => panic!("Expected SwitchPane(add)"),
@@ -472,13 +476,14 @@ mod tests {
 
     #[test]
     fn next_prev_return_select_actions() {
+        use crate::ui::action_id::{ActionId, InstrumentListActionId};
         let state = AppState::new();
         let mut pane = InstrumentPane::new(Keymap::new());
 
-        let action = pane.handle_action("next", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::InstrumentList(InstrumentListActionId::Next), &dummy_event(), &state);
         assert!(matches!(action, Action::Instrument(InstrumentAction::SelectNext)));
 
-        let action = pane.handle_action("prev", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::InstrumentList(InstrumentListActionId::Prev), &dummy_event(), &state);
         assert!(matches!(action, Action::Instrument(InstrumentAction::SelectPrev)));
     }
 }

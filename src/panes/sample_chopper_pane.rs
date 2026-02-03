@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::panes::FileBrowserPane;
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, SampleChopperActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{
     Rect, RenderBuf, Action, ChopperAction, Color, FileSelectAction, InputEvent, Keymap, NavAction, Pane, Style,
@@ -52,7 +53,7 @@ impl Pane for SampleChopperPane {
         "sample_chopper"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         if self.should_show_file_browser(state) {
             if let Some(fb_action) = self.file_browser.keymap().lookup(event) {
                 return self.file_browser.handle_action(fb_action, event, state);
@@ -61,23 +62,23 @@ impl Pane for SampleChopperPane {
         }
 
         match action {
-            "move_left" => {
+            ActionId::SampleChopper(SampleChopperActionId::MoveLeft) => {
                 self.cursor_pos = (self.cursor_pos - 0.01).max(0.0);
                 Action::Chopper(ChopperAction::MoveCursor(-1))
             }
-            "move_right" => {
+            ActionId::SampleChopper(SampleChopperActionId::MoveRight) => {
                 self.cursor_pos = (self.cursor_pos + 0.01).min(1.0);
                 Action::Chopper(ChopperAction::MoveCursor(1))
             }
-            "next_slice" => Action::Chopper(ChopperAction::SelectSlice(1)),
-            "prev_slice" => Action::Chopper(ChopperAction::SelectSlice(-1)),
-            "nudge_start" => Action::Chopper(ChopperAction::NudgeSliceStart(-0.005)),
-            "nudge_end" => Action::Chopper(ChopperAction::NudgeSliceEnd(0.005)),
-            "chop" => {
+            ActionId::SampleChopper(SampleChopperActionId::NextSlice) => Action::Chopper(ChopperAction::SelectSlice(1)),
+            ActionId::SampleChopper(SampleChopperActionId::PrevSlice) => Action::Chopper(ChopperAction::SelectSlice(-1)),
+            ActionId::SampleChopper(SampleChopperActionId::NudgeStart) => Action::Chopper(ChopperAction::NudgeSliceStart(-0.005)),
+            ActionId::SampleChopper(SampleChopperActionId::NudgeEnd) => Action::Chopper(ChopperAction::NudgeSliceEnd(0.005)),
+            ActionId::SampleChopper(SampleChopperActionId::Chop) => {
                 Action::Chopper(ChopperAction::AddSlice(self.cursor_pos))
             }
-            "delete" => Action::Chopper(ChopperAction::RemoveSlice),
-            "auto_slice" => {
+            ActionId::SampleChopper(SampleChopperActionId::Delete) => Action::Chopper(ChopperAction::RemoveSlice),
+            ActionId::SampleChopper(SampleChopperActionId::AutoSlice) => {
                 let n = self.auto_slice_n;
                 self.auto_slice_n = match n {
                     4 => 8,
@@ -87,16 +88,12 @@ impl Pane for SampleChopperPane {
                 };
                 Action::Chopper(ChopperAction::AutoSlice(n))
             }
-            "commit" => Action::Chopper(ChopperAction::CommitAll),
-            "load_sample" => Action::Chopper(ChopperAction::LoadSample),
-            "preview" => Action::Chopper(ChopperAction::PreviewSlice),
-            "back" => Action::Nav(NavAction::PopPane),
-            a if a.starts_with("assign_") => {
-                if let Ok(idx) = a[7..].parse::<usize>() {
-                    Action::Chopper(ChopperAction::AssignToPad(idx - 1))
-                } else {
-                    Action::None
-                }
+            ActionId::SampleChopper(SampleChopperActionId::Commit) => Action::Chopper(ChopperAction::CommitAll),
+            ActionId::SampleChopper(SampleChopperActionId::LoadSample) => Action::Chopper(ChopperAction::LoadSample),
+            ActionId::SampleChopper(SampleChopperActionId::Preview) => Action::Chopper(ChopperAction::PreviewSlice),
+            ActionId::SampleChopper(SampleChopperActionId::Back) => Action::Nav(NavAction::PopPane),
+            ActionId::SampleChopper(SampleChopperActionId::AssignToPad(pad_num)) => {
+                Action::Chopper(ChopperAction::AssignToPad(pad_num.saturating_sub(1) as usize))
             }
             _ => Action::None,
         }

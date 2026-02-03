@@ -12,6 +12,7 @@ use crate::state::{
 };
 use crate::ui::widgets::TextInput;
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, MouseEvent, PadKeyboard, Pane, PianoKeyboard, ToggleResult};
+use crate::ui::action_id::ActionId;
 
 /// Local alias for pane code compatibility
 type Section = InstrumentSection;
@@ -176,7 +177,7 @@ impl Pane for InstrumentEditPane {
         "instrument_edit"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         self.handle_action_impl(action, event, state)
     }
 

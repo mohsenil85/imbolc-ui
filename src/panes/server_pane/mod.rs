@@ -8,6 +8,7 @@ use std::process::Command;
 use crate::audio::devices::{self, AudioDevice};
 use crate::audio::ServerStatus;
 use crate::state::AppState;
+use crate::ui::action_id::ActionId;
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, Pane};
 
 pub(super) struct DiagnosticCheck {
@@ -301,7 +302,7 @@ impl Pane for ServerPane {
         "server"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         self.handle_action_impl(action, event, state)
     }
 

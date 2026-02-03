@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, FileBrowserActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::state::VstPluginKind;
 use crate::ui::{
@@ -156,9 +157,9 @@ impl Pane for FileBrowserPane {
         "file_browser"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "select" => {
+            ActionId::FileBrowser(FileBrowserActionId::Select) => {
                 if let Some(entry) = self.entries.get(self.selected) {
                     if entry.is_dir {
                         self.current_dir = entry.path.clone();
@@ -196,8 +197,8 @@ impl Pane for FileBrowserPane {
                     Action::None
                 }
             }
-            "cancel" => Action::Nav(NavAction::PopPane),
-            "parent" => {
+            ActionId::FileBrowser(FileBrowserActionId::Cancel) => Action::Nav(NavAction::PopPane),
+            ActionId::FileBrowser(FileBrowserActionId::Parent) => {
                 if let Some(parent) = self.current_dir.parent() {
                     self.current_dir = parent.to_path_buf();
                     self.selected = 0;
@@ -206,7 +207,7 @@ impl Pane for FileBrowserPane {
                 }
                 Action::None
             }
-            "home" => {
+            ActionId::FileBrowser(FileBrowserActionId::Home) => {
                 if let Some(home) = dirs::home_dir() {
                     self.current_dir = home;
                     self.selected = 0;
@@ -215,30 +216,30 @@ impl Pane for FileBrowserPane {
                 }
                 Action::None
             }
-            "next" => {
+            ActionId::FileBrowser(FileBrowserActionId::Next) => {
                 if !self.entries.is_empty() {
                     self.selected = (self.selected + 1) % self.entries.len();
                 }
                 Action::None
             }
-            "prev" => {
+            ActionId::FileBrowser(FileBrowserActionId::Prev) => {
                 if !self.entries.is_empty() {
                     self.selected = (self.selected + self.entries.len() - 1) % self.entries.len();
                 }
                 Action::None
             }
-            "goto_top" => {
+            ActionId::FileBrowser(FileBrowserActionId::GotoTop) => {
                 self.selected = 0;
                 self.scroll_offset = 0;
                 Action::None
             }
-            "goto_bottom" => {
+            ActionId::FileBrowser(FileBrowserActionId::GotoBottom) => {
                 if !self.entries.is_empty() {
                     self.selected = self.entries.len() - 1;
                 }
                 Action::None
             }
-            "toggle_hidden" => {
+            ActionId::FileBrowser(FileBrowserActionId::ToggleHidden) => {
                 self.show_hidden = !self.show_hidden;
                 self.refresh_entries();
                 Action::None
@@ -523,12 +524,13 @@ mod tests {
 
         assert!(pane.entries.len() >= 2);
 
+        use crate::ui::action_id::{ActionId, FileBrowserActionId};
         pane.selected = pane.entries.len() - 1;
-        pane.handle_action("next", &dummy_event(), &state);
+        pane.handle_action(ActionId::FileBrowser(FileBrowserActionId::Next), &dummy_event(), &state);
         assert_eq!(pane.selected, 0);
 
         pane.selected = 0;
-        pane.handle_action("prev", &dummy_event(), &state);
+        pane.handle_action(ActionId::FileBrowser(FileBrowserActionId::Prev), &dummy_event(), &state);
         assert_eq!(pane.selected, pane.entries.len() - 1);
 
         std::fs::remove_dir_all(&dir).ok();

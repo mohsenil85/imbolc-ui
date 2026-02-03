@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, HomeActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
 
@@ -56,22 +57,22 @@ impl Pane for HomePane {
         "home"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "up" => {
+            ActionId::Home(HomeActionId::Up) => {
                 if self.selected > 0 {
                     self.selected -= 1;
                 }
                 Action::None
             }
-            "down" => {
+            ActionId::Home(HomeActionId::Down) => {
                 if self.selected < self.items.len() - 1 {
                     self.selected += 1;
                 }
                 Action::None
             }
-            "select" => Action::Nav(NavAction::SwitchPane(self.items[self.selected].pane_id)),
-            "quit" => Action::Quit,
+            ActionId::Home(HomeActionId::Select) => Action::Nav(NavAction::SwitchPane(self.items[self.selected].pane_id)),
+            ActionId::Home(HomeActionId::Quit) => Action::Quit,
             _ => Action::None,
         }
     }

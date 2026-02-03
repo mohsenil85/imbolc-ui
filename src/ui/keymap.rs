@@ -1,4 +1,5 @@
 use super::{InputEvent, KeyCode};
+use super::action_id::ActionId;
 
 /// Pattern for matching key inputs
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +61,7 @@ impl KeyPattern {
 #[derive(Debug, Clone)]
 pub struct KeyBinding {
     pub pattern: KeyPattern,
-    pub action: &'static str,
+    pub action: ActionId,
     pub description: &'static str,
 }
 
@@ -93,7 +94,7 @@ impl Keymap {
 
     /// Add a character key binding
     #[allow(dead_code)]
-    pub fn bind(mut self, ch: char, action: &'static str, description: &'static str) -> Self {
+    pub fn bind(mut self, ch: char, action: ActionId, description: &'static str) -> Self {
         self.bindings.push(KeyBinding {
             pattern: KeyPattern::Char(ch),
             action,
@@ -107,7 +108,7 @@ impl Keymap {
     pub fn bind_key(
         mut self,
         key: KeyCode,
-        action: &'static str,
+        action: ActionId,
         description: &'static str,
     ) -> Self {
         self.bindings.push(KeyBinding {
@@ -120,7 +121,7 @@ impl Keymap {
 
     /// Add a Ctrl+char binding
     #[allow(dead_code)]
-    pub fn bind_ctrl(mut self, ch: char, action: &'static str, description: &'static str) -> Self {
+    pub fn bind_ctrl(mut self, ch: char, action: ActionId, description: &'static str) -> Self {
         self.bindings.push(KeyBinding {
             pattern: KeyPattern::Ctrl(ch),
             action,
@@ -131,7 +132,7 @@ impl Keymap {
 
     /// Add an Alt+char binding
     #[allow(dead_code)]
-    pub fn bind_alt(mut self, ch: char, action: &'static str, description: &'static str) -> Self {
+    pub fn bind_alt(mut self, ch: char, action: ActionId, description: &'static str) -> Self {
         self.bindings.push(KeyBinding {
             pattern: KeyPattern::Alt(ch),
             action,
@@ -145,7 +146,7 @@ impl Keymap {
     pub fn bind_ctrl_key(
         mut self,
         key: KeyCode,
-        action: &'static str,
+        action: ActionId,
         description: &'static str,
     ) -> Self {
         self.bindings.push(KeyBinding {
@@ -161,7 +162,7 @@ impl Keymap {
     pub fn bind_shift_key(
         mut self,
         key: KeyCode,
-        action: &'static str,
+        action: ActionId,
         description: &'static str,
     ) -> Self {
         self.bindings.push(KeyBinding {
@@ -178,7 +179,7 @@ impl Keymap {
     }
 
     /// Look up the action for an input event
-    pub fn lookup(&self, event: &InputEvent) -> Option<&'static str> {
+    pub fn lookup(&self, event: &InputEvent) -> Option<ActionId> {
         self.bindings
             .iter()
             .find(|b| b.pattern.matches(event))
@@ -195,6 +196,7 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::action_id::{ActionId, GlobalActionId};
     use crate::ui::Modifiers;
 
     #[test]
@@ -220,14 +222,14 @@ mod tests {
     #[test]
     fn test_keymap_lookup() {
         let keymap = Keymap::new()
-            .bind('q', "quit", "Quit")
-            .bind_ctrl('s', "save", "Save");
+            .bind('q', ActionId::Global(GlobalActionId::Quit), "Quit")
+            .bind_ctrl('s', ActionId::Global(GlobalActionId::Save), "Save");
 
         let q_event = InputEvent::new(KeyCode::Char('q'), Modifiers::none());
-        assert_eq!(keymap.lookup(&q_event), Some("quit"));
+        assert_eq!(keymap.lookup(&q_event), Some(ActionId::Global(GlobalActionId::Quit)));
 
         let ctrl_s_event = InputEvent::new(KeyCode::Char('s'), Modifiers::ctrl());
-        assert_eq!(keymap.lookup(&ctrl_s_event), Some("save"));
+        assert_eq!(keymap.lookup(&ctrl_s_event), Some(ActionId::Global(GlobalActionId::Save)));
 
         let unknown_event = InputEvent::new(KeyCode::Char('x'), Modifiers::none());
         assert_eq!(keymap.lookup(&unknown_event), None);

@@ -5,6 +5,7 @@ use std::any::Any;
 
 use crate::state::{AppState, InstrumentId};
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, MouseEvent, Pane};
+use crate::ui::action_id::ActionId;
 
 const CHANNEL_WIDTH: u16 = 8;
 const METER_HEIGHT: u16 = 12;
@@ -140,7 +141,7 @@ impl Pane for MixerPane {
         "mixer"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         self.handle_action_impl(action, event, state)
     }
 
@@ -170,6 +171,7 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use crate::ui::{InputEvent, KeyCode, MixerAction, Modifiers};
+    use crate::ui::action_id::MixerActionId;
 
     fn dummy_event() -> InputEvent {
         InputEvent::new(KeyCode::Char('x'), Modifiers::default())
@@ -180,11 +182,11 @@ mod tests {
         let mut pane = MixerPane::new(Keymap::new());
         let state = AppState::new();
 
-        let action = pane.handle_action("send_next", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mixer(MixerActionId::SendNext), &dummy_event(), &state);
         assert!(matches!(action, Action::None));
         assert_eq!(pane.send_target, Some(1));
 
-        let action = pane.handle_action("level_up", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mixer(MixerActionId::LevelUp), &dummy_event(), &state);
         match action {
             Action::Mixer(MixerAction::AdjustSend(bus_id, delta)) => {
                 assert_eq!(bus_id, 1);
@@ -193,7 +195,7 @@ mod tests {
             _ => panic!("Expected AdjustSend when send_target is set"),
         }
 
-        let action = pane.handle_action("clear_send", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mixer(MixerActionId::ClearSend), &dummy_event(), &state);
         assert!(matches!(action, Action::None));
         assert_eq!(pane.send_target, None);
     }
@@ -204,12 +206,12 @@ mod tests {
         let state = AppState::new();
 
         pane.send_target = Some(3);
-        let action = pane.handle_action("prev", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mixer(MixerActionId::Prev), &dummy_event(), &state);
         assert!(matches!(action, Action::Mixer(MixerAction::Move(-1))));
         assert_eq!(pane.send_target, None);
 
         pane.send_target = Some(2);
-        let action = pane.handle_action("next", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mixer(MixerActionId::Next), &dummy_event(), &state);
         assert!(matches!(action, Action::Mixer(MixerAction::Move(1))));
         assert_eq!(pane.send_target, None);
     }

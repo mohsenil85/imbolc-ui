@@ -15,6 +15,7 @@ use crate::ui::{
     self, DispatchResult, Frame, LayerStack, NavIntent, PaneManager,
     SessionAction, StatusEvent, ToggleResult, ViewState
 };
+use crate::ui::action_id::{ActionId, GlobalActionId, PaneId};
 
 /// Two-digit instrument selection state machine
 pub(crate) enum InstrumentSelectMode {
@@ -130,7 +131,7 @@ pub(crate) fn sync_pane_layer(panes: &mut PaneManager, layer_stack: &mut LayerSt
 }
 
 pub(crate) fn handle_global_action(
-    action: &str,
+    action: ActionId,
     state: &mut AppState,
     panes: &mut PaneManager,
     audio: &mut AudioHandle,
@@ -187,283 +188,282 @@ pub(crate) fn handle_global_action(
     };
 
     match action {
-        "quit" => {
-            if state.dirty {
-                if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
-                    confirm.set_confirm("Unsaved changes will be lost. Quit anyway?", PendingAction::Quit);
+        ActionId::Global(g) => match g {
+            GlobalActionId::Quit => {
+                if state.dirty {
+                    if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
+                        confirm.set_confirm("Unsaved changes will be lost. Quit anyway?", PendingAction::Quit);
+                    }
+                    panes.push_to("confirm", &*state);
+                    sync_pane_layer(panes, layer_stack);
+                    return GlobalResult::Handled;
                 }
-                panes.push_to("confirm", &*state);
-                sync_pane_layer(panes, layer_stack);
-                return GlobalResult::Handled;
+                return GlobalResult::Quit;
             }
-            return GlobalResult::Quit;
-        }
-        "undo" => {
-            let r = dispatch::dispatch_action(&Action::Undo, state, audio, io_tx);
-            pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame, audio);
-            sync_piano_roll_to_selection(state, panes, audio, io_tx);
-            sync_instrument_edit(state, panes);
-        }
-        "redo" => {
-            let r = dispatch::dispatch_action(&Action::Redo, state, audio, io_tx);
-            pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame, audio);
-            sync_piano_roll_to_selection(state, panes, audio, io_tx);
-            sync_instrument_edit(state, panes);
-        }
-        "save" => {
-            let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
-            pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame, audio);
-        }
-        "load" => {
-            if state.dirty {
-                if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
-                    confirm.set_confirm("Discard unsaved changes and reload?", PendingAction::LoadDefault);
-                }
-                panes.push_to("confirm", &*state);
-                sync_pane_layer(panes, layer_stack);
-            } else {
-                let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio, io_tx);
+            GlobalActionId::Undo => {
+                let r = dispatch::dispatch_action(&Action::Undo, state, audio, io_tx);
                 pending_audio_dirty.merge(r.audio_dirty);
                 apply_dispatch_result(r, state, panes, app_frame, audio);
-            }
-        }
-        "save_as" => {
-            let default_name = state.project_path.as_ref()
-                .and_then(|p| p.file_stem())
-                .and_then(|s| s.to_str())
-                .unwrap_or("untitled")
-                .to_string();
-            if let Some(sa) = panes.get_pane_mut::<SaveAsPane>("save_as") {
-                sa.reset(&default_name);
-            }
-            panes.push_to("save_as", &*state);
-            sync_pane_layer(panes, layer_stack);
-        }
-        "open_project_browser" => {
-            panes.push_to("project_browser", &*state);
-            sync_pane_layer(panes, layer_stack);
-        }
-        "master_mute" => {
-            let r = dispatch::dispatch_action(
-                &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
-            pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame, audio);
-        }
-        "record_master" => {
-            let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio, io_tx);
-            pending_audio_dirty.merge(r.audio_dirty);
-            apply_dispatch_result(r, state, panes, app_frame, audio);
-        }
-        "copy" => {
-            copy_from_active_pane(state, panes, audio, io_tx);
-        }
-        "cut" => {
-            let action = cut_from_active_pane(state, panes, audio, io_tx);
-            if let Some(action) = action {
-                let r = dispatch::dispatch_action(&action, state, audio, io_tx);
-                pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame, audio);
-            }
-        }
-        "paste" => {
-            let action = paste_to_active_pane(state, panes);
-            if let Some(action) = action {
-                let r = dispatch::dispatch_action(&action, state, audio, io_tx);
-                pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame, audio);
-            }
-        }
-        "select_all" => {
-            select_all_in_active_pane(state, panes);
-        }
-        "switch:instrument" => {
-            switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:instrument_list" => {
-            switch_to_pane("instrument", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:piano_roll_or_sequencer" => {
-            let target = if let Some(inst) = state.instruments.selected_instrument() {
-                if inst.source.is_kit() {
-                    "sequencer"
-                } else if inst.source.is_audio_input() || inst.source.is_bus_in() {
-                    "waveform"
-                } else {
-                    "piano_roll"
-                }
-            } else {
-                "piano_roll"
-            };
-            switch_to_pane(target, panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:track" => {
-            switch_to_pane("track", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:mixer" => {
-            switch_to_pane("mixer", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:server" => {
-            switch_to_pane("server", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:automation" => {
-            switch_to_pane("automation", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:eq" => {
-            switch_to_pane("eq", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:midi_settings" => {
-            switch_to_pane("midi_settings", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "switch:frame_edit" => {
-            if panes.active().id() == "frame_edit" {
-                panes.pop(&*state);
-            } else {
-                panes.push_to("frame_edit", &*state);
-            }
-        }
-        "nav_back" => {
-            let history = &mut app_frame.view_history;
-            if !history.is_empty() {
-                let current = capture_view(panes, state);
-                history[app_frame.history_cursor] = current;
-
-                let at_front = app_frame.history_cursor == history.len() - 1;
-                if at_front {
-                    if app_frame.history_cursor > 0 {
-                        app_frame.history_cursor -= 1;
-                        let view = history[app_frame.history_cursor].clone();
-                        restore_view(panes, state, &view);
-                        sync_pane_layer(panes, layer_stack);
-                    }
-                } else {
-                    if app_frame.history_cursor < history.len() - 1 {
-                        app_frame.history_cursor += 1;
-                        let view = history[app_frame.history_cursor].clone();
-                        restore_view(panes, state, &view);
-                        sync_pane_layer(panes, layer_stack);
-                    }
-                }
-            }
-        }
-        "nav_forward" => {
-            let history = &mut app_frame.view_history;
-            if !history.is_empty() {
-                let current = capture_view(panes, state);
-                history[app_frame.history_cursor] = current;
-
-                let at_front = app_frame.history_cursor == history.len() - 1;
-                if at_front {
-                    let target = app_frame.history_cursor.saturating_sub(2);
-                    if target != app_frame.history_cursor {
-                        app_frame.history_cursor = target;
-                        let view = history[app_frame.history_cursor].clone();
-                        restore_view(panes, state, &view);
-                        sync_pane_layer(panes, layer_stack);
-                    }
-                } else {
-                    let target = (app_frame.history_cursor + 2).min(history.len() - 1);
-                    if target != app_frame.history_cursor {
-                        app_frame.history_cursor = target;
-                        let view = history[app_frame.history_cursor].clone();
-                        restore_view(panes, state, &view);
-                        sync_pane_layer(panes, layer_stack);
-                    }
-                }
-            }
-        }
-        "help" => {
-            if panes.active().id() != "help" {
-                let current_id = panes.active().id();
-                let current_keymap = panes.active().keymap().clone();
-                let title = match current_id {
-                    "instrument" => "Instruments",
-                    "mixer" => "Mixer",
-                    "server" => "Server",
-                    "piano_roll" => "Piano Roll",
-                    "sequencer" => "Step Sequencer",
-                    "add" => "Add Instrument",
-                    "instrument_edit" => "Edit Instrument",
-                    "track" => "Track",
-                    "waveform" => "Waveform",
-                    "automation" => "Automation",
-                    "eq" => "Parametric EQ",
-                    _ => current_id,
-                };
-                if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {
-                    help.set_context(current_id, title, &current_keymap);
-                }
-                panes.push_to("help", &*state);
-            }
-        }
-        // Instrument selection by number (1-9 select instruments 1-9, 0 selects 10)
-        s if s.starts_with("select:") => {
-            if let Ok(n) = s[7..].parse::<usize>() {
-                select_instrument(n, state, panes, audio, io_tx);
-            }
-        }
-        "select_prev_instrument" => {
-            dispatch::dispatch_action(
-                &Action::Instrument(ui::InstrumentAction::SelectPrev),
-                state, audio, io_tx,
-            );
-            sync_piano_roll_to_selection(state, panes, audio, io_tx);
-            sync_instrument_edit(state, panes);
-        }
-        "select_next_instrument" => {
-            dispatch::dispatch_action(
-                &Action::Instrument(ui::InstrumentAction::SelectNext),
-                state, audio, io_tx,
-            );
-            sync_piano_roll_to_selection(state, panes, audio, io_tx);
-            sync_instrument_edit(state, panes);
-        }
-        "select_two_digit" => {
-            *select_mode = InstrumentSelectMode::WaitingFirstDigit;
-        }
-        "toggle_piano_mode" => {
-            let result = panes.active_mut().toggle_performance_mode(state);
-            match result {
-                ToggleResult::ActivatedPiano => {
-                    layer_stack.push("piano_mode");
-                }
-                ToggleResult::ActivatedPad => {
-                    layer_stack.push("pad_mode");
-                }
-                ToggleResult::Deactivated => {
-                    layer_stack.pop("piano_mode");
-                    layer_stack.pop("pad_mode");
-                }
-                ToggleResult::CycledLayout | ToggleResult::NotSupported => {}
-            }
-        }
-        "add_instrument" => {
-            switch_to_pane("add", panes, state, app_frame, layer_stack, audio, io_tx);
-        }
-        "delete_instrument" => {
-            if let Some(instrument) = state.instruments.selected_instrument() {
-                let id = instrument.id;
-                let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
-                pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame, audio);
-                // Re-sync edit pane after deletion
+                sync_piano_roll_to_selection(state, panes, audio, io_tx);
                 sync_instrument_edit(state, panes);
             }
-        }
-        "command_palette" => {
-            let commands = layer_stack.collect_commands();
-            if let Some(palette) = panes.get_pane_mut::<CommandPalettePane>("command_palette") {
-                palette.open(commands);
+            GlobalActionId::Redo => {
+                let r = dispatch::dispatch_action(&Action::Redo, state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
+                sync_piano_roll_to_selection(state, panes, audio, io_tx);
+                sync_instrument_edit(state, panes);
             }
-            panes.push_to("command_palette", &*state);
-            layer_stack.push("command_palette");
-        }
-        "escape" => {
-            // Global escape — falls through to pane when no mode layer handles it
-            return GlobalResult::NotHandled;
-        }
+            GlobalActionId::Save => {
+                let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
+            }
+            GlobalActionId::Load => {
+                if state.dirty {
+                    if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
+                        confirm.set_confirm("Discard unsaved changes and reload?", PendingAction::LoadDefault);
+                    }
+                    panes.push_to("confirm", &*state);
+                    sync_pane_layer(panes, layer_stack);
+                } else {
+                    let r = dispatch::dispatch_action(&Action::Session(SessionAction::Load), state, audio, io_tx);
+                    pending_audio_dirty.merge(r.audio_dirty);
+                    apply_dispatch_result(r, state, panes, app_frame, audio);
+                }
+            }
+            GlobalActionId::SaveAs => {
+                let default_name = state.project_path.as_ref()
+                    .and_then(|p| p.file_stem())
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("untitled")
+                    .to_string();
+                if let Some(sa) = panes.get_pane_mut::<SaveAsPane>("save_as") {
+                    sa.reset(&default_name);
+                }
+                panes.push_to("save_as", &*state);
+                sync_pane_layer(panes, layer_stack);
+            }
+            GlobalActionId::OpenProjectBrowser => {
+                panes.push_to("project_browser", &*state);
+                sync_pane_layer(panes, layer_stack);
+            }
+            GlobalActionId::MasterMute => {
+                let r = dispatch::dispatch_action(
+                    &Action::Session(SessionAction::ToggleMasterMute), state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
+            }
+            GlobalActionId::RecordMaster => {
+                let r = dispatch::dispatch_action(&Action::Server(ui::ServerAction::RecordMaster), state, audio, io_tx);
+                pending_audio_dirty.merge(r.audio_dirty);
+                apply_dispatch_result(r, state, panes, app_frame, audio);
+            }
+            GlobalActionId::Copy => {
+                copy_from_active_pane(state, panes, audio, io_tx);
+            }
+            GlobalActionId::Cut => {
+                let action = cut_from_active_pane(state, panes, audio, io_tx);
+                if let Some(action) = action {
+                    let r = dispatch::dispatch_action(&action, state, audio, io_tx);
+                    pending_audio_dirty.merge(r.audio_dirty);
+                    apply_dispatch_result(r, state, panes, app_frame, audio);
+                }
+            }
+            GlobalActionId::Paste => {
+                let action = paste_to_active_pane(state, panes);
+                if let Some(action) = action {
+                    let r = dispatch::dispatch_action(&action, state, audio, io_tx);
+                    pending_audio_dirty.merge(r.audio_dirty);
+                    apply_dispatch_result(r, state, panes, app_frame, audio);
+                }
+            }
+            GlobalActionId::SelectAll => {
+                select_all_in_active_pane(state, panes);
+            }
+            GlobalActionId::SwitchPane(PaneId::InstrumentEdit) => {
+                switch_to_pane("instrument_edit", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::InstrumentList) => {
+                switch_to_pane("instrument", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::PianoRollOrSequencer) => {
+                let target = if let Some(inst) = state.instruments.selected_instrument() {
+                    if inst.source.is_kit() {
+                        "sequencer"
+                    } else if inst.source.is_audio_input() || inst.source.is_bus_in() {
+                        "waveform"
+                    } else {
+                        "piano_roll"
+                    }
+                } else {
+                    "piano_roll"
+                };
+                switch_to_pane(target, panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::Track) => {
+                switch_to_pane("track", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::Mixer) => {
+                switch_to_pane("mixer", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::Server) => {
+                switch_to_pane("server", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::Automation) => {
+                switch_to_pane("automation", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::Eq) => {
+                switch_to_pane("eq", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::MidiSettings) => {
+                switch_to_pane("midi_settings", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::SwitchPane(PaneId::FrameEdit) => {
+                if panes.active().id() == "frame_edit" {
+                    panes.pop(&*state);
+                } else {
+                    panes.push_to("frame_edit", &*state);
+                }
+            }
+            GlobalActionId::NavBack => {
+                let history = &mut app_frame.view_history;
+                if !history.is_empty() {
+                    let current = capture_view(panes, state);
+                    history[app_frame.history_cursor] = current;
+
+                    let at_front = app_frame.history_cursor == history.len() - 1;
+                    if at_front {
+                        if app_frame.history_cursor > 0 {
+                            app_frame.history_cursor -= 1;
+                            let view = history[app_frame.history_cursor].clone();
+                            restore_view(panes, state, &view);
+                            sync_pane_layer(panes, layer_stack);
+                        }
+                    } else {
+                        if app_frame.history_cursor < history.len() - 1 {
+                            app_frame.history_cursor += 1;
+                            let view = history[app_frame.history_cursor].clone();
+                            restore_view(panes, state, &view);
+                            sync_pane_layer(panes, layer_stack);
+                        }
+                    }
+                }
+            }
+            GlobalActionId::NavForward => {
+                let history = &mut app_frame.view_history;
+                if !history.is_empty() {
+                    let current = capture_view(panes, state);
+                    history[app_frame.history_cursor] = current;
+
+                    let at_front = app_frame.history_cursor == history.len() - 1;
+                    if at_front {
+                        let target = app_frame.history_cursor.saturating_sub(2);
+                        if target != app_frame.history_cursor {
+                            app_frame.history_cursor = target;
+                            let view = history[app_frame.history_cursor].clone();
+                            restore_view(panes, state, &view);
+                            sync_pane_layer(panes, layer_stack);
+                        }
+                    } else {
+                        let target = (app_frame.history_cursor + 2).min(history.len() - 1);
+                        if target != app_frame.history_cursor {
+                            app_frame.history_cursor = target;
+                            let view = history[app_frame.history_cursor].clone();
+                            restore_view(panes, state, &view);
+                            sync_pane_layer(panes, layer_stack);
+                        }
+                    }
+                }
+            }
+            GlobalActionId::Help => {
+                if panes.active().id() != "help" {
+                    let current_id = panes.active().id();
+                    let current_keymap = panes.active().keymap().clone();
+                    let title = match current_id {
+                        "instrument" => "Instruments",
+                        "mixer" => "Mixer",
+                        "server" => "Server",
+                        "piano_roll" => "Piano Roll",
+                        "sequencer" => "Step Sequencer",
+                        "add" => "Add Instrument",
+                        "instrument_edit" => "Edit Instrument",
+                        "track" => "Track",
+                        "waveform" => "Waveform",
+                        "automation" => "Automation",
+                        "eq" => "Parametric EQ",
+                        _ => current_id,
+                    };
+                    if let Some(help) = panes.get_pane_mut::<HelpPane>("help") {
+                        help.set_context(current_id, title, &current_keymap);
+                    }
+                    panes.push_to("help", &*state);
+                }
+            }
+            GlobalActionId::SelectInstrument(n) => {
+                select_instrument(n as usize, state, panes, audio, io_tx);
+            }
+            GlobalActionId::SelectPrevInstrument => {
+                dispatch::dispatch_action(
+                    &Action::Instrument(ui::InstrumentAction::SelectPrev),
+                    state, audio, io_tx,
+                );
+                sync_piano_roll_to_selection(state, panes, audio, io_tx);
+                sync_instrument_edit(state, panes);
+            }
+            GlobalActionId::SelectNextInstrument => {
+                dispatch::dispatch_action(
+                    &Action::Instrument(ui::InstrumentAction::SelectNext),
+                    state, audio, io_tx,
+                );
+                sync_piano_roll_to_selection(state, panes, audio, io_tx);
+                sync_instrument_edit(state, panes);
+            }
+            GlobalActionId::SelectTwoDigit => {
+                *select_mode = InstrumentSelectMode::WaitingFirstDigit;
+            }
+            GlobalActionId::TogglePianoMode => {
+                let result = panes.active_mut().toggle_performance_mode(state);
+                match result {
+                    ToggleResult::ActivatedPiano => {
+                        layer_stack.push("piano_mode");
+                    }
+                    ToggleResult::ActivatedPad => {
+                        layer_stack.push("pad_mode");
+                    }
+                    ToggleResult::Deactivated => {
+                        layer_stack.pop("piano_mode");
+                        layer_stack.pop("pad_mode");
+                    }
+                    ToggleResult::CycledLayout | ToggleResult::NotSupported => {}
+                }
+            }
+            GlobalActionId::AddInstrument => {
+                switch_to_pane("add", panes, state, app_frame, layer_stack, audio, io_tx);
+            }
+            GlobalActionId::DeleteInstrument => {
+                if let Some(instrument) = state.instruments.selected_instrument() {
+                    let id = instrument.id;
+                    let r = dispatch::dispatch_action(&Action::Instrument(ui::InstrumentAction::Delete(id)), state, audio, io_tx);
+                    pending_audio_dirty.merge(r.audio_dirty);
+                    apply_dispatch_result(r, state, panes, app_frame, audio);
+                    // Re-sync edit pane after deletion
+                    sync_instrument_edit(state, panes);
+                }
+            }
+            GlobalActionId::CommandPalette => {
+                let commands = layer_stack.collect_commands();
+                if let Some(palette) = panes.get_pane_mut::<CommandPalettePane>("command_palette") {
+                    palette.open(commands);
+                }
+                panes.push_to("command_palette", &*state);
+                layer_stack.push("command_palette");
+            }
+            GlobalActionId::Escape => {
+                // Global escape — falls through to pane when no mode layer handles it
+                return GlobalResult::NotHandled;
+            }
+        },
         _ => return GlobalResult::NotHandled,
     }
     GlobalResult::Handled
@@ -716,7 +716,7 @@ fn select_all_in_active_pane(state: &mut AppState, panes: &mut PaneManager) {
                         let max_tick = track.notes.iter().map(|n| n.tick + n.duration).max().unwrap_or(min_tick);
                         let min_pitch = track.notes.iter().map(|n| n.pitch).min().unwrap_or(0);
                         let max_pitch = track.notes.iter().map(|n| n.pitch).max().unwrap_or(127);
-                        
+
                         pane.selection_anchor = Some((min_tick, min_pitch));
                         pane.cursor_tick = max_tick;
                         pane.cursor_pitch = max_pitch;

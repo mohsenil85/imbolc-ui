@@ -5,6 +5,7 @@ use std::any::Any;
 
 use crate::state::automation::{AutomationLaneId, AutomationTarget};
 use crate::state::AppState;
+use crate::ui::action_id::ActionId;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, Style};
 
@@ -87,7 +88,7 @@ impl Pane for AutomationPane {
         "automation"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         self.handle_action_impl(action, event, state)
     }
 
@@ -174,36 +175,39 @@ mod tests {
 
     #[test]
     fn switch_focus_toggles() {
+        use crate::ui::action_id::{ActionId, AutomationActionId};
         let mut pane = AutomationPane::new(Keymap::new());
         let state = AppState::new();
         assert_eq!(pane.focus, AutomationFocus::LaneList);
 
-        pane.handle_action("switch_focus", &dummy_event(), &state);
+        pane.handle_action(ActionId::Automation(AutomationActionId::SwitchFocus), &dummy_event(), &state);
         assert_eq!(pane.focus, AutomationFocus::Timeline);
 
-        pane.handle_action("switch_focus", &dummy_event(), &state);
+        pane.handle_action(ActionId::Automation(AutomationActionId::SwitchFocus), &dummy_event(), &state);
         assert_eq!(pane.focus, AutomationFocus::LaneList);
     }
 
     #[test]
     fn timeline_cursor_moves() {
+        use crate::ui::action_id::{ActionId, AutomationActionId};
         let mut pane = AutomationPane::new(Keymap::new());
         let state = AppState::new();
         pane.focus = AutomationFocus::Timeline;
 
         let start_tick = pane.cursor_tick;
-        pane.handle_action("right", &dummy_event(), &state);
+        pane.handle_action(ActionId::Automation(AutomationActionId::Right), &dummy_event(), &state);
         assert!(pane.cursor_tick > start_tick);
 
-        pane.handle_action("left", &dummy_event(), &state);
+        pane.handle_action(ActionId::Automation(AutomationActionId::Left), &dummy_event(), &state);
         assert_eq!(pane.cursor_tick, start_tick);
     }
 
     #[test]
     fn add_lane_opens_target_picker() {
+        use crate::ui::action_id::{ActionId, AutomationActionId};
         let mut pane = AutomationPane::new(Keymap::new());
         let state = AppState::new();
-        pane.handle_action("add_lane", &dummy_event(), &state);
+        pane.handle_action(ActionId::Automation(AutomationActionId::AddLane), &dummy_event(), &state);
         assert!(matches!(pane.target_picker, TargetPickerState::Active { .. }));
     }
 }

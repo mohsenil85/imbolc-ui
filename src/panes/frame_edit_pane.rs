@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::state::music::{Key, Scale};
 use crate::state::{AppState, MusicalSettings};
+use crate::ui::action_id::{ActionId, FrameEditActionId, ModeActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, SessionAction, Style};
 use crate::ui::widgets::TextInput;
@@ -139,10 +140,10 @@ impl Pane for FrameEditPane {
         "frame_edit"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
             // Text edit layer actions
-            "text:confirm" => {
+            ActionId::Mode(ModeActionId::TextConfirm) => {
                 let text = self.edit_input.value().to_string();
                 match self.current_field() {
                     Field::Bpm => {
@@ -161,34 +162,34 @@ impl Pane for FrameEditPane {
                 self.edit_input.set_focused(false);
                 Action::Session(SessionAction::UpdateSession(self.settings.clone()))
             }
-            "text:cancel" => {
+            ActionId::Mode(ModeActionId::TextCancel) => {
                 self.editing = false;
                 self.edit_input.set_focused(false);
                 self.settings = self.original_settings.clone();
                 Action::Session(SessionAction::UpdateSession(self.original_settings.clone()))
             }
             // Normal actions
-            "prev" => {
+            ActionId::FrameEdit(FrameEditActionId::Prev) => {
                 if self.selected > 0 {
                     self.selected -= 1;
                 }
                 Action::None
             }
-            "next" => {
+            ActionId::FrameEdit(FrameEditActionId::Next) => {
                 if self.selected < FIELDS.len() - 1 {
                     self.selected += 1;
                 }
                 Action::None
             }
-            "decrease" => {
+            ActionId::FrameEdit(FrameEditActionId::Decrease) => {
                 self.adjust(false);
                 Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()))
             }
-            "increase" => {
+            ActionId::FrameEdit(FrameEditActionId::Increase) => {
                 self.adjust(true);
                 Action::Session(SessionAction::UpdateSessionLive(self.settings.clone()))
             }
-            "confirm" => {
+            ActionId::FrameEdit(FrameEditActionId::Confirm) => {
                 let field = self.current_field();
                 if matches!(field, Field::Bpm | Field::Tuning) {
                     let val = match field {
@@ -205,7 +206,7 @@ impl Pane for FrameEditPane {
                     Action::Session(SessionAction::UpdateSession(self.settings.clone()))
                 }
             }
-            "cancel" => {
+            ActionId::FrameEdit(FrameEditActionId::Cancel) => {
                 self.settings = self.original_settings.clone();
                 Action::Session(SessionAction::UpdateSession(self.original_settings.clone()))
             }
@@ -316,16 +317,17 @@ mod tests {
 
     #[test]
     fn confirm_non_text_field_commits() {
+        use crate::ui::action_id::{ActionId, FrameEditActionId};
         let mut pane = FrameEditPane::new(Keymap::new());
         let state = AppState::new();
         let settings = MusicalSettings::default();
         pane.set_settings(settings);
 
         for _ in 0..3 {
-            pane.handle_action("next", &dummy_event(), &state);
+            pane.handle_action(ActionId::FrameEdit(FrameEditActionId::Next), &dummy_event(), &state);
         }
 
-        let action = pane.handle_action("confirm", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::FrameEdit(FrameEditActionId::Confirm), &dummy_event(), &state);
         match action {
             Action::Session(SessionAction::UpdateSession(updated)) => {
                 assert_eq!(updated.key, pane.settings.key);
@@ -336,13 +338,14 @@ mod tests {
 
     #[test]
     fn text_confirm_commits_and_returns() {
+        use crate::ui::action_id::{ActionId, ModeActionId};
         let mut pane = FrameEditPane::new(Keymap::new());
         let state = AppState::new();
         let settings = MusicalSettings::default();
         pane.set_settings(settings);
         pane.edit_input.set_value("180");
 
-        let action = pane.handle_action("text:confirm", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mode(ModeActionId::TextConfirm), &dummy_event(), &state);
         match action {
             Action::Session(SessionAction::UpdateSession(updated)) => {
                 assert_eq!(updated.bpm, 180);
@@ -354,6 +357,7 @@ mod tests {
 
     #[test]
     fn cancel_reverts_to_original_settings() {
+        use crate::ui::action_id::{ActionId, FrameEditActionId};
         let mut pane = FrameEditPane::new(Keymap::new());
         let state = AppState::new();
         let mut settings = MusicalSettings::default();
@@ -362,7 +366,7 @@ mod tests {
 
         pane.settings.bpm = 200;
 
-        let action = pane.handle_action("cancel", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::FrameEdit(FrameEditActionId::Cancel), &dummy_event(), &state);
         match action {
             Action::Session(SessionAction::UpdateSession(updated)) => {
                 assert_eq!(updated, settings);
@@ -374,6 +378,7 @@ mod tests {
 
     #[test]
     fn text_cancel_reverts_to_original_settings() {
+        use crate::ui::action_id::{ActionId, ModeActionId};
         let mut pane = FrameEditPane::new(Keymap::new());
         let state = AppState::new();
         let mut settings = MusicalSettings::default();
@@ -383,7 +388,7 @@ mod tests {
         pane.settings.tuning_a4 = 450.0;
         pane.editing = true;
 
-        let action = pane.handle_action("text:cancel", &dummy_event(), &state);
+        let action = pane.handle_action(ActionId::Mode(ModeActionId::TextCancel), &dummy_event(), &state);
         match action {
             Action::Session(SessionAction::UpdateSession(updated)) => {
                 assert_eq!(updated, settings);

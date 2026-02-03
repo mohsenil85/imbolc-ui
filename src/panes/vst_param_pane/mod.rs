@@ -6,6 +6,7 @@ use std::any::Any;
 
 use crate::action::VstTarget;
 use crate::state::{AppState, InstrumentId};
+use crate::ui::action_id::ActionId;
 use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, Pane};
 
 pub struct VstParamPane {
@@ -113,7 +114,7 @@ impl Pane for VstParamPane {
         "vst_params"
     }
 
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action {
         self.sync_from_state(state);
         self.handle_action_impl(action, event, state)
     }

@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, ModeActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::widgets::TextInput;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, Style};
@@ -8,7 +9,7 @@ use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, KeyCode, Keymap, Nav
 pub struct CommandPalettePane {
     keymap: Keymap,
     /// (action, description, keybinding display)
-    commands: Vec<(String, String, String)>,
+    commands: Vec<(ActionId, String, String)>,
     text_input: TextInput,
     /// Indices into `commands` matching current filter
     filtered: Vec<usize>,
@@ -17,7 +18,7 @@ pub struct CommandPalettePane {
     scroll: usize,
     /// The manually-typed prefix (separate from input which changes during tab cycling)
     filter_base: String,
-    pending_command: Option<String>,
+    pending_command: Option<ActionId>,
 }
 
 impl CommandPalettePane {
@@ -37,10 +38,10 @@ impl CommandPalettePane {
     }
 
     /// Called before push to populate the palette with available commands.
-    pub fn open(&mut self, commands: Vec<(&'static str, &'static str, String)>) {
+    pub fn open(&mut self, commands: Vec<(ActionId, &'static str, String)>) {
         self.commands = commands
             .into_iter()
-            .map(|(a, d, k)| (a.to_string(), d.to_string(), k))
+            .map(|(a, d, k)| (a, d.to_string(), k))
             .collect();
         self.text_input.set_value("");
         self.text_input.set_focused(true);
@@ -52,7 +53,7 @@ impl CommandPalettePane {
     }
 
     /// Called by main.rs after pop to get the confirmed command.
-    pub fn take_command(&mut self) -> Option<String> {
+    pub fn take_command(&mut self) -> Option<ActionId> {
         self.pending_command.take()
     }
 
@@ -66,7 +67,7 @@ impl CommandPalettePane {
                 if query.is_empty() {
                     return true;
                 }
-                action.to_lowercase().contains(&query)
+                action.as_str().to_lowercase().contains(&query)
                     || desc.to_lowercase().contains(&query)
             })
             .map(|(i, _)| i)
@@ -83,11 +84,11 @@ impl CommandPalettePane {
         let input = self.text_input.value().to_string();
 
         // Find longest common prefix of all filtered action names
-        let first_action = &self.commands[self.filtered[0]].0;
-        let mut lcp = first_action.clone();
+        let first_action_str = self.commands[self.filtered[0]].0.as_str();
+        let mut lcp = first_action_str.to_string();
         for &idx in &self.filtered[1..] {
-            let action = &self.commands[idx].0;
-            lcp = longest_common_prefix(&lcp, action);
+            let action_str = self.commands[idx].0.as_str();
+            lcp = longest_common_prefix(&lcp, action_str);
             if lcp.is_empty() {
                 break;
             }
@@ -100,17 +101,17 @@ impl CommandPalettePane {
             self.update_filter();
         } else if self.filtered.len() == 1 {
             // Single match — fill in completely
-            let action = self.commands[self.filtered[0]].0.clone();
-            self.text_input.set_value(&action);
-            self.filter_base = action;
+            let action_str = self.commands[self.filtered[0]].0.as_str();
+            self.text_input.set_value(action_str);
+            self.filter_base = action_str.to_string();
             self.update_filter();
         } else if self.filtered.len() > 1 {
             // Already at LCP and multiple matches — cycle selected
             self.selected = (self.selected + 1) % self.filtered.len();
             self.ensure_visible();
             let idx = self.filtered[self.selected];
-            let action = self.commands[idx].0.clone();
-            self.text_input.set_value(&action);
+            let action_str = self.commands[idx].0.as_str();
+            self.text_input.set_value(action_str);
             // Don't change filter_base — keep showing all matches
         }
     }
@@ -138,21 +139,16 @@ impl Pane for CommandPalettePane {
         "command_palette"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "palette:confirm" => {
+            ActionId::Mode(ModeActionId::PaletteConfirm) => {
                 if !self.filtered.is_empty() {
                     let idx = self.filtered[self.selected];
-                    self.pending_command = Some(self.commands[idx].0.clone());
-                } else {
-                    let val = self.text_input.value().to_string();
-                    if !val.is_empty() {
-                        self.pending_command = Some(val);
-                    }
+                    self.pending_command = Some(self.commands[idx].0);
                 }
                 Action::Nav(NavAction::PopPane)
             }
-            "palette:cancel" => {
+            ActionId::Mode(ModeActionId::PaletteCancel) => {
                 self.pending_command = None;
                 Action::Nav(NavAction::PopPane)
             }
@@ -174,8 +170,8 @@ impl Pane for CommandPalettePane {
                     }
                     self.ensure_visible();
                     let idx = self.filtered[self.selected];
-                    let action = self.commands[idx].0.clone();
-                    self.text_input.set_value(&action);
+                    let action_str = self.commands[idx].0.as_str();
+                    self.text_input.set_value(action_str);
                 }
             }
             KeyCode::Down => {
@@ -183,8 +179,8 @@ impl Pane for CommandPalettePane {
                     self.selected = (self.selected + 1) % self.filtered.len();
                     self.ensure_visible();
                     let idx = self.filtered[self.selected];
-                    let action = self.commands[idx].0.clone();
-                    self.text_input.set_value(&action);
+                    let action_str = self.commands[idx].0.as_str();
+                    self.text_input.set_value(action_str);
                 }
             }
             _ => {
@@ -288,7 +284,7 @@ impl Pane for CommandPalettePane {
             let w = inner.width as usize;
             let key_display = format!(" {} ", key);
             let key_len = key_display.len();
-            let action_display = format!(" {}", action);
+            let action_display = format!(" {}", action.as_str());
             let desc_display = format!("  {}", desc);
 
             // Truncate if needed

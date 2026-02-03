@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::{AppState, EffectType, VstPluginRegistry};
+use crate::ui::action_id::{ActionId, AddActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{
     Rect, RenderBuf, Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent,
@@ -166,9 +167,9 @@ impl Pane for AddEffectPane {
         "add_effect"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, state: &AppState) -> Action {
         match action {
-            "confirm" => {
+            ActionId::Add(AddActionId::Confirm) => {
                 if let Some(option) = self.cached_options.get(self.selected) {
                     match option {
                         AddEffectOption::Effect(effect_type) => {
@@ -187,12 +188,12 @@ impl Pane for AddEffectPane {
                     Action::None
                 }
             }
-            "cancel" => Action::Nav(NavAction::PopPane),
-            "next" => {
+            ActionId::Add(AddActionId::Cancel) => Action::Nav(NavAction::PopPane),
+            ActionId::Add(AddActionId::Next) => {
                 self.select_next();
                 Action::None
             }
-            "prev" => {
+            ActionId::Add(AddActionId::Prev) => {
                 self.select_prev();
                 Action::None
             }

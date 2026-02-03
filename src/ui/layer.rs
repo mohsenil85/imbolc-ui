@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::keymap::Keymap;
 use super::InputEvent;
+use super::action_id::ActionId;
 
 /// A named layer with a keymap and transparency setting.
 pub struct Layer {
@@ -12,8 +13,8 @@ pub struct Layer {
 
 /// Result of resolving an input event through the layer stack.
 pub enum LayerResult {
-    /// A layer matched the event with this action string.
-    Action(&'static str),
+    /// A layer matched the event with this action ID.
+    Action(ActionId),
     /// An opaque layer blocked the event without matching it.
     Blocked,
     /// No layer matched the event and all layers were transparent.
@@ -93,8 +94,8 @@ impl LayerStack {
     }
 
     /// Collect all commands from active layers for the command palette.
-    /// Walks top-to-bottom (matching resolution priority), deduplicates by action name.
-    pub fn collect_commands(&self) -> Vec<(&'static str, &'static str, String)> {
+    /// Walks top-to-bottom (matching resolution priority), deduplicates by action ID.
+    pub fn collect_commands(&self) -> Vec<(ActionId, &'static str, String)> {
         let mut seen = std::collections::HashSet::new();
         let mut commands = Vec::new();
         for name in self.active.iter().rev() {
@@ -106,7 +107,7 @@ impl LayerStack {
                 }
             }
         }
-        commands.sort_by(|a, b| a.0.cmp(&b.0));
+        commands.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
         commands
     }
 }

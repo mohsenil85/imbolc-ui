@@ -2,6 +2,7 @@ use std::any::Any;
 use std::path::PathBuf;
 
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, ConfirmActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
 
@@ -61,17 +62,17 @@ impl Pane for ConfirmPane {
         "confirm"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "close" | "cancel" => Action::Nav(NavAction::PopPane),
-            "confirm" => {
+            ActionId::Confirm(ConfirmActionId::Cancel) => Action::Nav(NavAction::PopPane),
+            ActionId::Confirm(ConfirmActionId::Confirm) => {
                 if self.selected {
                     self.confirm_action()
                 } else {
                     Action::Nav(NavAction::PopPane)
                 }
             }
-            "left" | "right" | "toggle" => {
+            ActionId::Confirm(ConfirmActionId::Left) | ActionId::Confirm(ConfirmActionId::Right) | ActionId::Confirm(ConfirmActionId::Toggle) => {
                 self.selected = !self.selected;
                 Action::None
             }

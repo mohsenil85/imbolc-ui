@@ -267,13 +267,13 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 if let Some(palette) = panes.get_pane_mut::<CommandPalettePane>("command_palette") {
                     if let Some(cmd) = palette.take_command() {
                         let global_result = handle_global_action(
-                            &cmd, &mut state, &mut panes, &mut audio, &mut app_frame,
+                            cmd, &mut state, &mut panes, &mut audio, &mut app_frame,
                             &mut select_mode, &mut pending_audio_dirty, &mut layer_stack, &io_tx,
                         );
                         if matches!(global_result, GlobalResult::Quit) { break; }
                         if matches!(global_result, GlobalResult::NotHandled) {
                             let dummy_event = ui::InputEvent::new(KeyCode::Enter, ui::Modifiers::none());
-                            let re_action = panes.active_mut().handle_action(&cmd, &dummy_event, &state);
+                            let re_action = panes.active_mut().handle_action(cmd, &dummy_event, &state);
                             panes.process_nav(&re_action, &state);
                             if matches!(&re_action, Action::Nav(_)) {
                                 sync_pane_layer(&mut panes, &mut layer_stack);

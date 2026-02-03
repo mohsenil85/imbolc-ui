@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, HelpActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
 
@@ -53,24 +54,24 @@ impl Pane for HelpPane {
         "help"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "close" => Action::Nav(NavAction::PopPane),
-            "up" => {
+            ActionId::Help(HelpActionId::Close) => Action::Nav(NavAction::PopPane),
+            ActionId::Help(HelpActionId::Up) => {
                 if self.scroll > 0 {
                     self.scroll -= 1;
                 }
                 Action::None
             }
-            "down" => {
+            ActionId::Help(HelpActionId::Down) => {
                 self.scroll += 1;
                 Action::None
             }
-            "top" => {
+            ActionId::Help(HelpActionId::Top) => {
                 self.scroll = 0;
                 Action::None
             }
-            "bottom" => {
+            ActionId::Help(HelpActionId::Bottom) => {
                 self.scroll = self.display_keymap.len().saturating_sub(1);
                 Action::None
             }

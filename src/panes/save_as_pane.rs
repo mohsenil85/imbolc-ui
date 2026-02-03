@@ -48,7 +48,7 @@ impl Pane for SaveAsPane {
         "save_as"
     }
 
-    fn handle_action(&mut self, _action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, _action: crate::ui::action_id::ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         Action::None
     }
 

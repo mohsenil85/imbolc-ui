@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::state::AppState;
+use crate::ui::action_id::{ActionId, WaveformActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, Style};
 
@@ -391,9 +392,9 @@ impl Pane for WaveformPane {
         "waveform"
     }
 
-    fn handle_action(&mut self, action: &str, _event: &InputEvent, _state: &AppState) -> Action {
+    fn handle_action(&mut self, action: ActionId, _event: &InputEvent, _state: &AppState) -> Action {
         match action {
-            "cycle_mode" => {
+            ActionId::Waveform(WaveformActionId::CycleMode) => {
                 self.mode = self.mode.next();
                 Action::None
             }

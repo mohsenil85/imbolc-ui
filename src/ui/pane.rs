@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use super::{InputEvent, Keymap, MouseEvent, Rect, RenderBuf};
+use super::action_id::ActionId;
 use crate::state::AppState;
 
 // Re-export all action types from the core crate
@@ -16,8 +17,8 @@ pub trait Pane {
     /// Unique identifier for this pane
     fn id(&self) -> &'static str;
 
-    /// Handle a resolved action string from the layer system
-    fn handle_action(&mut self, action: &str, event: &InputEvent, state: &AppState) -> Action;
+    /// Handle a resolved action ID from the layer system
+    fn handle_action(&mut self, action: ActionId, event: &InputEvent, state: &AppState) -> Action;
 
     /// Handle raw input when layers resolved to Blocked or Unresolved
     fn handle_raw_input(&mut self, _event: &InputEvent, _state: &AppState) -> Action {
