@@ -85,3 +85,45 @@ impl NumericInput {
         1
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn float_set_and_get() {
+        let mut input = NumericInput::float();
+        input.set_value_f32(3.14);
+        let val = input.value_f32().unwrap();
+        assert!((val - 3.14).abs() < 0.01);
+    }
+
+    #[test]
+    fn integer_set_and_get() {
+        let mut input = NumericInput::integer();
+        input.set_value_i32(42);
+        assert_eq!(input.value_i32().unwrap(), 42);
+    }
+
+    #[test]
+    fn focus_state() {
+        let mut input = NumericInput::float();
+        assert!(!input.is_focused());
+        input.set_focused(true);
+        assert!(input.is_focused());
+        input.set_focused(false);
+        assert!(!input.is_focused());
+    }
+
+    #[test]
+    fn unfocused_does_not_consume() {
+        let mut input = NumericInput::float();
+        input.set_focused(false);
+        let event = InputEvent::new(
+            crate::ui::input::KeyCode::Char('5'),
+            crate::ui::input::Modifiers::none(),
+        );
+        let consumed = input.handle_input(&event);
+        assert!(!consumed);
+    }
+}

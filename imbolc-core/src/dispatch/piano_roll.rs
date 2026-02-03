@@ -432,3 +432,166 @@ pub(super) fn dispatch_piano_roll(
     }
     DispatchResult::none()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::AudioHandle;
+    use crate::state::ClipboardContents;
+
+    fn setup() -> (AppState, AudioHandle) {
+        let state = AppState::new();
+        let audio = AudioHandle::new();
+        (state, audio)
+    }
+
+    #[test]
+    fn toggle_note_adds_note_and_sets_dirty() {
+        let (mut state, mut audio) = setup();
+        let _id = state.add_instrument(crate::state::SourceType::Saw);
+        let action = PianoRollAction::ToggleNote {
+            pitch: 60,
+            tick: 0,
+            duration: 480,
+            velocity: 100,
+            track: 0,
+        };
+        let result = dispatch_piano_roll(&action, &mut state, &mut audio);
+        assert!(result.audio_dirty.piano_roll);
+        assert_eq!(state.session.piano_roll.track_at(0).unwrap().notes.len(), 1);
+
+        // Toggle again removes
+        let result = dispatch_piano_roll(&action, &mut state, &mut audio);
+        assert!(result.audio_dirty.piano_roll);
+        assert!(state.session.piano_roll.track_at(0).unwrap().notes.is_empty());
+    }
+
+    #[test]
+    fn play_stop_toggles_playing_and_clears_recording() {
+        let (mut state, mut audio) = setup();
+        state.session.piano_roll.recording = true;
+
+        let action = PianoRollAction::PlayStop;
+        dispatch_piano_roll(&action, &mut state, &mut audio);
+        assert!(state.session.piano_roll.playing);
+
+        dispatch_piano_roll(&action, &mut state, &mut audio);
+        assert!(!state.session.piano_roll.playing);
+        assert!(!state.session.piano_roll.recording);
+    }
+
+    #[test]
+    fn play_stop_noop_while_exporting() {
+        let (mut state, mut audio) = setup();
+        state.pending_export = Some(crate::state::PendingExport {
+            kind: crate::audio::commands::ExportKind::MasterBounce,
+            was_looping: false,
+            paths: vec![],
+        });
+        let action = PianoRollAction::PlayStop;
+        dispatch_piano_roll(&action, &mut state, &mut audio);
+        assert!(!state.session.piano_roll.playing);
+    }
+
+    #[test]
+    fn toggle_loop_flips() {
+        let (mut state, mut audio) = setup();
+        assert!(!state.session.piano_roll.looping);
+        dispatch_piano_roll(&PianoRollAction::ToggleLoop, &mut state, &mut audio);
+        assert!(state.session.piano_roll.looping);
+        dispatch_piano_roll(&PianoRollAction::ToggleLoop, &mut state, &mut audio);
+        assert!(!state.session.piano_roll.looping);
+    }
+
+    #[test]
+    fn cycle_time_sig() {
+        let (mut state, mut audio) = setup();
+        let expected = vec![(3, 4), (6, 8), (5, 4), (7, 8), (4, 4)];
+        for ts in expected {
+            dispatch_piano_roll(&PianoRollAction::CycleTimeSig, &mut state, &mut audio);
+            assert_eq!(state.session.time_signature, ts);
+            assert_eq!(state.session.piano_roll.time_signature, ts);
+        }
+    }
+
+    #[test]
+    fn adjust_swing_clamps() {
+        let (mut state, mut audio) = setup();
+        dispatch_piano_roll(&PianoRollAction::AdjustSwing(2.0), &mut state, &mut audio);
+        assert!((state.session.piano_roll.swing_amount - 1.0).abs() < f32::EPSILON);
+
+        dispatch_piano_roll(&PianoRollAction::AdjustSwing(-5.0), &mut state, &mut audio);
+        assert!((state.session.piano_roll.swing_amount - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn delete_notes_in_region() {
+        let (mut state, mut audio) = setup();
+        let _id = state.add_instrument(crate::state::SourceType::Saw);
+        // Add notes
+        state.session.piano_roll.toggle_note(0, 60, 0, 480, 100);
+        state.session.piano_roll.toggle_note(0, 64, 480, 480, 100);
+        state.session.piano_roll.toggle_note(0, 72, 960, 480, 100);
+
+        let action = PianoRollAction::DeleteNotesInRegion {
+            track: 0,
+            start_tick: 0,
+            end_tick: 960,
+            start_pitch: 60,
+            end_pitch: 64,
+        };
+        dispatch_piano_roll(&action, &mut state, &mut audio);
+        let notes = &state.session.piano_roll.track_at(0).unwrap().notes;
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].pitch, 72);
+    }
+
+    #[test]
+    fn paste_notes_skips_duplicates_and_clamps_pitch() {
+        let (mut state, mut audio) = setup();
+        let _id = state.add_instrument(crate::state::SourceType::Saw);
+        // Pre-existing note at (60, 0)
+        state.session.piano_roll.toggle_note(0, 60, 0, 480, 100);
+
+        let clipboard_notes = vec![
+            ClipboardNote { tick_offset: 0, pitch_offset: 0, duration: 480, velocity: 100, probability: 1.0 },
+            ClipboardNote { tick_offset: 480, pitch_offset: -200, duration: 480, velocity: 100, probability: 1.0 }, // out of range
+            ClipboardNote { tick_offset: 480, pitch_offset: 2, duration: 480, velocity: 100, probability: 1.0 },
+        ];
+        let action = PianoRollAction::PasteNotes {
+            track: 0,
+            anchor_tick: 0,
+            anchor_pitch: 60,
+            notes: clipboard_notes,
+        };
+        dispatch_piano_roll(&action, &mut state, &mut audio);
+        let notes = &state.session.piano_roll.track_at(0).unwrap().notes;
+        // Original + one valid paste (duplicate and out-of-range skipped)
+        assert_eq!(notes.len(), 2);
+    }
+
+    #[test]
+    fn copy_notes_populates_clipboard() {
+        let (mut state, mut audio) = setup();
+        let _id = state.add_instrument(crate::state::SourceType::Saw);
+        state.session.piano_roll.toggle_note(0, 60, 0, 480, 100);
+        state.session.piano_roll.toggle_note(0, 64, 240, 480, 100);
+
+        let action = PianoRollAction::CopyNotes {
+            track: 0,
+            start_tick: 0,
+            end_tick: 480,
+            start_pitch: 60,
+            end_pitch: 64,
+        };
+        dispatch_piano_roll(&action, &mut state, &mut audio);
+        match &state.clipboard.contents {
+            Some(ClipboardContents::PianoRollNotes(notes)) => {
+                assert_eq!(notes.len(), 2);
+                assert_eq!(notes[0].tick_offset, 0);
+                assert_eq!(notes[1].tick_offset, 240);
+            }
+            _ => panic!("Expected PianoRollNotes in clipboard"),
+        }
+    }
+}

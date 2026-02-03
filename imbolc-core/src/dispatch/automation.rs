@@ -176,3 +176,186 @@ pub(crate) fn record_automation_point(state: &mut AppState, target: AutomationTa
         lane.add_point(playhead, value);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::AudioHandle;
+    use crate::state::automation::AutomationLaneId;
+
+    fn setup() -> (AppState, AudioHandle) {
+        let state = AppState::new();
+        let audio = AudioHandle::new();
+        (state, audio)
+    }
+
+    fn add_lane(state: &mut AppState) -> AutomationLaneId {
+        state.session.automation.add_lane(AutomationTarget::InstrumentLevel(0))
+    }
+
+    #[test]
+    fn add_lane_creates_and_is_idempotent() {
+        let (mut state, mut audio) = setup();
+        let target = AutomationTarget::InstrumentLevel(0);
+        let result = dispatch_automation(&AutomationAction::AddLane(target.clone()), &mut state, &mut audio);
+        assert!(result.audio_dirty.automation);
+        assert_eq!(state.session.automation.lanes.len(), 1);
+
+        // Adding same target again doesn't create new lane
+        dispatch_automation(&AutomationAction::AddLane(target), &mut state, &mut audio);
+        assert_eq!(state.session.automation.lanes.len(), 1);
+    }
+
+    #[test]
+    fn remove_lane() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        assert_eq!(state.session.automation.lanes.len(), 1);
+        dispatch_automation(&AutomationAction::RemoveLane(id), &mut state, &mut audio);
+        assert!(state.session.automation.lanes.is_empty());
+    }
+
+    #[test]
+    fn toggle_lane_enabled() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        assert!(state.session.automation.lane(id).unwrap().enabled);
+        dispatch_automation(&AutomationAction::ToggleLaneEnabled(id), &mut state, &mut audio);
+        assert!(!state.session.automation.lane(id).unwrap().enabled);
+    }
+
+    #[test]
+    fn add_and_remove_point() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        dispatch_automation(&AutomationAction::AddPoint(id, 100, 0.5), &mut state, &mut audio);
+        assert_eq!(state.session.automation.lane(id).unwrap().points.len(), 1);
+
+        dispatch_automation(&AutomationAction::RemovePoint(id, 100), &mut state, &mut audio);
+        assert!(state.session.automation.lane(id).unwrap().points.is_empty());
+    }
+
+    #[test]
+    fn move_point() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        dispatch_automation(&AutomationAction::AddPoint(id, 100, 0.5), &mut state, &mut audio);
+        dispatch_automation(&AutomationAction::MovePoint(id, 100, 200, 0.8), &mut state, &mut audio);
+        let lane = state.session.automation.lane(id).unwrap();
+        assert_eq!(lane.points.len(), 1);
+        assert_eq!(lane.points[0].tick, 200);
+        assert!((lane.points[0].value - 0.8).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn toggle_recording_pushes_undo() {
+        let (mut state, mut audio) = setup();
+        assert!(!state.undo_history.can_undo());
+        dispatch_automation(&AutomationAction::ToggleRecording, &mut state, &mut audio);
+        assert!(state.automation_recording);
+        assert!(state.undo_history.can_undo());
+
+        dispatch_automation(&AutomationAction::ToggleRecording, &mut state, &mut audio);
+        assert!(!state.automation_recording);
+    }
+
+    #[test]
+    fn arm_all_and_disarm_all() {
+        let (mut state, mut audio) = setup();
+        add_lane(&mut state);
+        state.session.automation.add_lane(AutomationTarget::InstrumentPan(0));
+
+        dispatch_automation(&AutomationAction::ArmAllLanes, &mut state, &mut audio);
+        assert!(state.session.automation.lanes.iter().all(|l| l.record_armed));
+
+        dispatch_automation(&AutomationAction::DisarmAllLanes, &mut state, &mut audio);
+        assert!(state.session.automation.lanes.iter().all(|l| !l.record_armed));
+    }
+
+    #[test]
+    fn toggle_lane_arm() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        assert!(!state.session.automation.lane(id).unwrap().record_armed);
+        dispatch_automation(&AutomationAction::ToggleLaneArm(id), &mut state, &mut audio);
+        assert!(state.session.automation.lane(id).unwrap().record_armed);
+    }
+
+    #[test]
+    fn record_automation_point_thinning() {
+        let (mut state, _audio) = setup();
+        state.automation_recording = true;
+        state.session.piano_roll.playing = true;
+        let target = AutomationTarget::InstrumentLevel(0);
+
+        // First point always added
+        state.audio_playhead = 0;
+        record_automation_point(&mut state, target.clone(), 0.5);
+        let lane_id = state.session.automation.lane_for_target(&target).unwrap().id;
+        assert_eq!(state.session.automation.lane(lane_id).unwrap().points.len(), 1);
+        // New lane should be auto-armed
+        assert!(state.session.automation.lane(lane_id).unwrap().record_armed);
+
+        // Second point too close in both value and tick — should be skipped
+        state.audio_playhead = 10;
+        record_automation_point(&mut state, target.clone(), 0.502);
+        assert_eq!(state.session.automation.lane(lane_id).unwrap().points.len(), 1);
+
+        // Third point: enough tick delta
+        state.audio_playhead = 100;
+        record_automation_point(&mut state, target.clone(), 0.502);
+        assert_eq!(state.session.automation.lane(lane_id).unwrap().points.len(), 2);
+    }
+
+    #[test]
+    fn record_automation_point_skips_unarmed() {
+        let (mut state, _audio) = setup();
+        state.automation_recording = true;
+        state.session.piano_roll.playing = true;
+        let target = AutomationTarget::InstrumentLevel(0);
+        let lane_id = state.session.automation.add_lane(target.clone());
+
+        // Disarm the lane
+        state.session.automation.lane_mut(lane_id).unwrap().record_armed = false;
+
+        state.audio_playhead = 0;
+        record_automation_point(&mut state, target, 0.5);
+        assert!(state.session.automation.lane(lane_id).unwrap().points.is_empty());
+    }
+
+    #[test]
+    fn delete_points_in_range() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        dispatch_automation(&AutomationAction::AddPoint(id, 100, 0.5), &mut state, &mut audio);
+        dispatch_automation(&AutomationAction::AddPoint(id, 200, 0.6), &mut state, &mut audio);
+        dispatch_automation(&AutomationAction::AddPoint(id, 300, 0.7), &mut state, &mut audio);
+
+        dispatch_automation(&AutomationAction::DeletePointsInRange(id, 100, 250), &mut state, &mut audio);
+        let lane = state.session.automation.lane(id).unwrap();
+        assert_eq!(lane.points.len(), 1);
+        assert_eq!(lane.points[0].tick, 300);
+    }
+
+    #[test]
+    fn copy_and_paste_points() {
+        let (mut state, mut audio) = setup();
+        let id = add_lane(&mut state);
+        dispatch_automation(&AutomationAction::AddPoint(id, 100, 0.5), &mut state, &mut audio);
+        dispatch_automation(&AutomationAction::AddPoint(id, 200, 0.8), &mut state, &mut audio);
+
+        dispatch_automation(&AutomationAction::CopyPoints(id, 50, 250), &mut state, &mut audio);
+        match &state.clipboard.contents {
+            Some(ClipboardContents::AutomationPoints { points }) => {
+                assert_eq!(points.len(), 2);
+            }
+            _ => panic!("Expected AutomationPoints"),
+        }
+
+        // Paste at offset
+        let paste_points = vec![(0, 0.5), (100, 0.8)];
+        dispatch_automation(&AutomationAction::PastePoints(id, 500, paste_points), &mut state, &mut audio);
+        let lane = state.session.automation.lane(id).unwrap();
+        assert_eq!(lane.points.len(), 4);
+    }
+}

@@ -384,4 +384,126 @@ mod tests {
             .is_empty());
         assert!(state.session.piano_roll.track_order.is_empty());
     }
+
+    #[test]
+    fn effective_instrument_mute_no_solo() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+        let inst = &state.instruments.instruments[0];
+        // Not muted, no solo, no master mute
+        assert!(!state.effective_instrument_mute(inst));
+
+        // Mute the instrument
+        state.instruments.instruments[0].mute = true;
+        let inst = &state.instruments.instruments[0];
+        assert!(state.effective_instrument_mute(inst));
+
+        // Unmute instrument but mute master
+        state.instruments.instruments[0].mute = false;
+        state.session.master_mute = true;
+        let inst = &state.instruments.instruments[0];
+        assert!(state.effective_instrument_mute(inst));
+    }
+
+    #[test]
+    fn effective_instrument_mute_with_solo() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+        state.add_instrument(SourceType::Sin);
+        state.instruments.instruments[0].solo = true;
+
+        let inst0 = &state.instruments.instruments[0];
+        assert!(!state.effective_instrument_mute(inst0)); // soloed — not muted
+
+        let inst1 = &state.instruments.instruments[1];
+        assert!(state.effective_instrument_mute(inst1)); // not soloed — muted
+    }
+
+    #[test]
+    fn mixer_move_clamps_instrument() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+        state.add_instrument(SourceType::Sin);
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+
+        state.mixer_move(-1);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Instrument(0)));
+
+        state.mixer_move(10);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Instrument(1)));
+    }
+
+    #[test]
+    fn mixer_move_clamps_bus() {
+        let mut state = AppState::new();
+        state.session.mixer_selection = MixerSelection::Bus(1);
+        state.mixer_move(-1);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Bus(1)));
+
+        state.mixer_move(100);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Bus(8)));
+    }
+
+    #[test]
+    fn mixer_jump() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+        state.add_instrument(SourceType::Sin);
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+
+        state.mixer_jump(-1); // jump to last
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Instrument(1)));
+
+        state.mixer_jump(1); // jump to first
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Instrument(0)));
+    }
+
+    #[test]
+    fn mixer_cycle_output() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+
+        assert_eq!(state.instruments.instruments[0].output_target, OutputTarget::Master);
+        state.mixer_cycle_output();
+        assert_eq!(state.instruments.instruments[0].output_target, OutputTarget::Bus(1));
+
+        // Cycle through all buses back to Master (Bus(1)..Bus(8)..Master = 8 more cycles)
+        for _ in 1..=MAX_BUSES {
+            state.mixer_cycle_output();
+        }
+        assert_eq!(state.instruments.instruments[0].output_target, OutputTarget::Master);
+    }
+
+    #[test]
+    fn mixer_cycle_output_reverse() {
+        let mut state = AppState::new();
+        state.add_instrument(SourceType::Saw);
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+
+        state.mixer_cycle_output_reverse();
+        assert_eq!(state.instruments.instruments[0].output_target, OutputTarget::Bus(MAX_BUSES as u8));
+        state.mixer_cycle_output_reverse();
+        assert_eq!(state.instruments.instruments[0].output_target, OutputTarget::Bus(MAX_BUSES as u8 - 1));
+    }
+
+    #[test]
+    fn add_instrument_creates_piano_roll_track() {
+        let mut state = AppState::new();
+        let id = state.add_instrument(SourceType::Saw);
+        assert_eq!(state.session.piano_roll.track_order.len(), 1);
+        assert!(state.session.piano_roll.tracks.contains_key(&id));
+    }
+
+    #[test]
+    fn remove_instrument_cleans_up_all() {
+        let mut state = AppState::new();
+        let id = state.add_instrument(SourceType::Saw);
+        state.session.automation.add_lane(AutomationTarget::InstrumentLevel(id));
+        assert_eq!(state.session.automation.lanes.len(), 1);
+
+        state.remove_instrument(id);
+        assert!(state.session.piano_roll.track_order.is_empty());
+        assert!(state.session.automation.lanes.is_empty());
+    }
 }

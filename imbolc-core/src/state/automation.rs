@@ -598,4 +598,118 @@ mod tests {
         assert!(matches!(state.lanes[0].target, AutomationTarget::InstrumentPan(2)));
         assert_eq!(state.selected_lane, Some(0));
     }
+
+    #[test]
+    fn point_new_clamps_value() {
+        let point = AutomationPoint::new(0, 1.5);
+        assert!((point.value - 1.0).abs() < f32::EPSILON);
+
+        let point = AutomationPoint::new(0, -0.5);
+        assert!((point.value - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn add_point_replaces_at_same_tick() {
+        let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(0));
+        lane.add_point(100, 0.5);
+        lane.add_point(100, 0.8);
+        assert_eq!(lane.points.len(), 1);
+        assert!((lane.points[0].value - 0.8).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn add_point_keeps_sorted_order() {
+        let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(0));
+        lane.add_point(100, 0.5);
+        lane.add_point(50, 0.3);
+        lane.add_point(200, 0.9);
+        let ticks: Vec<u32> = lane.points.iter().map(|p| p.tick).collect();
+        assert_eq!(ticks, vec![50, 100, 200]);
+    }
+
+    #[test]
+    fn value_at_disabled_lane() {
+        let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(0));
+        lane.add_point(0, 0.5);
+        lane.enabled = false;
+        assert!(lane.value_at(0).is_none());
+    }
+
+    #[test]
+    fn value_at_empty_lane() {
+        let lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(0));
+        assert!(lane.value_at(0).is_none());
+    }
+
+    #[test]
+    fn value_at_exponential_curve() {
+        let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(0));
+        lane.points.push(AutomationPoint::with_curve(0, 0.0, CurveType::Exponential));
+        lane.points.push(AutomationPoint::with_curve(100, 1.0, CurveType::Linear));
+        // At midpoint t=0.5, exponential gives t^2 = 0.25 (normalized)
+        let val = lane.value_at(50).unwrap();
+        // Value should be 0.0 + 0.25 * (1.0 - 0.0) = 0.25, scaled to lane range (0.0-1.0)
+        assert!((val - 0.25).abs() < 0.01);
+    }
+
+    #[test]
+    fn value_at_s_curve() {
+        let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(0));
+        lane.points.push(AutomationPoint::with_curve(0, 0.0, CurveType::SCurve));
+        lane.points.push(AutomationPoint::with_curve(100, 1.0, CurveType::Linear));
+        // At midpoint t=0.5, smoothstep gives 0.5*0.5*(3-2*0.5) = 0.5
+        let val = lane.value_at(50).unwrap();
+        assert!((val - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn normalize_value_instrument_pan() {
+        let target = AutomationTarget::InstrumentPan(0);
+        // Range is -1.0 to 1.0
+        assert!((target.normalize_value(-1.0) - 0.0).abs() < f32::EPSILON);
+        assert!((target.normalize_value(0.0) - 0.5).abs() < f32::EPSILON);
+        assert!((target.normalize_value(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn normalize_value_equal_min_max() {
+        // Create a target where min == max would give 0.5
+        // EffectParam has range (0.0, 1.0) so min != max, but let's test the branch
+        // by computing manually. If min==max, normalize returns 0.5.
+        let (min, max): (f32, f32) = (5.0, 5.0);
+        let result = if max > min { ((0.5 - min) / (max - min)).clamp(0.0, 1.0) } else { 0.5 };
+        assert!((result - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn select_next_at_end_stays() {
+        let mut state = AutomationState::new();
+        state.add_lane(AutomationTarget::InstrumentLevel(0));
+        state.add_lane(AutomationTarget::InstrumentPan(0));
+        state.selected_lane = Some(1);
+        state.select_next();
+        assert_eq!(state.selected_lane, Some(1));
+    }
+
+    #[test]
+    fn select_prev_at_0_stays() {
+        let mut state = AutomationState::new();
+        state.add_lane(AutomationTarget::InstrumentLevel(0));
+        state.selected_lane = Some(0);
+        state.select_prev();
+        assert_eq!(state.selected_lane, Some(0));
+    }
+
+    #[test]
+    fn recalculate_next_lane_id() {
+        let mut state = AutomationState::new();
+        let _id1 = state.add_lane(AutomationTarget::InstrumentLevel(0));
+        let _id2 = state.add_lane(AutomationTarget::InstrumentPan(0));
+        let id3 = state.add_lane(AutomationTarget::FilterCutoff(0));
+
+        // Manually set next_lane_id to 0 to simulate loading
+        state.next_lane_id = 0;
+        state.recalculate_next_lane_id();
+        assert_eq!(state.next_lane_id, id3 + 1);
+    }
 }

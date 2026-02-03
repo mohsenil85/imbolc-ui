@@ -249,4 +249,59 @@ mod tests {
         seq.current_pattern = 0;
         assert!(seq.pattern().steps[0][0].active);
     }
+
+    #[test]
+    fn euclidean_zero_pulses() {
+        let result = euclidean_rhythm(0, 8, 0);
+        assert_eq!(result.len(), 8);
+        assert!(result.iter().all(|&v| !v));
+    }
+
+    #[test]
+    fn euclidean_all_pulses() {
+        let result = euclidean_rhythm(8, 8, 0);
+        assert_eq!(result.len(), 8);
+        assert!(result.iter().all(|&v| v));
+    }
+
+    #[test]
+    fn euclidean_zero_steps() {
+        let result = euclidean_rhythm(0, 0, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn euclidean_3_of_8() {
+        let result = euclidean_rhythm(3, 8, 0);
+        assert_eq!(result.len(), 8);
+        assert_eq!(result.iter().filter(|&&v| v).count(), 3);
+        // Classic Euclidean pattern: [true, false, false, true, false, false, true, false]
+        assert_eq!(result, vec![true, false, false, true, false, false, true, false]);
+    }
+
+    #[test]
+    fn euclidean_5_of_8() {
+        let result = euclidean_rhythm(5, 8, 0);
+        assert_eq!(result.len(), 8);
+        assert_eq!(result.iter().filter(|&&v| v).count(), 5);
+    }
+
+    #[test]
+    fn euclidean_with_rotation() {
+        let unrotated = euclidean_rhythm(3, 8, 0);
+        let rotated = euclidean_rhythm(3, 8, 2);
+        assert_eq!(rotated.len(), 8);
+        // Rotation shifts right by 2
+        for i in 0..8 {
+            assert_eq!(rotated[(i + 2) % 8], unrotated[i]);
+        }
+    }
+
+    #[test]
+    fn euclidean_pulses_exceeding_steps_clamped() {
+        let result = euclidean_rhythm(5, 3, 0);
+        assert_eq!(result.len(), 3);
+        // Clamped to 3 pulses in 3 steps = all true
+        assert!(result.iter().all(|&v| v));
+    }
 }

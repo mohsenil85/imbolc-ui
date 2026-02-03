@@ -237,4 +237,65 @@ mod tests {
         state.select_next();
         assert_eq!(state.selected, Some(2)); // stay at end
     }
+
+    #[test]
+    fn layer_group_members_returns_all_in_group() {
+        let mut state = InstrumentState::new();
+        let id1 = state.add_instrument(SourceType::Saw);
+        let id2 = state.add_instrument(SourceType::Sin);
+        let _id3 = state.add_instrument(SourceType::Sqr);
+
+        let group = state.next_layer_group();
+        state.instrument_mut(id1).unwrap().layer_group = Some(group);
+        state.instrument_mut(id2).unwrap().layer_group = Some(group);
+
+        let members = state.layer_group_members(id1);
+        assert_eq!(members.len(), 2);
+        assert!(members.contains(&id1));
+        assert!(members.contains(&id2));
+    }
+
+    #[test]
+    fn layer_group_members_solo_no_group() {
+        let mut state = InstrumentState::new();
+        let id = state.add_instrument(SourceType::Saw);
+        let members = state.layer_group_members(id);
+        assert_eq!(members, vec![id]);
+    }
+
+    #[test]
+    fn remove_instrument_clears_singleton_group() {
+        let mut state = InstrumentState::new();
+        let id1 = state.add_instrument(SourceType::Saw);
+        let id2 = state.add_instrument(SourceType::Sin);
+
+        let group = state.next_layer_group();
+        state.instrument_mut(id1).unwrap().layer_group = Some(group);
+        state.instrument_mut(id2).unwrap().layer_group = Some(group);
+
+        state.remove_instrument(id1);
+
+        // id2 should have layer_group cleared (group of 1 is meaningless)
+        assert_eq!(state.instrument(id2).unwrap().layer_group, None);
+    }
+
+    #[test]
+    fn select_next_wraps_at_boundary() {
+        let mut state = InstrumentState::new();
+        state.add_instrument(SourceType::Saw);
+        state.add_instrument(SourceType::Sin);
+        state.selected = Some(1);
+        state.select_next();
+        assert_eq!(state.selected, Some(1)); // stays at end, does not wrap
+    }
+
+    #[test]
+    fn select_prev_wraps_at_boundary() {
+        let mut state = InstrumentState::new();
+        state.add_instrument(SourceType::Saw);
+        state.add_instrument(SourceType::Sin);
+        state.selected = Some(0);
+        state.select_prev();
+        assert_eq!(state.selected, Some(0)); // stays at start, does not wrap
+    }
 }

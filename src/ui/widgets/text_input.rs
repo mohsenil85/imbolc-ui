@@ -114,3 +114,89 @@ impl TextInput {
         1
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::input::{KeyCode, Modifiers};
+
+    fn char_event(ch: char) -> InputEvent {
+        InputEvent::new(KeyCode::Char(ch), Modifiers::none())
+    }
+
+    fn key_event(key: KeyCode) -> InputEvent {
+        InputEvent::new(key, Modifiers::none())
+    }
+
+    #[test]
+    fn set_and_get_value() {
+        let mut input = TextInput::new("Name:");
+        input.set_value("hello");
+        assert_eq!(input.value(), "hello");
+    }
+
+    #[test]
+    fn with_value_builder() {
+        let input = TextInput::new("").with_value("initial");
+        assert_eq!(input.value(), "initial");
+    }
+
+    #[test]
+    fn insert_char() {
+        let mut input = TextInput::new("");
+        input.set_focused(true);
+        input.handle_input(&char_event('a'));
+        input.handle_input(&char_event('b'));
+        input.handle_input(&char_event('c'));
+        assert_eq!(input.value(), "abc");
+    }
+
+    #[test]
+    fn backspace_deletes_char() {
+        let mut input = TextInput::new("");
+        input.set_focused(true);
+        input.set_value("abc");
+        // Move cursor to end
+        input.handle_input(&key_event(KeyCode::End));
+        input.handle_input(&key_event(KeyCode::Backspace));
+        assert_eq!(input.value(), "ab");
+    }
+
+    #[test]
+    fn delete_key() {
+        let mut input = TextInput::new("");
+        input.set_focused(true);
+        input.set_value("abc");
+        // Move cursor to start
+        input.handle_input(&key_event(KeyCode::Home));
+        input.handle_input(&key_event(KeyCode::Delete));
+        assert_eq!(input.value(), "bc");
+    }
+
+    #[test]
+    fn unfocused_input_does_not_consume() {
+        let mut input = TextInput::new("");
+        input.set_focused(false);
+        let consumed = input.handle_input(&char_event('a'));
+        assert!(!consumed);
+        assert_eq!(input.value(), "");
+    }
+
+    #[test]
+    fn select_all_and_type_replaces() {
+        let mut input = TextInput::new("");
+        input.set_focused(true);
+        input.set_value("old text");
+        input.select_all();
+        input.handle_input(&char_event('n'));
+        assert_eq!(input.value(), "n");
+    }
+
+    #[test]
+    fn clear_value() {
+        let mut input = TextInput::new("");
+        input.set_value("something");
+        input.set_value("");
+        assert_eq!(input.value(), "");
+    }
+}

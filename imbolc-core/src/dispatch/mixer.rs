@@ -234,3 +234,143 @@ pub(super) fn dispatch_mixer(
 
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::AudioHandle;
+
+    fn setup() -> (AppState, AudioHandle) {
+        let mut state = AppState::new();
+        state.add_instrument(crate::state::SourceType::Saw);
+        state.add_instrument(crate::state::SourceType::Sin);
+        (state, AudioHandle::new())
+    }
+
+    #[test]
+    fn adjust_level_instrument_clamps() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        dispatch_mixer(&MixerAction::AdjustLevel(2.0), &mut state, &mut audio);
+        assert!((state.instruments.instruments[0].level - 1.0).abs() < f32::EPSILON);
+
+        dispatch_mixer(&MixerAction::AdjustLevel(-5.0), &mut state, &mut audio);
+        assert!((state.instruments.instruments[0].level - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn adjust_level_bus_clamps_and_sets_dirty() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Bus(1);
+        let result = dispatch_mixer(&MixerAction::AdjustLevel(2.0), &mut state, &mut audio);
+        assert!(result.audio_dirty.session);
+        assert!((state.session.bus(1).unwrap().level - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn adjust_level_master_clamps() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Master;
+        dispatch_mixer(&MixerAction::AdjustLevel(2.0), &mut state, &mut audio);
+        assert!((state.session.master_level - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn toggle_mute_instrument() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        assert!(!state.instruments.instruments[0].mute);
+        let result = dispatch_mixer(&MixerAction::ToggleMute, &mut state, &mut audio);
+        assert!(state.instruments.instruments[0].mute);
+        assert!(result.audio_dirty.instruments);
+    }
+
+    #[test]
+    fn toggle_mute_bus() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Bus(1);
+        assert!(!state.session.bus(1).unwrap().mute);
+        dispatch_mixer(&MixerAction::ToggleMute, &mut state, &mut audio);
+        assert!(state.session.bus(1).unwrap().mute);
+    }
+
+    #[test]
+    fn toggle_mute_master() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Master;
+        assert!(!state.session.master_mute);
+        dispatch_mixer(&MixerAction::ToggleMute, &mut state, &mut audio);
+        assert!(state.session.master_mute);
+    }
+
+    #[test]
+    fn toggle_solo_instrument() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        let result = dispatch_mixer(&MixerAction::ToggleSolo, &mut state, &mut audio);
+        assert!(state.instruments.instruments[0].solo);
+        assert!(result.audio_dirty.instruments);
+    }
+
+    #[test]
+    fn toggle_solo_bus() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Bus(1);
+        dispatch_mixer(&MixerAction::ToggleSolo, &mut state, &mut audio);
+        assert!(state.session.bus(1).unwrap().solo);
+    }
+
+    #[test]
+    fn adjust_pan_clamps() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        dispatch_mixer(&MixerAction::AdjustPan(5.0), &mut state, &mut audio);
+        assert!((state.instruments.instruments[0].pan - 1.0).abs() < f32::EPSILON);
+        dispatch_mixer(&MixerAction::AdjustPan(-5.0), &mut state, &mut audio);
+        assert!((state.instruments.instruments[0].pan - (-1.0)).abs() < f32::EPSILON);
+
+        state.session.mixer_selection = MixerSelection::Bus(1);
+        dispatch_mixer(&MixerAction::AdjustPan(5.0), &mut state, &mut audio);
+        assert!((state.session.bus(1).unwrap().pan - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cycle_section() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        dispatch_mixer(&MixerAction::CycleSection, &mut state, &mut audio);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Bus(1)));
+        dispatch_mixer(&MixerAction::CycleSection, &mut state, &mut audio);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Master));
+        dispatch_mixer(&MixerAction::CycleSection, &mut state, &mut audio);
+        assert!(matches!(state.session.mixer_selection, MixerSelection::Instrument(_)));
+    }
+
+    #[test]
+    fn toggle_send_auto_sets_level() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        // Send starts disabled with level 0.0
+        assert!(!state.instruments.instruments[0].sends[0].enabled);
+        assert!((state.instruments.instruments[0].sends[0].level - 0.0).abs() < f32::EPSILON);
+
+        dispatch_mixer(&MixerAction::ToggleSend(1), &mut state, &mut audio);
+        assert!(state.instruments.instruments[0].sends[0].enabled);
+        assert!((state.instruments.instruments[0].sends[0].level - 0.5).abs() < f32::EPSILON);
+
+        dispatch_mixer(&MixerAction::ToggleSend(1), &mut state, &mut audio);
+        assert!(!state.instruments.instruments[0].sends[0].enabled);
+    }
+
+    #[test]
+    fn adjust_send_clamps() {
+        let (mut state, mut audio) = setup();
+        state.session.mixer_selection = MixerSelection::Instrument(0);
+        state.instruments.instruments[0].sends[0].enabled = true;
+        state.instruments.instruments[0].sends[0].level = 0.5;
+        dispatch_mixer(&MixerAction::AdjustSend(1, 2.0), &mut state, &mut audio);
+        assert!((state.instruments.instruments[0].sends[0].level - 1.0).abs() < f32::EPSILON);
+        dispatch_mixer(&MixerAction::AdjustSend(1, -5.0), &mut state, &mut audio);
+        assert!((state.instruments.instruments[0].sends[0].level - 0.0).abs() < f32::EPSILON);
+    }
+}

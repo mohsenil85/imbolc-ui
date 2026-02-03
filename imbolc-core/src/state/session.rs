@@ -165,3 +165,96 @@ impl Default for SessionState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bus_1based_indexing() {
+        let session = SessionState::new();
+        assert!(session.bus(1).is_some());
+        assert_eq!(session.bus(1).unwrap().id, 1);
+        assert!(session.bus(8).is_some());
+        assert_eq!(session.bus(8).unwrap().id, 8);
+    }
+
+    #[test]
+    #[should_panic(expected = "subtract with overflow")]
+    fn bus_0_panics() {
+        let session = SessionState::new();
+        // bus(0) does `id - 1` on u8 0, which panics in debug mode
+        let _ = session.bus(0);
+    }
+
+    #[test]
+    fn bus_out_of_bounds() {
+        let session = SessionState::new();
+        assert!(session.bus(9).is_none());
+    }
+
+    #[test]
+    fn effective_bus_mute_no_solo() {
+        let session = SessionState::new();
+        let bus = session.bus(1).unwrap();
+        assert!(!session.effective_bus_mute(bus));
+
+        let mut bus_copy = bus.clone();
+        bus_copy.mute = true;
+        assert!(session.effective_bus_mute(&bus_copy));
+    }
+
+    #[test]
+    fn effective_bus_mute_with_solo() {
+        let mut session = SessionState::new();
+        session.bus_mut(1).unwrap().solo = true;
+        // Bus 1 is soloed — should not be muted
+        assert!(!session.effective_bus_mute(session.bus(1).unwrap()));
+        // Bus 2 is not soloed — should be muted
+        assert!(session.effective_bus_mute(session.bus(2).unwrap()));
+    }
+
+    #[test]
+    fn mixer_cycle_section_full_cycle() {
+        let mut session = SessionState::new();
+        assert!(matches!(session.mixer_selection, MixerSelection::Instrument(0)));
+        session.mixer_cycle_section();
+        assert!(matches!(session.mixer_selection, MixerSelection::Bus(1)));
+        session.mixer_cycle_section();
+        assert!(matches!(session.mixer_selection, MixerSelection::Master));
+        session.mixer_cycle_section();
+        assert!(matches!(session.mixer_selection, MixerSelection::Instrument(0)));
+    }
+
+    #[test]
+    fn musical_settings_round_trip() {
+        let mut session = SessionState::new();
+        session.bpm = 140;
+        session.key = Key::D;
+        session.scale = Scale::Minor;
+        session.tuning_a4 = 442.0;
+        session.snap = true;
+        session.time_signature = (3, 4);
+
+        let settings = session.musical_settings();
+        assert_eq!(settings.bpm, 140);
+        assert_eq!(settings.key, Key::D);
+        assert_eq!(settings.time_signature, (3, 4));
+
+        // Modify and apply back
+        let mut modified = settings.clone();
+        modified.bpm = 160;
+        modified.key = Key::E;
+        session.apply_musical_settings(&modified);
+        assert_eq!(session.bpm, 160);
+        assert_eq!(session.key, Key::E);
+    }
+
+    #[test]
+    fn any_bus_solo() {
+        let mut session = SessionState::new();
+        assert!(!session.any_bus_solo());
+        session.bus_mut(3).unwrap().solo = true;
+        assert!(session.any_bus_solo());
+    }
+}
