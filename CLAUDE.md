@@ -157,3 +157,7 @@ Save implementation plans in `./plans/` with descriptive filenames (e.g., `plans
 ## Comment Box
 
 Log difficulties, friction points, or things that gave you trouble in `COMMENTBOX.md` at the project root. This helps identify recurring pain points and areas where the codebase or documentation could be improved.
+
+## SuperCollider Notes
+
+In SuperCollider, all `var` declarations must appear at the top of a function block (or `( )` expression block), before any non-var statements. This is a language-level requirement, not a style convention.

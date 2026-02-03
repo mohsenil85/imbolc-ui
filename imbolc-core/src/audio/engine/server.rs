@@ -217,32 +217,61 @@ impl AudioEngine {
     }
 
     /// Check if all `.scsyndef` files in the same directory as `scd_path` are
-    /// newer than `scd_path` itself. Returns `true` if compilation can be skipped.
+    /// newer than the newest `.scd` source file. Scans all `.scd` files
+    /// recursively under the parent directory (to cover `defs/` subdirectory).
+    /// Returns `true` if compilation can be skipped.
     fn synthdefs_are_fresh(scd_path: &Path) -> bool {
         let dir = match scd_path.parent() {
             Some(d) => d,
             None => return false,
         };
 
-        let scd_mtime = match fs::metadata(scd_path).and_then(|m| m.modified()) {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
+        // Collect all .scd files recursively under the synthdefs directory
+        let mut scd_files: Vec<PathBuf> = Vec::new();
+        let mut dirs_to_scan = vec![dir.to_path_buf()];
+        while let Some(scan_dir) = dirs_to_scan.pop() {
+            let entries = match fs::read_dir(&scan_dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs_to_scan.push(path);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("scd") {
+                    scd_files.push(path);
+                }
+            }
+        }
 
-        let content = match fs::read_to_string(scd_path) {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
+        if scd_files.is_empty() {
+            return false;
+        }
 
+        // Find the newest mtime among all .scd files
+        let mut newest_scd_mtime = std::time::SystemTime::UNIX_EPOCH;
+        for scd_file in &scd_files {
+            if let Ok(mtime) = fs::metadata(scd_file).and_then(|m| m.modified()) {
+                if mtime > newest_scd_mtime {
+                    newest_scd_mtime = mtime;
+                }
+            }
+        }
+
+        // Extract SynthDef names from all .scd files
         let name_re = match Regex::new(r#"SynthDef\s*\(\s*[\\"]([\w]+)"#) {
             Ok(re) => re,
             Err(_) => return false,
         };
 
         let mut names: HashSet<String> = HashSet::new();
-        for caps in name_re.captures_iter(&content) {
-            if let Some(name) = caps.get(1).map(|m| m.as_str().to_string()) {
-                names.insert(name);
+        for scd_file in &scd_files {
+            if let Ok(content) = fs::read_to_string(scd_file) {
+                for caps in name_re.captures_iter(&content) {
+                    if let Some(name) = caps.get(1).map(|m| m.as_str().to_string()) {
+                        names.insert(name);
+                    }
+                }
             }
         }
 
@@ -250,13 +279,14 @@ impl AudioEngine {
             return false;
         }
 
+        // Check each .scsyndef is newer than the newest .scd mtime
         for name in names {
             let path = dir.join(format!("{name}.scsyndef"));
             let def_mtime = match fs::metadata(&path).and_then(|m| m.modified()) {
                 Ok(t) => t,
                 Err(_) => return false,
             };
-            if def_mtime <= scd_mtime {
+            if def_mtime <= newest_scd_mtime {
                 return false;
             }
         }
