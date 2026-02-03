@@ -1,7 +1,7 @@
 use super::editing::AdjustMode;
 use super::{InstrumentEditPane, Section};
 use crate::state::{
-    AppState, FilterConfig, FilterType, ParamValue,
+    AppState, FilterConfig, FilterType,
 };
 use crate::ui::{Action, FileSelectAction, InputEvent, InstrumentAction, KeyCode, SessionAction, translate_key};
 
@@ -64,9 +64,7 @@ impl InstrumentEditPane {
                             local_idx
                         };
                         if let Some(param) = self.source_params.get_mut(param_idx) {
-                            if let Ok(v) = text.parse::<f32>() {
-                                param.value = ParamValue::Float(v.clamp(param.min, param.max));
-                            }
+                            param.parse_and_set(&text);
                         }
                     }
                     Section::Filter => {
@@ -77,9 +75,7 @@ impl InstrumentEditPane {
                                 idx => {
                                     let extra_idx = idx - 3;
                                     if let Some(param) = f.extra_params.get_mut(extra_idx) {
-                                        if let Ok(v) = text.parse::<f32>() {
-                                            param.value = ParamValue::Float(v.clamp(param.min, param.max));
-                                        }
+                                        param.parse_and_set(&text);
                                     }
                                 }
                             }
@@ -117,9 +113,7 @@ impl InstrumentEditPane {
                                 local_idx
                             };
                             if let Some(param) = self.source_params.get_mut(param_idx) {
-                                if let Ok(v) = backup.parse::<f32>() {
-                                    param.value = ParamValue::Float(v.clamp(param.min, param.max));
-                                }
+                                param.parse_and_set(backup);
                             }
                         }
                         Section::Filter => {
@@ -130,9 +124,7 @@ impl InstrumentEditPane {
                                     idx => {
                                         let extra_idx = idx - 3;
                                         if let Some(param) = f.extra_params.get_mut(extra_idx) {
-                                            if let Ok(v) = backup.parse::<f32>() {
-                                                param.value = ParamValue::Float(v.clamp(param.min, param.max));
-                                            }
+                                            param.parse_and_set(backup);
                                         }
                                     }
                                 }

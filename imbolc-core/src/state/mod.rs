@@ -23,7 +23,7 @@ pub use clipboard::{Clipboard, ClipboardContents, ClipboardNote};
 pub use custom_synthdef::{CustomSynthDef, CustomSynthDefRegistry, ParamSpec};
 pub use instrument::*;
 pub use instrument_state::InstrumentState;
-pub use param::{Param, ParamValue};
+pub use param::{Param, ParamValue, adjust_freq_semitone, adjust_musical_step, is_freq_param};
 pub use sampler::BufferId;
 pub use session::{MixerSelection, MusicalSettings, SessionState, MAX_BUSES};
 pub use undo::UndoHistory;
