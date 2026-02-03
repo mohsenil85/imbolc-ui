@@ -3,14 +3,12 @@ mod rendering;
 
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::widgets::{Block, Borders, Widget};
 
 use crate::state::automation::{AutomationLaneId, AutomationTarget};
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, Style};
 
 /// Focus area within the automation pane
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +105,8 @@ impl Pane for AutomationPane {
         self.handle_action_impl(action, event, state)
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
+        let buf = buf.raw_buf();
         let rect = center_rect(area, 100.min(area.width), 30.min(area.height));
 
         // Title
@@ -133,9 +132,9 @@ impl Pane for AutomationPane {
         let lane_list_height = (inner.height / 3).max(3);
         let timeline_height = inner.height.saturating_sub(lane_list_height + 1);
 
-        let lane_list_area = RatatuiRect::new(inner.x, inner.y, inner.width, lane_list_height);
+        let lane_list_area = Rect::new(inner.x, inner.y, inner.width, lane_list_height);
         let separator_y = inner.y + lane_list_height;
-        let timeline_area = RatatuiRect::new(inner.x, separator_y + 1, inner.width, timeline_height);
+        let timeline_area = Rect::new(inner.x, separator_y + 1, inner.width, timeline_height);
 
         // Render lane list
         self.render_lane_list(buf, lane_list_area, state);

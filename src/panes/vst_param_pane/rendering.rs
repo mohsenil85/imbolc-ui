@@ -1,15 +1,11 @@
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::widgets::{Block, Borders, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Color, Style};
+use crate::ui::{Rect, RenderBuf, Color, Style};
 
 use super::VstParamPane;
 
 impl VstParamPane {
-    pub(super) fn render_impl(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    pub(super) fn render_impl(&self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let rect = center_rect(area, 80.min(area.width), 30.min(area.height));
 
         // Determine plugin name and instrument number
@@ -30,14 +26,8 @@ impl VstParamPane {
             }
         };
 
-        let border_color = Color::CYAN;
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(ratatui::style::Style::from(Style::new().fg(border_color)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(border_color)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(rect, &title, border_style, border_style);
 
         if inner.height < 3 || inner.width < 10 {
             return;
@@ -46,22 +36,19 @@ impl VstParamPane {
         // Search bar (top row)
         let search_y = inner.y;
         let search_style = if self.search_active {
-            ratatui::style::Style::from(Style::new().fg(Color::WHITE))
+            Style::new().fg(Color::WHITE)
         } else {
-            ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+            Style::new().fg(Color::DARK_GRAY)
         };
         let search_text = if self.search_active || !self.search_text.is_empty() {
             format!("/ {}", self.search_text)
         } else {
             "/ [search]".to_string()
         };
-        for (i, ch) in search_text.chars().enumerate() {
-            let x = inner.x + 1 + i as u16;
-            if x >= inner.x + inner.width { break; }
-            if let Some(cell) = buf.cell_mut((x, search_y)) {
-                cell.set_char(ch).set_style(search_style);
-            }
-        }
+        buf.draw_line(
+            Rect::new(inner.x + 1, search_y, inner.width.saturating_sub(1), 1),
+            &[(&search_text, search_style)],
+        );
 
         // Param list area
         let list_y = search_y + 1;
@@ -87,15 +74,10 @@ impl VstParamPane {
             .unwrap_or_default();
 
         if params.is_empty() {
-            let msg = "No params discovered. Press 'd' to discover.";
-            let msg_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-            for (i, ch) in msg.chars().enumerate() {
-                let x = inner.x + 2 + i as u16;
-                if x >= inner.x + inner.width { break; }
-                if let Some(cell) = buf.cell_mut((x, list_y + 1)) {
-                    cell.set_char(ch).set_style(msg_style);
-                }
-            }
+            buf.draw_line(
+                Rect::new(inner.x + 2, list_y + 1, inner.width.saturating_sub(2), 1),
+                &[("No params discovered. Press 'd' to discover.", Style::new().fg(Color::DARK_GRAY))],
+            );
         }
 
         // Adjust scroll offset
@@ -146,38 +128,28 @@ impl VstParamPane {
             );
 
             let style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG))
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::new(180, 180, 180)))
+                Style::new().fg(Color::new(180, 180, 180))
             };
 
-            for (i, ch) in line.chars().enumerate() {
-                let x = inner.x + 1 + i as u16;
-                if x >= inner.x + inner.width { break; }
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_char(ch).set_style(style);
-                }
-            }
+            buf.draw_line(
+                Rect::new(inner.x + 1, y, inner.width.saturating_sub(1), 1),
+                &[(&line, style)],
+            );
             // Fill rest of row with selection bg if selected
             if is_selected {
                 for x in (inner.x + 1 + line.len() as u16)..inner.x + inner.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_style(style);
-                    }
+                    buf.set_cell(x, y, ' ', style);
                 }
             }
         }
 
         // Help line at bottom
         let help_y = inner.y + inner.height - 1;
-        let help = "[</> ] adjust  [Sh+</> ] coarse  [/] search  [r] reset  [a] automate  [d] discover";
-        let help_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        for (i, ch) in help.chars().enumerate() {
-            let x = inner.x + 1 + i as u16;
-            if x >= inner.x + inner.width { break; }
-            if let Some(cell) = buf.cell_mut((x, help_y)) {
-                cell.set_char(ch).set_style(help_style);
-            }
-        }
+        buf.draw_line(
+            Rect::new(inner.x + 1, help_y, inner.width.saturating_sub(1), 1),
+            &[("[</> ] adjust  [Sh+</> ] coarse  [/] search  [r] reset  [a] automate  [d] discover", Style::new().fg(Color::DARK_GRAY))],
+        );
     }
 }

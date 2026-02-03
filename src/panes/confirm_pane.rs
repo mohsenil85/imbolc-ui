@@ -1,14 +1,9 @@
 use std::any::Any;
 use std::path::PathBuf;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
 
 /// What to do when the user confirms the dialog
 #[derive(Debug, Clone)]
@@ -99,45 +94,37 @@ impl Pane for ConfirmPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let width = (self.message.len() as u16 + 6).max(30).min(area.width.saturating_sub(4));
         let rect = center_rect(area, width, 7);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Confirm ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::YELLOW)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::YELLOW)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::YELLOW);
+        let inner = buf.draw_block(rect, " Confirm ", border_style, border_style);
 
         // Message
-        let msg_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
-        let msg_area = RatatuiRect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1);
-        Paragraph::new(Line::from(Span::styled(&self.message, msg_style)))
-            .render(msg_area, buf);
+        let msg_area = Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1);
+        buf.draw_line(msg_area, &[(&self.message, Style::new().fg(Color::WHITE))]);
 
         // Buttons: [No]  [Yes]
         let no_style = if !self.selected {
-            ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::WHITE).bold())
+            Style::new().fg(Color::BLACK).bg(Color::WHITE).bold()
         } else {
-            ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+            Style::new().fg(Color::DARK_GRAY)
         };
         let yes_style = if self.selected {
-            ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::YELLOW).bold())
+            Style::new().fg(Color::BLACK).bg(Color::YELLOW).bold()
         } else {
-            ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+            Style::new().fg(Color::DARK_GRAY)
         };
 
         let btn_y = inner.y + 3;
         if btn_y < inner.y + inner.height {
-            let btn_area = RatatuiRect::new(inner.x + 1, btn_y, inner.width.saturating_sub(2), 1);
-            let line = Line::from(vec![
-                Span::styled("  [N]o  ", no_style),
-                Span::raw("    "),
-                Span::styled("  [Y]es  ", yes_style),
+            let btn_area = Rect::new(inner.x + 1, btn_y, inner.width.saturating_sub(2), 1);
+            buf.draw_line(btn_area, &[
+                ("  [N]o  ", no_style),
+                ("    ", Style::new()),
+                ("  [Y]es  ", yes_style),
             ]);
-            Paragraph::new(line).render(btn_area, buf);
         }
     }
 

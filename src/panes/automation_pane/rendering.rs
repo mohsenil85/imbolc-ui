@@ -1,12 +1,11 @@
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::automation::CurveType;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Color, Style};
+use crate::ui::{Rect, Color, Style};
 
 use super::{AutomationFocus, AutomationPane, TargetPickerState};
 
@@ -18,7 +17,7 @@ pub(super) const BLOCK_CHARS: [char; 8] = [
 ];
 
 impl AutomationPane {
-    pub(super) fn render_lane_list(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+    pub(super) fn render_lane_list(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
         if area.height < 2 || area.width < 10 {
             return;
         }
@@ -45,7 +44,7 @@ impl AutomationPane {
             let x = area.x + 1;
             let y = area.y;
             Paragraph::new(Line::from(Span::styled(text, style)))
-                .render(RatatuiRect::new(x, y, text.len() as u16, 1), buf);
+                .render(Rect::new(x, y, text.len() as u16, 1), buf);
             return;
         }
 
@@ -128,7 +127,7 @@ impl AutomationPane {
         }
     }
 
-    pub(super) fn render_timeline(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+    pub(super) fn render_timeline(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
         if area.height < 3 || area.width < 10 {
             return;
         }
@@ -142,7 +141,7 @@ impl AutomationPane {
                 let x = area.x + (area.width.saturating_sub(text.len() as u16)) / 2;
                 let y = area.y + area.height / 2;
                 Paragraph::new(Line::from(Span::styled(text, style)))
-                    .render(RatatuiRect::new(x, y, text.len() as u16, 1), buf);
+                    .render(Rect::new(x, y, text.len() as u16, 1), buf);
                 return;
             }
         };
@@ -302,7 +301,7 @@ impl AutomationPane {
         }
     }
 
-    pub(super) fn render_target_picker(&self, buf: &mut Buffer, area: RatatuiRect) {
+    pub(super) fn render_target_picker(&self, buf: &mut Buffer, area: Rect) {
         if let TargetPickerState::Active { ref options, cursor } = self.target_picker {
             let picker_width = 30u16.min(area.width.saturating_sub(4));
             let picker_height = (options.len() as u16 + 2).min(area.height.saturating_sub(2));

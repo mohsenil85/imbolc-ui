@@ -1,5 +1,4 @@
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
@@ -7,10 +6,10 @@ use super::InstrumentEditPane;
 use crate::state::{AppState, Param, ParamValue};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::widgets::TextInput;
-use crate::ui::{Color, Style};
+use crate::ui::{Rect, Color, Style};
 
 impl InstrumentEditPane {
-    pub(super) fn render_impl(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    pub(super) fn render_impl(&mut self, area: Rect, buf: &mut Buffer, _state: &AppState) {
         let rect = center_rect(area, 97, 29);
 
         let title = format!(" Edit: {} ({}) ", self.instrument_name, self.source.name());
@@ -30,7 +29,7 @@ impl InstrumentEditPane {
         let poly_style = ratatui::style::Style::from(Style::new().fg(if self.polyphonic { Color::LIME } else { Color::DARK_GRAY }));
         let poly_str = if self.polyphonic { " POLY " } else { " MONO " };
         Paragraph::new(Line::from(Span::styled(poly_str, poly_style)))
-            .render(RatatuiRect::new(mode_x, rect.y, 6, 1), buf);
+            .render(Rect::new(mode_x, rect.y, 6, 1), buf);
 
         // Active/Inactive indicator for AudioIn instruments
         if self.source.is_audio_input() {
@@ -40,7 +39,7 @@ impl InstrumentEditPane {
             let active_str = if self.active { " ACTIVE " } else { " INACTIVE " };
             let active_x = mode_x.saturating_sub(active_str.len() as u16 + 1);
             Paragraph::new(Line::from(Span::styled(active_str, active_style)))
-                .render(RatatuiRect::new(active_x, rect.y, active_str.len() as u16, 1), buf);
+                .render(Rect::new(active_x, rect.y, active_str.len() as u16, 1), buf);
         }
 
         // Piano/Pad mode indicator
@@ -48,12 +47,12 @@ impl InstrumentEditPane {
             let pad_str = self.pad_keyboard.status_label();
             let pad_style = ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::KIT_COLOR));
             Paragraph::new(Line::from(Span::styled(pad_str.clone(), pad_style)))
-                .render(RatatuiRect::new(rect.x + 1, rect.y, pad_str.len() as u16, 1), buf);
+                .render(Rect::new(rect.x + 1, rect.y, pad_str.len() as u16, 1), buf);
         } else if self.piano.is_active() {
             let piano_str = self.piano.status_label();
             let piano_style = ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::PINK));
             Paragraph::new(Line::from(Span::styled(piano_str.clone(), piano_style)))
-                .render(RatatuiRect::new(rect.x + 1, rect.y, piano_str.len() as u16, 1), buf);
+                .render(Rect::new(rect.x + 1, rect.y, piano_str.len() as u16, 1), buf);
         }
 
         let mut global_row = 0;
@@ -67,7 +66,7 @@ impl InstrumentEditPane {
         Paragraph::new(Line::from(Span::styled(
             source_header,
             ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold()),
-        ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
         y += 1;
 
         // Sample name row for sampler instruments
@@ -87,7 +86,7 @@ impl InstrumentEditPane {
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
             };
             Paragraph::new(Line::from(Span::styled("(no parameters)", style)))
-                .render(RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
+                .render(Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
             global_row += 1;
         } else {
             for param in &self.source_params {
@@ -108,7 +107,7 @@ impl InstrumentEditPane {
         Paragraph::new(Line::from(Span::styled(
             filter_label,
             ratatui::style::Style::from(Style::new().fg(Color::FILTER_COLOR).bold()),
-        ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
         y += 1;
 
         if let Some(ref f) = self.filter {
@@ -148,7 +147,7 @@ impl InstrumentEditPane {
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
             };
             Paragraph::new(Line::from(Span::styled("(disabled)", style)))
-                .render(RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
+                .render(Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
             y += 1;
             global_row += 1;
         }
@@ -158,7 +157,7 @@ impl InstrumentEditPane {
         Paragraph::new(Line::from(Span::styled(
             "EFFECTS  (a: add effect, d: remove)",
             ratatui::style::Style::from(Style::new().fg(Color::FX_COLOR).bold()),
-        ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
         y += 1;
 
         if self.effects.is_empty() {
@@ -169,7 +168,7 @@ impl InstrumentEditPane {
                 ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
             };
             Paragraph::new(Line::from(Span::styled("(no effects)", style)))
-                .render(RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
+                .render(Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
             global_row += 1;
         } else {
             for effect in &self.effects {
@@ -191,7 +190,7 @@ impl InstrumentEditPane {
                     ratatui::style::Style::from(Style::new().fg(Color::FX_COLOR))
                 };
                 Paragraph::new(Line::from(Span::styled(effect_text, effect_style)))
-                    .render(RatatuiRect::new(content_x + 2, y, 18, 1), buf);
+                    .render(Rect::new(content_x + 2, y, 18, 1), buf);
 
                 // Params inline
                 let params_str: String = effect.params.iter().take(3).map(|p| {
@@ -207,7 +206,7 @@ impl InstrumentEditPane {
                     ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
                 };
                 Paragraph::new(Line::from(Span::styled(params_str, params_style)))
-                    .render(RatatuiRect::new(content_x + 20, y, inner.width.saturating_sub(22), 1), buf);
+                    .render(Rect::new(content_x + 20, y, inner.width.saturating_sub(22), 1), buf);
 
                 y += 1;
                 global_row += 1;
@@ -220,7 +219,7 @@ impl InstrumentEditPane {
         Paragraph::new(Line::from(Span::styled(
             format!("LFO [{}]  (l: toggle, s: shape, m: target)", lfo_status),
             ratatui::style::Style::from(Style::new().fg(Color::PINK).bold()),
-        ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
         y += 1;
 
         // Row 0: Enabled
@@ -274,7 +273,7 @@ impl InstrumentEditPane {
             Paragraph::new(Line::from(Span::styled(
                 "ENVELOPE (ADSR)  (p: poly, r: track)",
                 ratatui::style::Style::from(Style::new().fg(Color::ENV_COLOR).bold()),
-            ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+            ))).render(Rect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
             y += 1;
 
             let env_labels = ["Attack", "Decay", "Sustain", "Release"];
@@ -309,7 +308,7 @@ impl InstrumentEditPane {
         Paragraph::new(Line::from(Span::styled(
             help_text,
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-        ))).render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
     }
 }
 

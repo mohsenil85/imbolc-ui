@@ -1,9 +1,7 @@
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use super::{Color, Style};
+use super::{Color, Rect, RenderBuf, Style};
 use crate::state::AppState;
 
 /// Block characters for vertical meter: ▁▂▃▄▅▆▇█ (U+2581–U+2588)
@@ -74,10 +72,12 @@ impl Frame {
     }
 
     /// Render the frame using ratatui buffer directly.
-    pub fn render_buf(&self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    pub fn render_buf(&self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         if area.width < 10 || area.height < 10 {
             return;
         }
+
+        let buf = buf.raw_buf();
 
         let session = &state.session;
         let border_style = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
@@ -101,7 +101,7 @@ impl Frame {
         );
         let header_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold());
         Paragraph::new(Line::from(Span::styled(&header, header_style)))
-            .render(RatatuiRect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1), buf);
+            .render(Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1), buf);
 
         // Right-aligned items: [instrument indicator] [A-REC indicator] [REC indicator]
         let inst_indicator = if let Some(idx) = state.instruments.selected {
@@ -186,7 +186,7 @@ impl Frame {
     }
 
     /// Render vertical master meter on the right side (buffer version)
-    fn render_master_meter_buf(&self, buf: &mut Buffer, width: u16, _height: u16, sep_y: u16) {
+    fn render_master_meter_buf(&self, buf: &mut ratatui::buffer::Buffer, width: u16, _height: u16, sep_y: u16) {
         let meter_x = width.saturating_sub(3);
         let meter_top = 2_u16;
         let meter_height = sep_y.saturating_sub(meter_top + 1);

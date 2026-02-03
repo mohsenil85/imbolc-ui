@@ -1,9 +1,6 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-
-use super::{InputEvent, Keymap, MouseEvent};
+use super::{InputEvent, Keymap, MouseEvent, Rect, RenderBuf};
 use crate::state::AppState;
 
 // Re-export all action types from the core crate
@@ -28,12 +25,12 @@ pub trait Pane {
     }
 
     /// Handle mouse input. Area is the full terminal area (same as render receives).
-    fn handle_mouse(&mut self, _event: &MouseEvent, _area: RatatuiRect, _state: &AppState) -> Action {
+    fn handle_mouse(&mut self, _event: &MouseEvent, _area: Rect, _state: &AppState) -> Action {
         Action::None
     }
 
     /// Render the pane to the buffer
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState);
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState);
 
     /// Get the keymap for this pane (for introspection/help)
     fn keymap(&self) -> &Keymap;
@@ -181,7 +178,7 @@ impl PaneManager {
     }
 
     /// Render the active pane to the buffer.
-    pub fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    pub fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         self.panes[self.active_index].render(area, buf, state);
     }
 

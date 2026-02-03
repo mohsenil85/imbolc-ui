@@ -1,8 +1,7 @@
-use ratatui::layout::Rect as RatatuiRect;
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, InputEvent, KeyCode, MouseButton, MouseEvent, MouseEventKind, PianoRollAction, translate_key};
+use crate::ui::{Rect, Action, InputEvent, KeyCode, MouseButton, MouseEvent, MouseEventKind, PianoRollAction, translate_key};
 
 use super::PianoRollPane;
 
@@ -241,7 +240,7 @@ impl PianoRollPane {
         }
     }
 
-    pub(super) fn handle_mouse_impl(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+    pub(super) fn handle_mouse_impl(&mut self, event: &MouseEvent, area: Rect, _state: &AppState) -> Action {
         let rect = center_rect(area, 97, 29);
         let key_col_width: u16 = 5;
         let header_height: u16 = 2;

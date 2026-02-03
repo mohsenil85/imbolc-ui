@@ -1,4 +1,4 @@
-use ratatui::layout::Rect;
+use crate::ui::Rect;
 
 /// Center a rect of `width x height` within the given `area`.
 pub fn center_rect(area: Rect, width: u16, height: u16) -> Rect {

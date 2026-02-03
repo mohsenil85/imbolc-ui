@@ -1,14 +1,9 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::{AppState, EffectType, VstPluginRegistry};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{
-    Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent,
+    Rect, RenderBuf, Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent,
     MouseEventKind, MouseButton, NavAction, Pane, SessionAction, Style,
 };
 
@@ -204,7 +199,7 @@ impl Pane for AddEffectPane {
         }
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, state: &AppState) -> Action {
         let rect = center_rect(area, 40, 20);
         let inner_y = rect.y + 2;
         let content_y = inner_y + 1;
@@ -250,113 +245,90 @@ impl Pane for AddEffectPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let vst_registry = &state.session.vst_plugins;
         let rect = center_rect(area, 40, 20);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Add Effect ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::FX_COLOR)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::FX_COLOR)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::FX_COLOR);
+        let inner = buf.draw_block(rect, " Add Effect ", border_style, border_style);
 
         let content_x = inner.x + 1;
         let content_y = inner.y + 1;
 
         // Title
-        Paragraph::new(Line::from(Span::styled(
-            "Select effect type:",
-            ratatui::style::Style::from(Style::new().fg(Color::FX_COLOR).bold()),
-        )))
-        .render(RatatuiRect::new(content_x, content_y, inner.width.saturating_sub(2), 1), buf);
+        buf.draw_line(
+            Rect::new(content_x, content_y, inner.width.saturating_sub(2), 1),
+            &[("Select effect type:", Style::new().fg(Color::FX_COLOR).bold())],
+        );
 
         let list_y = content_y + 2;
-        let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
+        let sel_bg = Style::new().bg(Color::SELECTION_BG);
 
         for (visual_i, i) in (self.scroll_offset..self.cached_options.len()).enumerate() {
             if visual_i >= LIST_HEIGHT {
                 break;
             }
-            
+
             let option = &self.cached_options[i];
             let y = list_y + visual_i as u16;
-            
+
             let is_selected = i == self.selected;
 
             match option {
                 AddEffectOption::Separator(label) => {
-                    Paragraph::new(Line::from(Span::styled(
-                        *label,
-                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                    )))
-                    .render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+                    buf.draw_line(
+                        Rect::new(content_x, y, inner.width.saturating_sub(2), 1),
+                        &[(*label, Style::new().fg(Color::DARK_GRAY))],
+                    );
                 }
                 AddEffectOption::Effect(effect_type) => {
                     if is_selected {
-                        if let Some(cell) = buf.cell_mut((content_x, y)) {
-                            cell.set_char('>').set_style(
-                                ratatui::style::Style::from(
-                                    Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold(),
-                                ),
-                            );
-                        }
+                        buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     }
 
                     let color = if effect_type.is_vst() { Color::VST_COLOR } else { Color::FX_COLOR };
                     let name = effect_type.display_name(vst_registry);
 
                     let name_style = if is_selected {
-                        ratatui::style::Style::from(Style::new().fg(color).bg(Color::SELECTION_BG))
+                        Style::new().fg(color).bg(Color::SELECTION_BG)
                     } else {
-                        ratatui::style::Style::from(Style::new().fg(color))
+                        Style::new().fg(color)
                     };
 
-                    Paragraph::new(Line::from(Span::styled(name.clone(), name_style))).render(
-                        RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
-                        buf,
+                    buf.draw_line(
+                        Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
+                        &[(&name, name_style)],
                     );
 
                     if is_selected {
                         let fill_start = content_x + 2 + name.len() as u16;
                         let fill_end = inner.x + inner.width;
                         for x in fill_start..fill_end {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char(' ').set_style(sel_bg);
-                            }
+                            buf.set_cell(x, y, ' ', sel_bg);
                         }
                     }
                 }
                 AddEffectOption::ImportVst => {
                     if is_selected {
-                        if let Some(cell) = buf.cell_mut((content_x, y)) {
-                            cell.set_char('>').set_style(
-                                ratatui::style::Style::from(
-                                    Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold(),
-                                ),
-                            );
-                        }
+                        buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     }
 
                     let text_style = if is_selected {
-                        ratatui::style::Style::from(Style::new().fg(Color::VST_COLOR).bg(Color::SELECTION_BG))
+                        Style::new().fg(Color::VST_COLOR).bg(Color::SELECTION_BG)
                     } else {
-                        ratatui::style::Style::from(Style::new().fg(Color::VST_COLOR))
+                        Style::new().fg(Color::VST_COLOR)
                     };
                     let label = "+ Import VST Effect...";
-                    Paragraph::new(Line::from(Span::styled(label, text_style))).render(
-                        RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
-                        buf,
+                    buf.draw_line(
+                        Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
+                        &[(label, text_style)],
                     );
 
                     if is_selected {
                         let fill_start = content_x + 2 + label.len() as u16;
                         let fill_end = inner.x + inner.width;
                         for x in fill_start..fill_end {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char(' ').set_style(sel_bg);
-                            }
+                            buf.set_cell(x, y, ' ', sel_bg);
                         }
                     }
                 }
@@ -366,11 +338,10 @@ impl Pane for AddEffectPane {
         // Help text
         let help_y = rect.y + rect.height - 2;
         if help_y < area.y + area.height {
-            Paragraph::new(Line::from(Span::styled(
-                "Enter: add | Escape: cancel | Up/Down: navigate",
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            )))
-            .render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+            buf.draw_line(
+                Rect::new(content_x, help_y, inner.width.saturating_sub(2), 1),
+                &[("Enter: add | Escape: cancel | Up/Down: navigate", Style::new().fg(Color::DARK_GRAY))],
+            );
         }
     }
 

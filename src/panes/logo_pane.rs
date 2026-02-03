@@ -1,12 +1,7 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
-use crate::ui::{Action, Color, InputEvent, Keymap, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, Style};
 use crate::ui::layout_helpers::center_rect;
 
 pub struct LogoPane {
@@ -35,19 +30,14 @@ impl Pane for LogoPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Logo ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::new(100, 80, 60))));
-        
-        let inner = block.inner(area);
-        block.render(area, buf);
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
+        let border_style = Style::new().fg(Color::new(100, 80, 60));
+        let inner = buf.draw_block(area, " Logo ", border_style, border_style);
 
         let lines: Vec<&str> = self.logo_content.lines().collect();
         let height = lines.len() as u16;
         let width_chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16;
-        let width = lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16; // Byte width for centering, might be approx
+        let width = lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
 
         let centered_rect = center_rect(inner, width, height);
 
@@ -55,45 +45,39 @@ impl Pane for LogoPane {
         let color2 = Color::new(180, 130, 50);  // Gold/Brown
         let color3 = Color::new(50, 70, 30);    // Deep brownish green
 
-        let text: Vec<Line> = lines.iter().enumerate()
-            .map(|(y, l)| {
-                let spans: Vec<Span> = l.char_indices().enumerate().map(|(x, (i, c))| {
-                    let char_str = &l[i..i + c.len_utf8()];
-                    
-                    // Off-kilter diagonal factor: mostly vertical (y), but influenced by x
-                    // Skew factor 0.5 means x contributes half as much as y
-                    let y_f = if height > 1 { y as f32 / (height - 1) as f32 } else { 0.0 };
-                    let x_f = if width_chars > 1 { x as f32 / (width_chars - 1) as f32 } else { 0.0 };
-                    
-                    let raw_factor = y_f + (x_f * 0.6); // 0.6 skew
-                    let max_factor = 1.6;
-                    let factor = (raw_factor / max_factor).clamp(0.0, 1.0);
+        for (y, l) in lines.iter().enumerate() {
+            for (x, c) in l.chars().enumerate() {
+                let y_f = if height > 1 { y as f32 / (height - 1) as f32 } else { 0.0 };
+                let x_f = if width_chars > 1 { x as f32 / (width_chars - 1) as f32 } else { 0.0 };
 
-                    // Equal space to both transitions
-                    let midpoint = 0.5;
+                let raw_factor = y_f + (x_f * 0.6);
+                let max_factor = 1.6;
+                let factor = (raw_factor / max_factor).clamp(0.0, 1.0);
 
-                    let color = if factor < midpoint {
-                        let f = factor / midpoint;
-                        let r = (color1.r as f32 + (color2.r as f32 - color1.r as f32) * f) as u8;
-                        let g = (color1.g as f32 + (color2.g as f32 - color1.g as f32) * f) as u8;
-                        let b = (color1.b as f32 + (color2.b as f32 - color1.b as f32) * f) as u8;
-                        Color::new(r, g, b)
-                    } else {
-                        let f = (factor - midpoint) / (1.0 - midpoint);
-                        let r = (color2.r as f32 + (color3.r as f32 - color2.r as f32) * f) as u8;
-                        let g = (color2.g as f32 + (color3.g as f32 - color2.g as f32) * f) as u8;
-                        let b = (color2.b as f32 + (color3.b as f32 - color2.b as f32) * f) as u8;
-                        Color::new(r, g, b)
-                    };
+                let midpoint = 0.5;
 
-                    Span::styled(char_str, ratatui::style::Style::from(Style::new().fg(color)))
-                }).collect();
-                
-                Line::from(spans)
-            })
-            .collect();
+                let color = if factor < midpoint {
+                    let f = factor / midpoint;
+                    let r = (color1.r as f32 + (color2.r as f32 - color1.r as f32) * f) as u8;
+                    let g = (color1.g as f32 + (color2.g as f32 - color1.g as f32) * f) as u8;
+                    let b = (color1.b as f32 + (color2.b as f32 - color1.b as f32) * f) as u8;
+                    Color::new(r, g, b)
+                } else {
+                    let f = (factor - midpoint) / (1.0 - midpoint);
+                    let r = (color2.r as f32 + (color3.r as f32 - color2.r as f32) * f) as u8;
+                    let g = (color2.g as f32 + (color3.g as f32 - color2.g as f32) * f) as u8;
+                    let b = (color2.b as f32 + (color3.b as f32 - color2.b as f32) * f) as u8;
+                    Color::new(r, g, b)
+                };
 
-        Paragraph::new(text).render(centered_rect, buf);
+                buf.set_cell(
+                    centered_rect.x + x as u16,
+                    centered_rect.y + y as u16,
+                    c,
+                    Style::new().fg(color),
+                );
+            }
+        }
     }
 
     fn keymap(&self) -> &Keymap {

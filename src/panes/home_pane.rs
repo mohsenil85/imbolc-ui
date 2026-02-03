@@ -1,13 +1,8 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
 
 /// Menu item for the home screen
 struct MenuItem {
@@ -81,16 +76,11 @@ impl Pane for HomePane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let rect = center_rect(area, 50, 12);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" IMBOLC ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::MAGENTA)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::MAGENTA)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::MAGENTA);
+        let inner = buf.draw_block(rect, " IMBOLC ", border_style, border_style);
 
         let item_colors = [Color::CYAN, Color::PURPLE, Color::GOLD];
 
@@ -101,48 +91,38 @@ impl Pane for HomePane {
 
             let label_text = format!(" [{}] {} ", i + 1, item.label);
 
-            let label_line = if is_selected {
-                Line::from(Span::styled(
-                    label_text,
-                    ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
-                ))
+            let label_style = if is_selected {
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
             } else {
-                Line::from(Span::styled(
-                    label_text,
-                    ratatui::style::Style::from(Style::new().fg(item_color)),
-                ))
+                Style::new().fg(item_color)
             };
 
             let desc_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::SKY_BLUE))
+                Style::new().fg(Color::SKY_BLUE)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+                Style::new().fg(Color::DARK_GRAY)
             };
-            let desc_line = Line::from(Span::styled(format!("  {}", item.description), desc_style));
+            let desc_text = format!("  {}", item.description);
 
             if y < inner.y + inner.height {
-                let label_area = RatatuiRect::new(inner.x + 2, y, inner.width.saturating_sub(2), 1);
-                Paragraph::new(label_line).render(label_area, buf);
+                let label_area = Rect::new(inner.x + 2, y, inner.width.saturating_sub(2), 1);
+                buf.draw_line(label_area, &[(&label_text, label_style)]);
             }
             if y + 1 < inner.y + inner.height {
-                let desc_area = RatatuiRect::new(inner.x + 2, y + 1, inner.width.saturating_sub(2), 1);
-                Paragraph::new(desc_line).render(desc_area, buf);
+                let desc_area = Rect::new(inner.x + 2, y + 1, inner.width.saturating_sub(2), 1);
+                buf.draw_line(desc_area, &[(&desc_text, desc_style)]);
             }
         }
 
         // Help text
         let help_y = rect.y + rect.height - 2;
         if help_y < area.y + area.height {
-            let help_area = RatatuiRect::new(inner.x + 2, help_y, inner.width.saturating_sub(2), 1);
-            let help = Paragraph::new(Line::from(Span::styled(
-                "[1-3] Jump  [Enter] Select  [q] Quit",
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            )));
-            help.render(help_area, buf);
+            let help_area = Rect::new(inner.x + 2, help_y, inner.width.saturating_sub(2), 1);
+            buf.draw_line(help_area, &[("[1-3] Jump  [Enter] Select  [q] Quit", Style::new().fg(Color::DARK_GRAY))]);
         }
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, _state: &AppState) -> Action {
         let rect = center_rect(area, 50, 12);
         let inner_x = rect.x + 1;
         let inner_y = rect.y + 1;

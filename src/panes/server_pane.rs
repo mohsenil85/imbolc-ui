@@ -1,16 +1,11 @@
 use std::any::Any;
 use std::path::PathBuf;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::audio::devices::{self, AudioDevice, AudioDeviceConfig};
 use crate::audio::ServerStatus;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, Pane, ServerAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, KeyCode, Keymap, Pane, ServerAction, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ServerPaneFocus {
@@ -295,23 +290,18 @@ impl Pane for ServerPane {
         Action::None
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let output_devs = self.output_devices();
         let input_devs = self.input_devices();
 
         let rect = center_rect(area, 70, area.height.saturating_sub(2).max(15));
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Audio Server (scsynth) ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::GOLD)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::GOLD)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::GOLD);
+        let inner = buf.draw_block(rect, " Audio Server (scsynth) ", border_style, border_style);
 
         let x = inner.x + 1;
         let w = inner.width.saturating_sub(2);
-        let label_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN));
+        let label_style = Style::new().fg(Color::CYAN);
         let mut y = inner.y + 1;
 
         // Server process status
@@ -320,11 +310,10 @@ impl Pane for ServerPane {
         } else {
             ("Stopped", Color::MUTE_COLOR)
         };
-        let server_line = Line::from(vec![
-            Span::styled("Server:     ", label_style),
-            Span::styled(server_text, ratatui::style::Style::from(Style::new().fg(server_color).bold())),
-        ]);
-        Paragraph::new(server_line).render(RatatuiRect::new(x, y, w, 1), buf);
+        buf.draw_line(
+            Rect::new(x, y, w, 1),
+            &[("Server:     ", label_style), (server_text, Style::new().fg(server_color).bold())],
+        );
         y += 1;
 
         // Connection status
@@ -335,22 +324,20 @@ impl Pane for ServerPane {
             ServerStatus::Connected => ("Connected", Color::METER_LOW),
             ServerStatus::Error => ("Error", Color::MUTE_COLOR),
         };
-        let conn_line = Line::from(vec![
-            Span::styled("Connection: ", label_style),
-            Span::styled(status_text, ratatui::style::Style::from(Style::new().fg(status_color).bold())),
-        ]);
-        Paragraph::new(conn_line).render(RatatuiRect::new(x, y, w, 1), buf);
+        buf.draw_line(
+            Rect::new(x, y, w, 1),
+            &[("Connection: ", label_style), (status_text, Style::new().fg(status_color).bold())],
+        );
         y += 1;
 
         // Message
         if !self.message.is_empty() {
             let max_len = w as usize;
             let msg: String = self.message.chars().take(max_len).collect();
-            let msg_line = Line::from(Span::styled(
-                msg,
-                ratatui::style::Style::from(Style::new().fg(Color::SKY_BLUE)),
-            ));
-            Paragraph::new(msg_line).render(RatatuiRect::new(x, y, w, 1), buf);
+            buf.draw_line(
+                Rect::new(x, y, w, 1),
+                &[(&msg, Style::new().fg(Color::SKY_BLUE))],
+            );
         }
         y += 1;
 
@@ -358,23 +345,21 @@ impl Pane for ServerPane {
         if state.recording {
             let mins = state.recording_secs / 60;
             let secs = state.recording_secs % 60;
-            let rec_line = Line::from(vec![
-                Span::styled("Recording:  ", label_style),
-                Span::styled(
-                    format!("REC {:02}:{:02}", mins, secs),
-                    ratatui::style::Style::from(Style::new().fg(Color::MUTE_COLOR).bold()),
-                ),
-            ]);
-            Paragraph::new(rec_line).render(RatatuiRect::new(x, y, w, 1), buf);
+            let rec_text = format!("REC {:02}:{:02}", mins, secs);
+            buf.draw_line(
+                Rect::new(x, y, w, 1),
+                &[("Recording:  ", label_style), (&rec_text, Style::new().fg(Color::MUTE_COLOR).bold())],
+            );
         }
         y += 1;
 
         // Output Device section
         let output_focused = self.focus == ServerPaneFocus::OutputDevice;
         let section_color = if output_focused { Color::GOLD } else { Color::DARK_GRAY };
-        let section_style = ratatui::style::Style::from(Style::new().fg(section_color));
-        let header = Line::from(Span::styled("── Output Device ──", section_style));
-        Paragraph::new(header).render(RatatuiRect::new(x, y, w, 1), buf);
+        buf.draw_line(
+            Rect::new(x, y, w, 1),
+            &[("── Output Device ──", Style::new().fg(section_color))],
+        );
         y += 1;
 
         // Render output device list
@@ -384,9 +369,10 @@ impl Pane for ServerPane {
         // Input Device section
         let input_focused = self.focus == ServerPaneFocus::InputDevice;
         let section_color = if input_focused { Color::GOLD } else { Color::DARK_GRAY };
-        let section_style = ratatui::style::Style::from(Style::new().fg(section_color));
-        let header = Line::from(Span::styled("── Input Device ──", section_style));
-        Paragraph::new(header).render(RatatuiRect::new(x, y, w, 1), buf);
+        buf.draw_line(
+            Rect::new(x, y, w, 1),
+            &[("── Input Device ──", Style::new().fg(section_color))],
+        );
         y += 1;
 
         // Render input device list
@@ -395,10 +381,11 @@ impl Pane for ServerPane {
 
         // Restart hint if config is dirty and server is running
         if self.device_config_dirty && self.server_running {
-            let hint_style = ratatui::style::Style::from(Style::new().fg(Color::ORANGE));
-            let hint = Line::from(Span::styled("(restart server to apply device changes)", hint_style));
             if y < rect.y + rect.height - 3 {
-                Paragraph::new(hint).render(RatatuiRect::new(x, y, w, 1), buf);
+                buf.draw_line(
+                    Rect::new(x, y, w, 1),
+                    &[("(restart server to apply device changes)", Style::new().fg(Color::ORANGE))],
+                );
                 y += 1;
             }
         }
@@ -408,12 +395,13 @@ impl Pane for ServerPane {
         let bottom_reserved = help_lines_count + 2; // help + border + gap
         let log_bottom = rect.y + rect.height - bottom_reserved;
         if y < log_bottom {
-            let section_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-            let header = Line::from(Span::styled("── Server Log ──", section_style));
-            Paragraph::new(header).render(RatatuiRect::new(x, y, w, 1), buf);
+            buf.draw_line(
+                Rect::new(x, y, w, 1),
+                &[("── Server Log ──", Style::new().fg(Color::DARK_GRAY))],
+            );
             y += 1;
 
-            let log_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let log_style = Style::new().fg(Color::DARK_GRAY);
             let available = (log_bottom.saturating_sub(y)) as usize;
             let skip = self.log_lines.len().saturating_sub(available);
             for line_text in self.log_lines.iter().skip(skip) {
@@ -421,15 +409,14 @@ impl Pane for ServerPane {
                     break;
                 }
                 let truncated: String = line_text.chars().take(w as usize).collect();
-                Paragraph::new(Line::from(Span::styled(truncated, log_style)))
-                    .render(RatatuiRect::new(x, y, w, 1), buf);
+                buf.draw_line(Rect::new(x, y, w, 1), &[(&truncated, log_style)]);
                 y += 1;
             }
         }
 
         // Help text at bottom
         let _ = y;
-        let help_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let help_style = Style::new().fg(Color::DARK_GRAY);
         let help_lines = [
             "s: start  k: kill  c: connect  d: disconnect  b: build  l: load",
             "r: refresh devices  Tab: next section",
@@ -437,8 +424,7 @@ impl Pane for ServerPane {
         for (i, line_text) in help_lines.iter().enumerate() {
             let hy = rect.y + rect.height - (help_lines.len() as u16 + 1) + i as u16;
             if hy > inner.y && hy < rect.y + rect.height - 1 {
-                Paragraph::new(Line::from(Span::styled(*line_text, help_style)))
-                    .render(RatatuiRect::new(x, hy, w, 1), buf);
+                buf.draw_line(Rect::new(x, hy, w, 1), &[(*line_text, help_style)]);
             }
         }
     }
@@ -457,7 +443,7 @@ impl ServerPane {
     /// Returns the y position after the last rendered item.
     fn render_device_list(
         &self,
-        buf: &mut Buffer,
+        buf: &mut RenderBuf,
         x: u16,
         mut y: u16,
         w: u16,
@@ -465,27 +451,26 @@ impl ServerPane {
         selected: usize,
         focused: bool,
     ) -> u16 {
-        let normal_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
+        let normal_style = Style::new().fg(Color::WHITE);
         let selected_style = if focused {
-            ratatui::style::Style::from(Style::new().fg(Color::GOLD).bold())
+            Style::new().fg(Color::GOLD).bold()
         } else {
-            ratatui::style::Style::from(Style::new().fg(Color::WHITE).bold())
+            Style::new().fg(Color::WHITE).bold()
         };
         let marker_style = if focused {
-            ratatui::style::Style::from(Style::new().fg(Color::GOLD))
+            Style::new().fg(Color::GOLD)
         } else {
-            ratatui::style::Style::from(Style::new().fg(Color::WHITE))
+            Style::new().fg(Color::WHITE)
         };
 
         // "System Default" entry (index 0)
         let is_selected = selected == 0;
         let marker = if is_selected { "> " } else { "  " };
         let style = if is_selected { selected_style } else { normal_style };
-        let line = Line::from(vec![
-            Span::styled(marker, marker_style),
-            Span::styled("System Default", style),
-        ]);
-        Paragraph::new(line).render(RatatuiRect::new(x, y, w, 1), buf);
+        buf.draw_line(
+            Rect::new(x, y, w, 1),
+            &[(marker, marker_style), ("System Default", style)],
+        );
         y += 1;
 
         // Device entries
@@ -516,14 +501,12 @@ impl ServerPane {
                 format!("  ({})", info_parts.join(", "))
             };
 
-            let info_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let info_style = Style::new().fg(Color::DARK_GRAY);
 
-            let line = Line::from(vec![
-                Span::styled(marker, marker_style),
-                Span::styled(&device.name, style),
-                Span::styled(suffix, info_style),
-            ]);
-            Paragraph::new(line).render(RatatuiRect::new(x, y, w, 1), buf);
+            buf.draw_line(
+                Rect::new(x, y, w, 1),
+                &[(marker, marker_style), (&device.name, style), (&suffix, info_style)],
+            );
             y += 1;
         }
 

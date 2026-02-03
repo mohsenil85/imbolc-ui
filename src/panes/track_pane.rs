@@ -1,14 +1,9 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::{AppState, SourceType};
 use crate::state::arrangement::PlayMode;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, ArrangementAction, Color, InputEvent, Keymap, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, ArrangementAction, Color, InputEvent, Keymap, Pane, Style};
 
 fn source_color(source: SourceType) -> Color {
     match source {
@@ -232,7 +227,7 @@ impl Pane for TrackPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let rect = center_rect(area, 97, 29);
         let arr = &state.session.arrangement;
         let ticks_per_col = arr.ticks_per_col.max(1);
@@ -244,23 +239,17 @@ impl Pane for TrackPane {
         };
         let title = format!(" Track [{}] ", mode_str);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title.as_str())
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(rect, &title, border_style, border_style);
 
         if state.instruments.instruments.is_empty() {
             let text = "(no instruments)";
             let x = inner.x + (inner.width.saturating_sub(text.len() as u16)) / 2;
             let y = inner.y + inner.height / 2;
-            Paragraph::new(Line::from(Span::styled(
-                text,
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            )))
-            .render(RatatuiRect::new(x, y, text.len() as u16, 1), buf);
+            buf.draw_line(
+                Rect::new(x, y, text.len() as u16, 1),
+                &[(text, Style::new().fg(Color::DARK_GRAY))],
+            );
             return;
         }
 
@@ -285,9 +274,9 @@ impl Pane for TrackPane {
             0
         };
 
-        let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
-        let bar_line_style = ratatui::style::Style::from(Style::new().fg(Color::new(50, 50, 50)));
-        let _separator_style = ratatui::style::Style::from(Style::new().fg(Color::new(40, 40, 40)));
+        let sel_bg = Style::new().bg(Color::SELECTION_BG);
+        let bar_line_style = Style::new().fg(Color::new(50, 50, 50));
+        let separator_style = Style::new().fg(Color::new(40, 40, 40));
 
         // Compute bar spacing in columns
         let (beats_per_bar, _) = state.session.time_signature;
@@ -297,18 +286,16 @@ impl Pane for TrackPane {
 
         // --- Header: bar numbers ---
         let header_y = inner.y;
+        let header_label_style = Style::new().fg(Color::DARK_GRAY);
         for col in 0..timeline_width as u32 {
             let tick = arr.view_start_tick + col * ticks_per_col;
             if cols_per_bar > 0 && (tick % ticks_per_bar) < ticks_per_col {
                 let bar_num = tick / ticks_per_bar + 1;
                 let label = format!("{}", bar_num);
                 let x = timeline_x + col as u16;
-                let label_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
                 for (j, ch) in label.chars().enumerate() {
                     if x + (j as u16) < inner.x + inner.width {
-                        if let Some(cell) = buf.cell_mut((x + j as u16, header_y)) {
-                            cell.set_char(ch).set_style(label_style);
-                        }
+                        buf.set_cell(x + j as u16, header_y, ch, header_label_style);
                     }
                 }
             }
@@ -329,13 +316,20 @@ impl Pane for TrackPane {
 
             let source_c = source_color(instrument.source);
 
+            // Fill label area bg for selected (before drawing text)
+            if is_selected {
+                for row in 0..lane_height {
+                    let y = lane_y + row;
+                    if y >= lanes_area_y + lanes_area_height { break; }
+                    for x in inner.x..timeline_x {
+                        buf.set_cell(x, y, ' ', sel_bg);
+                    }
+                }
+            }
+
             // Selection indicator
             if is_selected {
-                if let Some(cell) = buf.cell_mut((inner.x, lane_y)) {
-                    cell.set_char('>').set_style(
-                        ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
-                    );
-                }
+                buf.set_cell(inner.x, lane_y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
             }
 
             // Instrument number + name
@@ -344,62 +338,38 @@ impl Pane for TrackPane {
             let src_short = format!(" {}", instrument.source.name());
 
             let num_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG))
+                Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+                Style::new().fg(Color::DARK_GRAY)
             };
             let name_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold())
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE))
+                Style::new().fg(Color::WHITE)
             };
             let src_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(source_c).bg(Color::SELECTION_BG))
+                Style::new().fg(source_c).bg(Color::SELECTION_BG)
             } else {
-                ratatui::style::Style::from(Style::new().fg(source_c))
+                Style::new().fg(source_c)
             };
 
             // Line 1: number + name
-            let label_line = Line::from(vec![
-                Span::styled(num_str, num_style),
-                Span::styled(name_str, name_style),
-            ]);
-            Paragraph::new(label_line).render(
-                RatatuiRect::new(inner.x + 1, lane_y, label_width, 1), buf,
+            buf.draw_line(
+                Rect::new(inner.x + 1, lane_y, label_width, 1),
+                &[(&num_str, num_style), (name_str, name_style)],
             );
 
             // Line 2: source type
-            Paragraph::new(Line::from(Span::styled(
-                &src_short[..src_short.len().min(label_width as usize)],
-                src_style,
-            ))).render(
-                RatatuiRect::new(inner.x + 1, lane_y + 1, label_width, 1), buf,
+            buf.draw_line(
+                Rect::new(inner.x + 1, lane_y + 1, label_width, 1),
+                &[(&src_short[..src_short.len().min(label_width as usize)], src_style)],
             );
-
-            // Fill label area bg for selected
-            if is_selected {
-                for row in 0..lane_height {
-                    let y = lane_y + row;
-                    if y >= lanes_area_y + lanes_area_height { break; }
-                    for x in (inner.x + 1)..timeline_x {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            if cell.symbol() == " " {
-                                cell.set_style(sel_bg);
-                            }
-                        }
-                    }
-                }
-            }
 
             // Separator between label and timeline
             for row in 0..lane_height {
                 let y = lane_y + row;
                 if y >= lanes_area_y + lanes_area_height { break; }
-                if let Some(cell) = buf.cell_mut((inner.x + label_width, y)) {
-                    cell.set_char('|').set_style(
-                        ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-                    );
-                }
+                buf.set_cell(inner.x + label_width, y, '|', Style::new().fg(Color::GRAY));
             }
 
             // Timeline area: bar/beat lines + clip blocks
@@ -416,15 +386,9 @@ impl Pane for TrackPane {
                     let y = lane_y + row;
                     if y >= lanes_area_y + lanes_area_height { break; }
                     if is_bar {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.set_char('|').set_style(bar_line_style);
-                        }
+                        buf.set_cell(x, y, '|', bar_line_style);
                     } else if is_beat && row == 0 {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.set_char('.').set_style(
-                                ratatui::style::Style::from(Style::new().fg(Color::new(30, 30, 30))),
-                            );
-                        }
+                        buf.set_cell(x, y, '.', Style::new().fg(Color::new(30, 30, 30)));
                     }
                 }
             }
@@ -453,12 +417,8 @@ impl Pane for TrackPane {
                     }
 
                     let clip_bg = source_c;
-                    let clip_style = ratatui::style::Style::from(
-                        Style::new().fg(Color::BLACK).bg(clip_bg),
-                    );
-                    let sel_clip_style = ratatui::style::Style::from(
-                        Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold(),
-                    );
+                    let clip_style = Style::new().fg(Color::BLACK).bg(clip_bg);
+                    let sel_clip_style = Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold();
 
                     let is_placement_selected = arr.selected_placement
                         .and_then(|idx| arr.placements.get(idx))
@@ -488,18 +448,14 @@ impl Pane for TrackPane {
                             // Name on first row
                             for (j, ch) in display_name.chars().enumerate() {
                                 if x + (j as u16) < timeline_x + timeline_width {
-                                    if let Some(cell) = buf.cell_mut((x + j as u16, y)) {
-                                        cell.set_char(ch).set_style(style);
-                                    }
+                                    buf.set_cell(x + j as u16, y, ch, style);
                                 }
                             }
                         } else {
                             // Fill second row
                             for j in 0..block_width {
                                 if x + j < timeline_x + timeline_width {
-                                    if let Some(cell) = buf.cell_mut((x + j, y)) {
-                                        cell.set_char(' ').set_style(style);
-                                    }
+                                    buf.set_cell(x + j, y, ' ', style);
                                 }
                             }
                         }
@@ -511,9 +467,7 @@ impl Pane for TrackPane {
                         for row in 0..lane_height {
                             let y = lane_y + row;
                             if y >= lanes_area_y + lanes_area_height { break; }
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char('[').set_style(style);
-                            }
+                            buf.set_cell(x, y, '[', style);
                         }
                     }
                     if vis_end <= timeline_width && vis_end > vis_start {
@@ -521,9 +475,7 @@ impl Pane for TrackPane {
                         for row in 0..lane_height {
                             let y = lane_y + row;
                             if y >= lanes_area_y + lanes_area_height { break; }
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char(']').set_style(style);
-                            }
+                            buf.set_cell(x, y, ']', style);
                         }
                     }
                 }
@@ -534,11 +486,7 @@ impl Pane for TrackPane {
                 let sep_y = lane_y + lane_height;
                 if sep_y < lanes_area_y + lanes_area_height {
                     for x in (inner.x + label_width + 1)..(inner.x + inner.width) {
-                        if let Some(cell) = buf.cell_mut((x, sep_y)) {
-                            if cell.symbol() == " " {
-                                cell.set_char('-').set_style(_separator_style);
-                            }
-                        }
+                        buf.set_cell(x, sep_y, '-', separator_style);
                     }
                 }
             }
@@ -550,27 +498,24 @@ impl Pane for TrackPane {
             let playhead_col = (playhead_tick - arr.view_start_tick) / ticks_per_col;
             if (playhead_col as u16) < timeline_width {
                 let x = timeline_x + playhead_col as u16;
-                let ph_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bold());
+                let ph_style = Style::new().fg(Color::WHITE).bold();
                 for y in lanes_area_y..(lanes_area_y + lanes_area_height) {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char('|').set_style(ph_style);
-                    }
+                    buf.set_cell(x, y, '|', ph_style);
                 }
             }
         }
 
-        // --- Cursor ---
+        // --- Cursor --- (uses raw_buf for read-back to preserve clip visibility)
         if arr.cursor_tick >= arr.view_start_tick {
             let cursor_col = (arr.cursor_tick - arr.view_start_tick) / ticks_per_col;
             if (cursor_col as u16) < timeline_width {
                 let x = timeline_x + cursor_col as u16;
                 let lane_y = lanes_area_y + ((selected_lane - scroll.min(selected_lane)) as u16) * lane_height;
-                let cursor_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN));
+                let cursor_style = Style::new().fg(Color::CYAN);
                 for row in 0..lane_height {
                     let y = lane_y + row;
                     if y < lanes_area_y + lanes_area_height {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            // Only set cursor if cell is empty/space
+                        if let Some(cell) = buf.raw_buf().cell_mut((x, y)) {
                             if cell.symbol() == " " {
                                 cell.set_char('|').set_style(cursor_style);
                             }
@@ -585,9 +530,9 @@ impl Pane for TrackPane {
 
         // Line 1: key hints
         let hints = "n:new  p:place  Enter:edit  d:del  m:mode  Space:play  z/x:zoom";
-        let hint_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        Paragraph::new(Line::from(Span::styled(hints, hint_style))).render(
-            RatatuiRect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1), buf,
+        buf.draw_line(
+            Rect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1),
+            &[(hints, Style::new().fg(Color::DARK_GRAY))],
         );
 
         // Line 2: cursor position + selected clip info
@@ -603,9 +548,9 @@ impl Pane for TrackPane {
         };
 
         let pos_str = format!("Bar {} Beat {}  |  {}", bar, beat, clip_info);
-        let pos_style = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
-        Paragraph::new(Line::from(Span::styled(pos_str, pos_style))).render(
-            RatatuiRect::new(inner.x + 1, footer_y + 1, inner.width.saturating_sub(2), 1), buf,
+        buf.draw_line(
+            Rect::new(inner.x + 1, footer_y + 1, inner.width.saturating_sub(2), 1),
+            &[(&pos_str, Style::new().fg(Color::GRAY))],
         );
     }
 

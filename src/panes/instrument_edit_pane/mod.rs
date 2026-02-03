@@ -4,15 +4,13 @@ mod rendering;
 
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 
 use crate::state::{
     AppState, EffectSlot, EnvConfig, EqConfig, FilterConfig, Instrument, InstrumentId, LfoConfig,
     Param, SourceType,
 };
 use crate::ui::widgets::TextInput;
-use crate::ui::{Action, InputEvent, Keymap, MouseEvent, PadKeyboard, Pane, PianoKeyboard, ToggleResult};
+use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, MouseEvent, PadKeyboard, Pane, PianoKeyboard, ToggleResult};
 
 /// Which section a row belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,11 +235,12 @@ impl Pane for InstrumentEditPane {
         Action::None
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
+        let buf = buf.raw_buf();
         self.render_impl(area, buf, state);
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, _area: RatatuiRect, _state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, _area: Rect, _state: &AppState) -> Action {
         self.handle_mouse_impl(event)
     }
 

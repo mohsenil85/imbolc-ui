@@ -1,13 +1,12 @@
 use std::any::Any;
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Widget};
 
 use crate::state::{AppState, EqBandType, EqConfig, InstrumentId};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, InstrumentAction, Keymap, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, InstrumentAction, Keymap, Pane, Style};
 
 use crate::state::instrument::EqBand;
 
@@ -86,7 +85,8 @@ impl Pane for EqPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
+        let buf = buf.raw_buf();
         let rect = center_rect(area, 78, 24);
 
         let instrument = state.instruments.selected_instrument();
@@ -176,14 +176,14 @@ impl Pane for EqPane {
 
 // -- Helpers --
 
-fn render_centered_text(area: RatatuiRect, buf: &mut Buffer, text: &str, color: Color) {
+fn render_centered_text(area: Rect, buf: &mut Buffer, text: &str, color: Color) {
     let x = area.x + (area.width.saturating_sub(text.len() as u16)) / 2;
     let y = area.y + area.height / 2;
     let line = Line::from(Span::styled(
         text,
         ratatui::style::Style::from(Style::new().fg(color)),
     ));
-    ratatui::widgets::Paragraph::new(line).render(RatatuiRect::new(x, y, text.len() as u16, 1), buf);
+    ratatui::widgets::Paragraph::new(line).render(Rect::new(x, y, text.len() as u16, 1), buf);
 }
 
 fn adjust_param(

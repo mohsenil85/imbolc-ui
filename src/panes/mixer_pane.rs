@@ -1,13 +1,12 @@
 use std::any::Any;
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::{AppState, InstrumentId, MixerSelection, OutputTarget};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, MixerAction, NavAction, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, MixerAction, NavAction, Pane, Style};
 
 const CHANNEL_WIDTH: u16 = 8;
 const METER_HEIGHT: u16 = 12;
@@ -320,7 +319,7 @@ impl Pane for MixerPane {
         }
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, state: &AppState) -> Action {
         use crate::state::MixerSelection;
 
         let box_width = (NUM_VISIBLE_CHANNELS as u16 * CHANNEL_WIDTH) + 2 +
@@ -405,7 +404,8 @@ impl Pane for MixerPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
+        let buf = buf.raw_buf();
         if self.detail_mode.is_some() {
             self.render_detail_buf(buf, area, state);
         } else {
@@ -624,7 +624,7 @@ impl MixerPane {
         }
     }
 
-    fn render_mixer_buf(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+    fn render_mixer_buf(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
         let box_width = (NUM_VISIBLE_CHANNELS as u16 * CHANNEL_WIDTH) + 2 +
                         (NUM_VISIBLE_BUSES as u16 * CHANNEL_WIDTH) + 2 +
                         CHANNEL_WIDTH + 4;
@@ -747,7 +747,7 @@ impl MixerPane {
                         Paragraph::new(Line::from(Span::styled(
                             info,
                             ratatui::style::Style::from(Style::new().fg(Color::TEAL).bold()),
-                        ))).render(RatatuiRect::new(base_x, send_y, rect.width.saturating_sub(4), 1), buf);
+                        ))).render(Rect::new(base_x, send_y, rect.width.saturating_sub(4), 1), buf);
                     }
                 }
             }
@@ -758,10 +758,10 @@ impl MixerPane {
         Paragraph::new(Line::from(Span::styled(
             "[\u{2190}/\u{2192}] Select  [\u{2191}/\u{2193}] Level  [M]ute [S]olo [o]ut  [t/T] Send  [g] Toggle",
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-        ))).render(RatatuiRect::new(base_x, help_y, rect.width.saturating_sub(4), 1), buf);
+        ))).render(Rect::new(base_x, help_y, rect.width.saturating_sub(4), 1), buf);
     }
 
-    fn render_detail_buf(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+    fn render_detail_buf(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
         let Some((_, inst)) = self.detail_instrument(state) else {
             return;
         };
@@ -1037,7 +1037,7 @@ impl MixerPane {
         Paragraph::new(Line::from(Span::styled(
             help_text,
             ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-        ))).render(RatatuiRect::new(inner_x, help_y, inner_w, 1), buf);
+        ))).render(Rect::new(inner_x, help_y, inner_w, 1), buf);
 
         // Section indicator bar (just below title)
         let section_bar_y = rect.y;

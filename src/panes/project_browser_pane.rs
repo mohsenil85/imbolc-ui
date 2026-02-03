@@ -2,15 +2,10 @@ use std::any::Any;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::state::recent_projects::RecentProjects;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, NavAction, Pane, SessionAction, Style};
 
 pub struct ProjectBrowserPane {
     keymap: Keymap,
@@ -130,33 +125,23 @@ impl Pane for ProjectBrowserPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let width = 56_u16.min(area.width.saturating_sub(4));
         let height = (self.entries.len() as u16 + 8).min(area.height.saturating_sub(4)).max(10);
         let rect = center_rect(area, width, height);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Projects ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(rect, " Projects ", border_style, border_style);
 
         // Section header
-        let header_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        let header_area = RatatuiRect::new(inner.x + 1, inner.y, inner.width.saturating_sub(2), 1);
-        Paragraph::new(Line::from(Span::styled("Recent Projects", header_style)))
-            .render(header_area, buf);
+        let header_area = Rect::new(inner.x + 1, inner.y, inner.width.saturating_sub(2), 1);
+        buf.draw_line(header_area, &[("Recent Projects", Style::new().fg(Color::DARK_GRAY))]);
 
         if self.entries.is_empty() {
             let empty_y = inner.y + 2;
             if empty_y < inner.y + inner.height {
-                let empty_area = RatatuiRect::new(inner.x + 1, empty_y, inner.width.saturating_sub(2), 1);
-                Paragraph::new(Line::from(Span::styled(
-                    "No recent projects",
-                    ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                ))).render(empty_area, buf);
+                let empty_area = Rect::new(inner.x + 1, empty_y, inner.width.saturating_sub(2), 1);
+                buf.draw_line(empty_area, &[("No recent projects", Style::new().fg(Color::DARK_GRAY))]);
             }
         }
 
@@ -182,54 +167,49 @@ impl Pane for ProjectBrowserPane {
 
             let (name_style, time_style) = if is_selected {
                 (
-                    ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::CYAN).bold()),
-                    ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::CYAN)),
+                    Style::new().fg(Color::BLACK).bg(Color::CYAN).bold(),
+                    Style::new().fg(Color::BLACK).bg(Color::CYAN),
                 )
             } else {
                 (
-                    ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
-                    ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
+                    Style::new().fg(Color::WHITE),
+                    Style::new().fg(Color::DARK_GRAY),
                 )
             };
 
             // Clear the line for selected item
             if is_selected {
-                let line_area = RatatuiRect::new(inner.x + 1, y, inner.width.saturating_sub(2), 1);
-                for x in line_area.x..line_area.x + line_area.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char(' ').set_style(name_style);
-                    }
+                for x in (inner.x + 1)..(inner.x + 1 + inner.width.saturating_sub(2)) {
+                    buf.set_cell(x, y, ' ', Style::new().fg(Color::BLACK).bg(Color::CYAN).bold());
                 }
             }
 
             let prefix = if is_selected { " > " } else { "   " };
             let padding_len = name_max.saturating_sub(display_name.len());
             let padding: String = " ".repeat(padding_len);
+            let time_col = format!("  {}", time_str);
 
-            let line = Line::from(vec![
-                Span::styled(prefix, name_style),
-                Span::styled(&display_name, name_style),
-                Span::styled(&padding, name_style),
-                Span::styled(format!("  {}", time_str), time_style),
+            let line_area = Rect::new(inner.x, y, inner.width, 1);
+            buf.draw_line(line_area, &[
+                (prefix, name_style),
+                (&display_name, name_style),
+                (&padding, name_style),
+                (&time_col, time_style),
             ]);
-            let line_area = RatatuiRect::new(inner.x, y, inner.width, 1);
-            Paragraph::new(line).render(line_area, buf);
         }
 
         // Footer
         let footer_y = rect.y + rect.height.saturating_sub(2);
         if footer_y < area.y + area.height {
-            let footer_area = RatatuiRect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1);
-            Paragraph::new(Line::from(vec![
-                Span::styled("[N]", ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold())),
-                Span::styled("ew  ", ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))),
-                Span::styled("[Enter]", ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold())),
-                Span::styled(" Open  ", ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))),
-                Span::styled("[D]", ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold())),
-                Span::styled("elete  ", ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))),
-                Span::styled("[Esc]", ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold())),
-                Span::styled(" Close", ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))),
-            ])).render(footer_area, buf);
+            let hi = Style::new().fg(Color::CYAN).bold();
+            let lo = Style::new().fg(Color::DARK_GRAY);
+            let footer_area = Rect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1);
+            buf.draw_line(footer_area, &[
+                ("[N]", hi), ("ew  ", lo),
+                ("[Enter]", hi), (" Open  ", lo),
+                ("[D]", hi), ("elete  ", lo),
+                ("[Esc]", hi), (" Close", lo),
+            ]);
         }
     }
 

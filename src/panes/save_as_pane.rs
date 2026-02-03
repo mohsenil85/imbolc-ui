@@ -1,15 +1,10 @@
 use std::any::Any;
 use std::path::PathBuf;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::widgets::TextInput;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, SessionAction, Style};
 
 pub struct SaveAsPane {
     keymap: Keymap,
@@ -82,49 +77,37 @@ impl Pane for SaveAsPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let width = 46_u16.min(area.width.saturating_sub(4));
         let height = if self.error.is_some() { 8 } else { 7 };
         let rect = center_rect(area, width, height);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Save As ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(rect, " Save As ", border_style, border_style);
 
         // Label
-        let label_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        let label_area = RatatuiRect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1);
-        Paragraph::new(Line::from(Span::styled("Project name:", label_style)))
-            .render(label_area, buf);
+        let label_area = Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1);
+        buf.draw_line(label_area, &[("Project name:", Style::new().fg(Color::DARK_GRAY))]);
 
         // Text input field (rat-widget backed)
         let field_y = inner.y + 2;
         let field_width = inner.width.saturating_sub(2);
-        self.text_input.render_buf(buf, inner.x + 1, field_y, field_width);
+        self.text_input.render_buf(buf.raw_buf(), inner.x + 1, field_y, field_width);
 
         // Error message
         if let Some(ref error) = self.error {
             let err_y = inner.y + 3;
             if err_y < inner.y + inner.height {
-                let err_area = RatatuiRect::new(inner.x + 1, err_y, inner.width.saturating_sub(2), 1);
-                let err_style = ratatui::style::Style::from(Style::new().fg(Color::MUTE_COLOR));
-                Paragraph::new(Line::from(Span::styled(error, err_style)))
-                    .render(err_area, buf);
+                let err_area = Rect::new(inner.x + 1, err_y, inner.width.saturating_sub(2), 1);
+                buf.draw_line(err_area, &[(error.as_str(), Style::new().fg(Color::MUTE_COLOR))]);
             }
         }
 
         // Footer
         let footer_y = rect.y + rect.height.saturating_sub(2);
         if footer_y < area.y + area.height {
-            let footer_area = RatatuiRect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1);
-            Paragraph::new(Line::from(Span::styled(
-                "[Enter] Save  [Esc] Cancel",
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ))).render(footer_area, buf);
+            let footer_area = Rect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1);
+            buf.draw_line(footer_area, &[("[Enter] Save  [Esc] Cancel", Style::new().fg(Color::DARK_GRAY))]);
         }
     }
 

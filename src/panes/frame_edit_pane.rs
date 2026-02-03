@@ -1,14 +1,9 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::music::{Key, Scale};
 use crate::state::{AppState, MusicalSettings};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, Pane, SessionAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, SessionAction, Style};
 use crate::ui::widgets::TextInput;
 
 /// Fields editable in the frame editor
@@ -225,16 +220,11 @@ impl Pane for FrameEditPane {
         Action::None
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let rect = center_rect(area, 50, 13);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Session ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(rect, " Session ", border_style, border_style);
 
         let label_col = inner.x + 2;
         let value_col = label_col + 15;
@@ -245,48 +235,41 @@ impl Pane for FrameEditPane {
                 break;
             }
             let is_selected = i == self.selected;
-            let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
+            let sel_bg = Style::new().bg(Color::SELECTION_BG);
 
             // Indicator
             if is_selected {
-                let ind_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
-                if let Some(cell) = buf.cell_mut((label_col, y)) {
-                    cell.set_char('>').set_style(ind_style);
-                }
+                buf.set_cell(label_col, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
             }
 
             // Label
             let label_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::CYAN).bg(Color::SELECTION_BG))
+                Style::new().fg(Color::CYAN).bg(Color::SELECTION_BG)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::CYAN))
+                Style::new().fg(Color::CYAN)
             };
             let label = format!("{:14}", Self::field_label(*field));
-            Paragraph::new(Line::from(Span::styled(label, label_style)))
-                .render(RatatuiRect::new(label_col + 2, y, 14, 1), buf);
+            buf.draw_line(Rect::new(label_col + 2, y, 14, 1), &[(&label, label_style)]);
 
             // Value
             if is_selected && self.editing {
                 // Render TextInput inline
-                self.edit_input.render_buf(buf, value_col, y, inner.width.saturating_sub(18));
+                self.edit_input.render_buf(buf.raw_buf(), value_col, y, inner.width.saturating_sub(18));
             } else {
                 let val_style = if is_selected {
-                    ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG))
+                    Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
                 } else {
-                    ratatui::style::Style::from(Style::new().fg(Color::WHITE))
+                    Style::new().fg(Color::WHITE)
                 };
                 let val = self.field_value(*field);
-                Paragraph::new(Line::from(Span::styled(&val, val_style)))
-                    .render(RatatuiRect::new(value_col, y, inner.width.saturating_sub(18), 1), buf);
+                buf.draw_line(Rect::new(value_col, y, inner.width.saturating_sub(18), 1), &[(&val, val_style)]);
 
                 // Fill rest of line with selection bg
                 if is_selected {
                     let fill_start = value_col + val.len() as u16;
                     let fill_end = inner.x + inner.width;
                     for x in fill_start..fill_end {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.set_char(' ').set_style(sel_bg);
-                        }
+                        buf.set_cell(x, y, ' ', sel_bg);
                     }
                 }
             }
@@ -300,10 +283,10 @@ impl Pane for FrameEditPane {
             } else {
                 "Left/Right: adjust | Enter: type/confirm | Esc: cancel"
             };
-            Paragraph::new(Line::from(Span::styled(
-                help,
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ))).render(RatatuiRect::new(inner.x + 2, help_y, inner.width.saturating_sub(2), 1), buf);
+            buf.draw_line(
+                Rect::new(inner.x + 2, help_y, inner.width.saturating_sub(2), 1),
+                &[(help, Style::new().fg(Color::DARK_GRAY))],
+            );
         }
     }
 

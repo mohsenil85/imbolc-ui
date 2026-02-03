@@ -2,16 +2,11 @@ use std::any::Any;
 use std::fs;
 use std::path::PathBuf;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::state::VstPluginKind;
 use crate::ui::{
-    Action, ChopperAction, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent,
+    Rect, RenderBuf, Action, ChopperAction, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent,
     MouseEventKind, MouseButton, NavAction, Pane, SequencerAction, SessionAction, Style,
 };
 
@@ -252,7 +247,7 @@ impl Pane for FileBrowserPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let rect = center_rect(area, 97, 29);
 
         let title = match self.on_select_action {
@@ -263,13 +258,8 @@ impl Pane for FileBrowserPane {
             FileSelectAction::LoadPitchedSample(_) => " Load Sample ",
             FileSelectAction::LoadImpulseResponse(_, _) => " Load Impulse Response ",
         };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::PURPLE)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::PURPLE)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::PURPLE);
+        let inner = buf.draw_block(rect, title, border_style, border_style);
 
         let content_x = inner.x + 1;
         let content_y = inner.y + 1;
@@ -282,10 +272,10 @@ impl Pane for FileBrowserPane {
         } else {
             path_str.to_string()
         };
-        Paragraph::new(Line::from(Span::styled(
-            display_path,
-            ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold()),
-        ))).render(RatatuiRect::new(content_x, content_y, inner.width.saturating_sub(2), 1), buf);
+        buf.draw_line(
+            Rect::new(content_x, content_y, inner.width.saturating_sub(2), 1),
+            &[(&display_path, Style::new().fg(Color::CYAN).bold())],
+        );
 
         // File list
         let list_y = content_y + 2;
@@ -302,7 +292,7 @@ impl Pane for FileBrowserPane {
             eff_scroll = selected - visible_height + 1;
         }
 
-        let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
+        let sel_bg = Style::new().bg(Color::SELECTION_BG);
 
         if entries.is_empty() {
             let ext_label = self
@@ -310,10 +300,11 @@ impl Pane for FileBrowserPane {
                 .as_ref()
                 .map(|exts| exts.join("/"))
                 .unwrap_or_default();
-            Paragraph::new(Line::from(Span::styled(
-                format!("(no .{} files found)", ext_label),
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ))).render(RatatuiRect::new(content_x, list_y, inner.width.saturating_sub(2), 1), buf);
+            let empty_msg = format!("(no .{} files found)", ext_label);
+            buf.draw_line(
+                Rect::new(content_x, list_y, inner.width.saturating_sub(2), 1),
+                &[(&empty_msg, Style::new().fg(Color::DARK_GRAY))],
+            );
         } else {
             for (i, entry) in entries.iter().skip(eff_scroll).take(visible_height).enumerate() {
                 let y = list_y + i as u16;
@@ -325,15 +316,9 @@ impl Pane for FileBrowserPane {
                 // Fill selection background
                 if is_selected {
                     for x in content_x..(inner.x + inner.width) {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.set_char(' ').set_style(sel_bg);
-                        }
+                        buf.set_cell(x, y, ' ', sel_bg);
                     }
-                    if let Some(cell) = buf.cell_mut((content_x, y)) {
-                        cell.set_char('>').set_style(
-                            ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
-                        );
-                    }
+                    buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                 }
 
                 let (icon, icon_color) = if entry.is_dir {
@@ -343,9 +328,9 @@ impl Pane for FileBrowserPane {
                 };
 
                 let icon_style = if is_selected {
-                    ratatui::style::Style::from(Style::new().fg(icon_color).bg(Color::SELECTION_BG))
+                    Style::new().fg(icon_color).bg(Color::SELECTION_BG)
                 } else {
-                    ratatui::style::Style::from(Style::new().fg(icon_color))
+                    Style::new().fg(icon_color)
                 };
 
                 let max_name_width = inner.width.saturating_sub(6) as usize;
@@ -357,43 +342,45 @@ impl Pane for FileBrowserPane {
 
                 let name_color = if entry.is_dir { Color::CYAN } else { Color::WHITE };
                 let name_style = if is_selected {
-                    ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG))
+                    Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
                 } else {
-                    ratatui::style::Style::from(Style::new().fg(name_color))
+                    Style::new().fg(name_color)
                 };
 
-                let line = Line::from(vec![
-                    Span::styled(icon, icon_style),
-                    Span::styled(format!(" {}", display_name), name_style),
-                ]);
-                Paragraph::new(line).render(
-                    RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf,
+                let name_display = format!(" {}", display_name);
+                buf.draw_line(
+                    Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
+                    &[(icon, icon_style), (&name_display, name_style)],
                 );
             }
 
             // Scroll indicators
-            let scroll_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let scroll_style = Style::new().fg(Color::DARK_GRAY);
             if eff_scroll > 0 {
-                Paragraph::new(Line::from(Span::styled("...", scroll_style)))
-                    .render(RatatuiRect::new(rect.x + rect.width - 5, list_y, 3, 1), buf);
+                buf.draw_line(
+                    Rect::new(rect.x + rect.width - 5, list_y, 3, 1),
+                    &[("...", scroll_style)],
+                );
             }
             if eff_scroll + visible_height < entries.len() {
-                Paragraph::new(Line::from(Span::styled("...", scroll_style)))
-                    .render(RatatuiRect::new(rect.x + rect.width - 5, list_y + visible_height as u16 - 1, 3, 1), buf);
+                buf.draw_line(
+                    Rect::new(rect.x + rect.width - 5, list_y + visible_height as u16 - 1, 3, 1),
+                    &[("...", scroll_style)],
+                );
             }
         }
 
         // Help text
         let help_y = rect.y + rect.height - 2;
         if help_y < area.y + area.height {
-            Paragraph::new(Line::from(Span::styled(
-                "Enter: select | Backspace: parent | ~: home | &: hidden | Esc: cancel",
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ))).render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+            buf.draw_line(
+                Rect::new(content_x, help_y, inner.width.saturating_sub(2), 1),
+                &[("Enter: select | Backspace: parent | ~: home | &: hidden | Esc: cancel", Style::new().fg(Color::DARK_GRAY))],
+            );
         }
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, _state: &AppState) -> Action {
         let rect = center_rect(area, 97, 29);
         let inner_y = rect.y + 2;
         let content_y = inner_y + 1;

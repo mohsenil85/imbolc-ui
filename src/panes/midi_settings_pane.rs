@@ -1,13 +1,8 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::action::{Action, MidiAction};
 use crate::state::AppState;
-use crate::ui::{Color, InputEvent, Keymap, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Color, InputEvent, Keymap, Pane, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Section {
@@ -116,14 +111,9 @@ impl Pane for MidiSettingsPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" MIDI Settings ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-
-        let inner = block.inner(area);
-        block.render(area, buf);
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(area, " MIDI Settings ", border_style, border_style);
 
         if inner.height < 3 || inner.width < 20 {
             return;
@@ -131,38 +121,34 @@ impl Pane for MidiSettingsPane {
 
         let section_style = |s: Section| {
             if s == self.section {
-                ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold())
+                Style::new().fg(Color::CYAN).bold()
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+                Style::new().fg(Color::DARK_GRAY)
             }
         };
-        let normal = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
-        let dim = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        let highlight = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
+        let normal = Style::new().fg(Color::GRAY);
+        let dim = Style::new().fg(Color::DARK_GRAY);
+        let highlight = Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold();
 
         let mut y = inner.y;
         let x = inner.x + 1;
         let w = inner.width.saturating_sub(2);
 
         // Section: Ports
-        let port_header = Line::from(vec![
-            Span::styled(" Ports ", section_style(Section::Ports)),
-            Span::styled(
-                if let Some(ref name) = state.midi_connected_port {
-                    format!("  [Connected: {}]", name)
-                } else {
-                    "  [Not connected]".to_string()
-                },
-                dim,
-            ),
+        let conn_text = if let Some(ref name) = state.midi_connected_port {
+            format!("  [Connected: {}]", name)
+        } else {
+            "  [Not connected]".to_string()
+        };
+        buf.draw_line(Rect::new(x, y, w, 1), &[
+            (" Ports ", section_style(Section::Ports)),
+            (&conn_text, dim),
         ]);
-        Paragraph::new(port_header).render(RatatuiRect::new(x, y, w, 1), buf);
         y += 1;
 
         if self.section == Section::Ports {
             if state.midi_port_names.is_empty() {
-                Paragraph::new(Line::from(Span::styled("  (no MIDI ports found)", dim)))
-                    .render(RatatuiRect::new(x, y, w, 1), buf);
+                buf.draw_line(Rect::new(x, y, w, 1), &[("  (no MIDI ports found)", dim)]);
                 y += 1;
             } else {
                 for (i, name) in state.midi_port_names.iter().enumerate() {
@@ -171,8 +157,7 @@ impl Pane for MidiSettingsPane {
                     let prefix = if is_connected { " * " } else { "   " };
                     let text = format!("{}{}", prefix, name);
                     let style = if i == self.port_cursor { highlight } else { normal };
-                    Paragraph::new(Line::from(Span::styled(text, style)))
-                        .render(RatatuiRect::new(x, y, w, 1), buf);
+                    buf.draw_line(Rect::new(x, y, w, 1), &[(&text, style)]);
                     y += 1;
                 }
             }
@@ -181,18 +166,14 @@ impl Pane for MidiSettingsPane {
 
         // Section: CC Mappings
         if y >= inner.y + inner.height { return; }
-        let mapping_header = Line::from(Span::styled(
-            format!(" CC Mappings ({})", state.session.midi_recording.cc_mappings.len()),
-            section_style(Section::CcMappings),
-        ));
-        Paragraph::new(mapping_header).render(RatatuiRect::new(x, y, w, 1), buf);
+        let mapping_title = format!(" CC Mappings ({})", state.session.midi_recording.cc_mappings.len());
+        buf.draw_line(Rect::new(x, y, w, 1), &[(&mapping_title, section_style(Section::CcMappings))]);
         y += 1;
 
         if self.section == Section::CcMappings {
             if state.session.midi_recording.cc_mappings.is_empty() {
                 if y < inner.y + inner.height {
-                    Paragraph::new(Line::from(Span::styled("  (no CC mappings)", dim)))
-                        .render(RatatuiRect::new(x, y, w, 1), buf);
+                    buf.draw_line(Rect::new(x, y, w, 1), &[("  (no CC mappings)", dim)]);
                     y += 1;
                 }
             } else {
@@ -207,8 +188,7 @@ impl Pane for MidiSettingsPane {
                         mapping.cc_number, ch_str, mapping.target.name()
                     );
                     let style = if i == self.mapping_cursor { highlight } else { normal };
-                    Paragraph::new(Line::from(Span::styled(text, style)))
-                        .render(RatatuiRect::new(x, y, w, 1), buf);
+                    buf.draw_line(Rect::new(x, y, w, 1), &[(&text, style)]);
                     y += 1;
                 }
             }
@@ -217,8 +197,7 @@ impl Pane for MidiSettingsPane {
 
         // Section: Settings
         if y >= inner.y + inner.height { return; }
-        Paragraph::new(Line::from(Span::styled(" Settings", section_style(Section::Settings))))
-            .render(RatatuiRect::new(x, y, w, 1), buf);
+        buf.draw_line(Rect::new(x, y, w, 1), &[(" Settings", section_style(Section::Settings))]);
         y += 1;
 
         if self.section == Section::Settings {
@@ -241,8 +220,7 @@ impl Pane for MidiSettingsPane {
 
             for line in &settings {
                 if y >= inner.y + inner.height { break; }
-                Paragraph::new(Line::from(Span::styled(line.as_str(), normal)))
-                    .render(RatatuiRect::new(x, y, w, 1), buf);
+                buf.draw_line(Rect::new(x, y, w, 1), &[(line.as_str(), normal)]);
                 y += 1;
             }
         }

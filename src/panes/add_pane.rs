@@ -1,13 +1,8 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::{AppState, CustomSynthDefRegistry, SourceType, VstPluginRegistry};
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SessionAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SessionAction, Style};
 
 /// Options available in the Add Instrument menu
 #[derive(Debug, Clone)]
@@ -153,28 +148,23 @@ impl AddPane {
     }
 
     /// Render with registries for custom synthdef and VST plugin names
-    fn render_buf_with_registries(&self, area: RatatuiRect, buf: &mut Buffer, registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) {
+    fn render_buf_with_registries(&self, area: Rect, buf: &mut RenderBuf, registry: &CustomSynthDefRegistry, vst_registry: &VstPluginRegistry) {
         let rect = center_rect(area, 97, 29);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Add Instrument ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::LIME)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::LIME)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::LIME);
+        let inner = buf.draw_block(rect, " Add Instrument ", border_style, border_style);
 
         let content_x = inner.x + 1;
         let content_y = inner.y + 1;
 
         // Title
-        Paragraph::new(Line::from(Span::styled(
-            "Select source type:",
-            ratatui::style::Style::from(Style::new().fg(Color::LIME).bold()),
-        ))).render(RatatuiRect::new(content_x, content_y, inner.width.saturating_sub(2), 1), buf);
+        buf.draw_line(
+            Rect::new(content_x, content_y, inner.width.saturating_sub(2), 1),
+            &[("Select source type:", Style::new().fg(Color::LIME).bold())],
+        );
 
         let list_y = content_y + 2;
-        let sel_bg = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
+        let sel_bg = Style::new().bg(Color::SELECTION_BG);
 
         // Scroll offset: keep selected item visible
         let visible_rows = (inner.y + inner.height).saturating_sub(list_y) as usize;
@@ -190,11 +180,7 @@ impl AddPane {
             let arrow_y = list_y.saturating_sub(1);
             if arrow_y >= inner.y {
                 let arrow_x = inner.x + inner.width.saturating_sub(2);
-                if let Some(cell) = buf.cell_mut((arrow_x, arrow_y)) {
-                    cell.set_char('▲').set_style(
-                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                    );
-                }
+                buf.set_cell(arrow_x, arrow_y, '▲', Style::new().fg(Color::DARK_GRAY));
             }
         }
 
@@ -204,19 +190,15 @@ impl AddPane {
 
             match option {
                 AddOption::Separator(label) => {
-                    Paragraph::new(Line::from(Span::styled(
-                        *label,
-                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                    ))).render(RatatuiRect::new(content_x, y, inner.width.saturating_sub(2), 1), buf);
+                    buf.draw_line(
+                        Rect::new(content_x, y, inner.width.saturating_sub(2), 1),
+                        &[(*label, Style::new().fg(Color::DARK_GRAY))],
+                    );
                 }
                 AddOption::Source(source) => {
                     // Indicator
                     if is_selected {
-                        if let Some(cell) = buf.cell_mut((content_x, y)) {
-                            cell.set_char('>').set_style(
-                                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
-                            );
-                        }
+                        buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     }
 
                     let color = match source {
@@ -232,22 +214,20 @@ impl AddPane {
                     let name = source.display_name_vst(registry, vst_registry);
 
                     let short_style = if is_selected {
-                        ratatui::style::Style::from(Style::new().fg(color).bg(Color::SELECTION_BG))
+                        Style::new().fg(color).bg(Color::SELECTION_BG)
                     } else {
-                        ratatui::style::Style::from(Style::new().fg(color))
+                        Style::new().fg(color)
                     };
+                    let name_display = format!("  {}", name);
                     let name_style = if is_selected {
-                        ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG))
+                        Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
                     } else {
-                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+                        Style::new().fg(Color::DARK_GRAY)
                     };
 
-                    let line = Line::from(vec![
-                        Span::styled(short, short_style),
-                        Span::styled(format!("  {}", name), name_style),
-                    ]);
-                    Paragraph::new(line).render(
-                        RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf,
+                    buf.draw_line(
+                        Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
+                        &[(&short, short_style), (&name_display, name_style)],
                     );
 
                     // Fill rest of line with selection bg
@@ -255,67 +235,53 @@ impl AddPane {
                         let fill_start = content_x + 2 + 14 + name.len() as u16;
                         let fill_end = inner.x + inner.width;
                         for x in fill_start..fill_end {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char(' ').set_style(sel_bg);
-                            }
+                            buf.set_cell(x, y, ' ', sel_bg);
                         }
                     }
                 }
                 AddOption::ImportCustom => {
                     if is_selected {
-                        if let Some(cell) = buf.cell_mut((content_x, y)) {
-                            cell.set_char('>').set_style(
-                                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
-                            );
-                        }
+                        buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     }
 
                     let text_style = if is_selected {
-                        ratatui::style::Style::from(Style::new().fg(Color::PURPLE).bg(Color::SELECTION_BG))
+                        Style::new().fg(Color::PURPLE).bg(Color::SELECTION_BG)
                     } else {
-                        ratatui::style::Style::from(Style::new().fg(Color::PURPLE))
+                        Style::new().fg(Color::PURPLE)
                     };
-                    Paragraph::new(Line::from(Span::styled(
-                        "+ Import Custom SynthDef...",
-                        text_style,
-                    ))).render(RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
+                    buf.draw_line(
+                        Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
+                        &[("+ Import Custom SynthDef...", text_style)],
+                    );
 
                     if is_selected {
                         let fill_start = content_x + 2 + 27;
                         let fill_end = inner.x + inner.width;
                         for x in fill_start..fill_end {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char(' ').set_style(sel_bg);
-                            }
+                            buf.set_cell(x, y, ' ', sel_bg);
                         }
                     }
                 }
                 AddOption::ImportVst => {
                     if is_selected {
-                        if let Some(cell) = buf.cell_mut((content_x, y)) {
-                            cell.set_char('>').set_style(
-                                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()),
-                            );
-                        }
+                        buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                     }
 
                     let text_style = if is_selected {
-                        ratatui::style::Style::from(Style::new().fg(Color::VST_COLOR).bg(Color::SELECTION_BG))
+                        Style::new().fg(Color::VST_COLOR).bg(Color::SELECTION_BG)
                     } else {
-                        ratatui::style::Style::from(Style::new().fg(Color::VST_COLOR))
+                        Style::new().fg(Color::VST_COLOR)
                     };
-                    Paragraph::new(Line::from(Span::styled(
-                        "+ Import VST Instrument...",
-                        text_style,
-                    ))).render(RatatuiRect::new(content_x + 2, y, inner.width.saturating_sub(4), 1), buf);
+                    buf.draw_line(
+                        Rect::new(content_x + 2, y, inner.width.saturating_sub(4), 1),
+                        &[("+ Import VST Instrument...", text_style)],
+                    );
 
                     if is_selected {
                         let fill_start = content_x + 2 + 26;
                         let fill_end = inner.x + inner.width;
                         for x in fill_start..fill_end {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char(' ').set_style(sel_bg);
-                            }
+                            buf.set_cell(x, y, ' ', sel_bg);
                         }
                     }
                 }
@@ -327,21 +293,17 @@ impl AddPane {
             let arrow_y = list_y + visible_rows as u16;
             if arrow_y < inner.y + inner.height {
                 let arrow_x = inner.x + inner.width.saturating_sub(2);
-                if let Some(cell) = buf.cell_mut((arrow_x, arrow_y)) {
-                    cell.set_char('▼').set_style(
-                        ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                    );
-                }
+                buf.set_cell(arrow_x, arrow_y, '▼', Style::new().fg(Color::DARK_GRAY));
             }
         }
 
         // Help text
         let help_y = rect.y + rect.height - 2;
         if help_y < area.y + area.height {
-            Paragraph::new(Line::from(Span::styled(
-                "Enter: add | Escape: cancel | Up/Down: navigate",
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ))).render(RatatuiRect::new(content_x, help_y, inner.width.saturating_sub(2), 1), buf);
+            buf.draw_line(
+                Rect::new(content_x, help_y, inner.width.saturating_sub(2), 1),
+                &[("Enter: add | Escape: cancel | Up/Down: navigate", Style::new().fg(Color::DARK_GRAY))],
+            );
         }
     }
 
@@ -395,7 +357,7 @@ impl Pane for AddPane {
         }
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, _state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, _state: &AppState) -> Action {
         let rect = center_rect(area, 97, 29);
         let inner_y = rect.y + 2;
         let content_y = inner_y + 1;
@@ -440,7 +402,7 @@ impl Pane for AddPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         self.render_buf_with_registries(area, buf, &state.session.custom_synthdefs, &state.session.vst_plugins);
     }
 

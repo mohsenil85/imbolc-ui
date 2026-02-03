@@ -1,14 +1,9 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::drum_sequencer::NUM_PADS;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SequencerAction, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SequencerAction, Style};
 
 pub struct SequencerPane {
     keymap: Keymap,
@@ -176,24 +171,21 @@ impl Pane for SequencerPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let box_width: u16 = 97;
         let rect = center_rect(area, box_width, 29);
+
+        let border_style = Style::new().fg(Color::ORANGE);
 
         let seq = match state.instruments.selected_drum_sequencer() {
             Some(s) => s,
             None => {
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Drum Sequencer ")
-                    .border_style(ratatui::style::Style::from(Style::new().fg(Color::ORANGE)))
-                    .title_style(ratatui::style::Style::from(Style::new().fg(Color::ORANGE)));
-                block.render(rect, buf);
+                let inner = buf.draw_block(rect, " Drum Sequencer ", border_style, border_style);
                 let cy = rect.y + rect.height / 2;
-                Paragraph::new(Line::from(Span::styled(
-                    "No drum machine instrument selected. Press 1 to add one.",
-                    ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                ))).render(RatatuiRect::new(rect.x + 12, cy, rect.width.saturating_sub(14), 1), buf);
+                buf.draw_line(
+                    Rect::new(inner.x + 11, cy, inner.width.saturating_sub(12), 1),
+                    &[("No drum machine instrument selected. Press 1 to add one.", Style::new().fg(Color::DARK_GRAY))],
+                );
                 return;
             }
         };
@@ -214,12 +206,7 @@ impl Pane for SequencerPane {
         let steps_shown = visible.min(pattern.length - view_start);
 
         // Draw box
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Drum Sequencer ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::ORANGE)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::ORANGE)));
-        block.render(rect, buf);
+        let _inner = buf.draw_block(rect, " Drum Sequencer ", border_style, border_style);
 
         let cx = rect.x + 2;
         let cy = rect.y + 1;
@@ -231,32 +218,23 @@ impl Pane for SequencerPane {
         let play_label = if seq.playing { "PLAY" } else { "STOP" };
         let play_color = if seq.playing { Color::GREEN } else { Color::GRAY };
 
-        let header = Line::from(vec![
-            Span::styled(
-                format!("Pattern {}", pattern_label),
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bold()),
-            ),
-            Span::styled(
-                format!("  Length: {}", pattern.length),
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ),
-            Span::styled(
-                format!("  BPM: {:.0}", state.session.piano_roll.bpm),
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ),
-            Span::styled(
-                format!("  {}", play_label),
-                ratatui::style::Style::from(Style::new().fg(play_color).bold()),
-            ),
+        let pat_str = format!("Pattern {}", pattern_label);
+        let len_str = format!("  Length: {}", pattern.length);
+        let bpm_str = format!("  BPM: {:.0}", state.session.piano_roll.bpm);
+        let play_str = format!("  {}", play_label);
+        buf.draw_line(Rect::new(cx, cy, rect.width.saturating_sub(4), 1), &[
+            (&pat_str, Style::new().fg(Color::WHITE).bold()),
+            (&len_str, Style::new().fg(Color::DARK_GRAY)),
+            (&bpm_str, Style::new().fg(Color::DARK_GRAY)),
+            (&play_str, Style::new().fg(play_color).bold()),
         ]);
-        Paragraph::new(header).render(RatatuiRect::new(cx, cy, rect.width.saturating_sub(4), 1), buf);
 
         // Step number header
         let header_y = cy + 2;
         let label_width: u16 = 11;
         let step_col_start = cx + label_width;
 
-        let dark_gray = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let dark_gray = Style::new().fg(Color::DARK_GRAY);
         for i in 0..steps_shown {
             let step_num = view_start + i + 1;
             let x = step_col_start + (i as u16) * 3;
@@ -266,9 +244,7 @@ impl Pane for SequencerPane {
                 format!("{:2}", step_num)
             };
             for (j, ch) in num_str.chars().enumerate() {
-                if let Some(cell) = buf.cell_mut((x + j as u16, header_y)) {
-                    cell.set_char(ch).set_style(dark_gray);
-                }
+                buf.set_cell(x + j as u16, header_y, ch, dark_gray);
             }
         }
 
@@ -289,14 +265,12 @@ impl Pane for SequencerPane {
             };
 
             let label_style = if is_cursor_row {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bold())
+                Style::new().fg(Color::WHITE).bold()
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY))
+                Style::new().fg(Color::GRAY)
             };
             for (j, ch) in label.chars().enumerate() {
-                if let Some(cell) = buf.cell_mut((cx + j as u16, y)) {
-                    cell.set_char(ch).set_style(label_style);
-                }
+                buf.set_cell(cx + j as u16, y, ch, label_style);
             }
 
             // Steps
@@ -338,12 +312,10 @@ impl Pane for SequencerPane {
                     (Color::new(40, 40, 40), Color::BLACK)
                 };
 
-                let style = ratatui::style::Style::from(Style::new().fg(fg).bg(bg));
+                let style = Style::new().fg(fg).bg(bg);
                 let chars: Vec<char> = if step.active { " █ " } else { " · " }.chars().collect();
                 for (j, ch) in chars.iter().enumerate() {
-                    if let Some(cell) = buf.cell_mut((x + j as u16, y)) {
-                        cell.set_char(*ch).set_style(style);
-                    }
+                    buf.set_cell(x + j as u16, y, *ch, style);
                 }
             }
         }
@@ -351,21 +323,15 @@ impl Pane for SequencerPane {
         // Pad detail line
         let detail_y = grid_y + NUM_PADS as u16 + 1;
         let pad = &seq.pads[self.cursor_pad];
-        
+
         if let Some((anchor_pad, anchor_step)) = self.selection_anchor {
             let pads = (self.cursor_pad as i32 - anchor_pad as i32).abs() + 1;
             let steps = (self.cursor_step as i32 - anchor_step as i32).abs() + 1;
             let sel_str = format!("Sel: {} pads x {} steps", pads, steps);
-            Paragraph::new(Line::from(Span::styled(
-                sel_str,
-                ratatui::style::Style::from(Style::new().fg(Color::ORANGE).bold()),
-            ))).render(RatatuiRect::new(cx, detail_y, 30, 1), buf);
+            buf.draw_line(Rect::new(cx, detail_y, 30, 1), &[(&sel_str, Style::new().fg(Color::ORANGE).bold())]);
         } else {
             let pad_label = format!("Pad {:>2}", self.cursor_pad + 1);
-            Paragraph::new(Line::from(Span::styled(
-                pad_label,
-                ratatui::style::Style::from(Style::new().fg(Color::ORANGE).bold()),
-            ))).render(RatatuiRect::new(cx, detail_y, 8, 1), buf);
+            buf.draw_line(Rect::new(cx, detail_y, 8, 1), &[(&pad_label, Style::new().fg(Color::ORANGE).bold())]);
 
             let name_display = if pad.name.is_empty() {
                 "(no sample)"
@@ -374,18 +340,13 @@ impl Pane for SequencerPane {
             } else {
                 &pad.name
             };
-            Paragraph::new(Line::from(Span::styled(
-                name_display,
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
-            ))).render(RatatuiRect::new(cx + 8, detail_y, 22, 1), buf);
+            buf.draw_line(Rect::new(cx + 8, detail_y, 22, 1), &[(name_display, Style::new().fg(Color::WHITE))]);
         }
 
         // Level bar
         let level_x = cx + 32;
         for (j, ch) in "Level:".chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((level_x + j as u16, detail_y)) {
-                cell.set_char(ch).set_style(dark_gray);
-            }
+            buf.set_cell(level_x + j as u16, detail_y, ch, dark_gray);
         }
 
         let bar_x = level_x + 7;
@@ -393,13 +354,11 @@ impl Pane for SequencerPane {
         let filled = (pad.level * bar_width as f32) as usize;
         for i in 0..bar_width {
             let (ch, style) = if i < filled {
-                ('\u{2588}', ratatui::style::Style::from(Style::new().fg(Color::ORANGE)))
+                ('\u{2588}', Style::new().fg(Color::ORANGE))
             } else {
-                ('\u{2591}', ratatui::style::Style::from(Style::new().fg(Color::new(40, 40, 40))))
+                ('\u{2591}', Style::new().fg(Color::new(40, 40, 40)))
             };
-            if let Some(cell) = buf.cell_mut((bar_x + i as u16, detail_y)) {
-                cell.set_char(ch).set_style(style);
-            }
+            buf.set_cell(bar_x + i as u16, detail_y, ch, style);
         }
 
         // Reverse + Pitch indicators
@@ -409,9 +368,7 @@ impl Pane for SequencerPane {
         if pad.pitch != 0 { info_parts.push(format!("{:+}st", pad.pitch)); }
         let info_str = info_parts.join(" ");
         for (j, ch) in info_str.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((info_x + j as u16, detail_y)) {
-                cell.set_char(ch).set_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-            }
+            buf.set_cell(info_x + j as u16, detail_y, ch, Style::new().fg(Color::CYAN));
         }
         let info_offset = if info_str.is_empty() { 0 } else { info_str.len() as u16 + 1 };
 
@@ -423,9 +380,7 @@ impl Pane for SequencerPane {
             format!("Vel: {}", step.velocity)
         };
         for (j, ch) in vel_str.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((info_x + info_offset + j as u16, detail_y)) {
-                cell.set_char(ch).set_style(dark_gray);
-            }
+            buf.set_cell(info_x + info_offset + j as u16, detail_y, ch, dark_gray);
         }
 
         // Scroll indicator
@@ -433,21 +388,19 @@ impl Pane for SequencerPane {
             let scroll_str = format!("{}-{}/{}", view_start + 1, view_start + steps_shown, pattern.length);
             let scroll_x = rect.x + rect.width - 2 - scroll_str.len() as u16;
             for (j, ch) in scroll_str.chars().enumerate() {
-                if let Some(cell) = buf.cell_mut((scroll_x + j as u16, detail_y)) {
-                    cell.set_char(ch).set_style(dark_gray);
-                }
+                buf.set_cell(scroll_x + j as u16, detail_y, ch, dark_gray);
             }
         }
 
         // Help line
         let help_y = rect.y + rect.height - 2;
-        Paragraph::new(Line::from(Span::styled(
-            "Enter:toggle  Space:play  s:sample  c:chop  r:rev  -/=:pitch  C-Up/Dn:step pitch",
-            ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-        ))).render(RatatuiRect::new(cx, help_y, rect.width.saturating_sub(4), 1), buf);
+        buf.draw_line(
+            Rect::new(cx, help_y, rect.width.saturating_sub(4), 1),
+            &[("Enter:toggle  Space:play  s:sample  c:chop  r:rev  -/=:pitch  C-Up/Dn:step pitch", Style::new().fg(Color::DARK_GRAY))],
+        );
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, state: &AppState) -> Action {
         let box_width: u16 = 97;
         let rect = center_rect(area, box_width, 29);
         let cx = rect.x + 2;

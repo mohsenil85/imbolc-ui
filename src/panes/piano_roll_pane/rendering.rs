@@ -1,11 +1,10 @@
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Color, Style};
+use crate::ui::{Rect, Color, Style};
 
 use super::PianoRollPane;
 
@@ -33,7 +32,7 @@ impl PianoRollPane {
     pub(super) fn render_automation_overlay(
         &self,
         buf: &mut Buffer,
-        overlay_area: RatatuiRect,
+        overlay_area: Rect,
         grid_x: u16,
         grid_width: u16,
         state: &AppState,
@@ -145,7 +144,7 @@ impl PianoRollPane {
     }
 
     /// Render notes grid (buffer version)
-    pub(super) fn render_notes_buf(&self, buf: &mut Buffer, area: RatatuiRect, state: &AppState) {
+    pub(super) fn render_notes_buf(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
         let piano_roll = &state.session.piano_roll;
         let rect = center_rect(area, 97, 29);
 
@@ -198,7 +197,7 @@ impl PianoRollPane {
         Paragraph::new(Line::from(Span::styled(
             header_text,
             ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
-        ))).render(RatatuiRect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1), buf);
 
         // Loop range indicator
         if piano_roll.looping {
@@ -211,7 +210,7 @@ impl PianoRollPane {
             Paragraph::new(Line::from(Span::styled(
                 loop_info,
                 ratatui::style::Style::from(Style::new().fg(Color::YELLOW)),
-            ))).render(RatatuiRect::new(loop_x, header_y, rect.width.saturating_sub(loop_x - rect.x), 1), buf);
+            ))).render(Rect::new(loop_x, header_y, rect.width.saturating_sub(loop_x - rect.x), 1), buf);
         }
 
         // Rendering indicator
@@ -222,7 +221,7 @@ impl PianoRollPane {
                     let style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
                     let x = rect.x + rect.width - label.len() as u16 - 2;
                     Paragraph::new(Line::from(Span::styled(label, style)))
-                        .render(RatatuiRect::new(x, header_y, label.len() as u16, 1), buf);
+                        .render(Rect::new(x, header_y, label.len() as u16, 1), buf);
                 }
             }
         }
@@ -247,7 +246,7 @@ impl PianoRollPane {
             let style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::new(200, 120, 0)));
             let x = rect.x + rect.width - text.len() as u16 - 2;
             Paragraph::new(Line::from(Span::styled(&text, style)))
-                .render(RatatuiRect::new(x, header_y, text.len() as u16, 1), buf);
+                .render(Rect::new(x, header_y, text.len() as u16, 1), buf);
         }
 
         // Piano keys column + grid rows
@@ -399,7 +398,7 @@ impl PianoRollPane {
         Paragraph::new(Line::from(Span::styled(
             vel_str,
             ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-        ))).render(RatatuiRect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
+        ))).render(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
 
         // Piano mode indicator
         if self.piano.is_active() {
@@ -430,7 +429,7 @@ impl PianoRollPane {
             Paragraph::new(Line::from(Span::styled(
                 hint_str,
                 ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-            ))).render(RatatuiRect::new(hint_x, status_y, hint_str.len() as u16, 1), buf);
+            ))).render(Rect::new(hint_x, status_y, hint_str.len() as u16, 1), buf);
         }
     }
 }

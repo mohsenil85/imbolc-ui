@@ -1,13 +1,8 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, Style};
 
 pub struct HelpPane {
     keymap: Keymap,
@@ -83,24 +78,19 @@ impl Pane for HelpPane {
         }
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let rect = center_rect(area, 60, 20);
         let title = format!(" Help: {} ", self.title);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::SKY_BLUE)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::SKY_BLUE)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::SKY_BLUE);
+        let inner = buf.draw_block(rect, &title, border_style, border_style);
 
         let visible_lines = inner.height.saturating_sub(4) as usize;
         let max_scroll = self.display_keymap.len().saturating_sub(visible_lines);
         let scroll = self.scroll.min(max_scroll);
 
-        let key_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold());
-        let desc_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
+        let key_style = Style::new().fg(Color::CYAN).bold();
+        let desc_style = Style::new().fg(Color::WHITE);
 
         for (i, (key, desc)) in self.display_keymap.iter().skip(scroll).take(visible_lines).enumerate() {
             let y = inner.y + 1 + i as u16;
@@ -110,13 +100,13 @@ impl Pane for HelpPane {
 
             let max_desc_len = inner.width.saturating_sub(14) as usize;
             let desc_truncated: String = desc.chars().take(max_desc_len).collect();
+            let key_formatted = format!("{:<12}", key);
 
-            let line = Line::from(vec![
-                Span::styled(format!("{:<12}", key), key_style),
-                Span::styled(desc_truncated, desc_style),
+            let line_area = Rect::new(inner.x + 1, y, inner.width.saturating_sub(1), 1);
+            buf.draw_line(line_area, &[
+                (&key_formatted, key_style),
+                (&desc_truncated, desc_style),
             ]);
-            let line_area = RatatuiRect::new(inner.x + 1, y, inner.width.saturating_sub(1), 1);
-            Paragraph::new(line).render(line_area, buf);
         }
 
         // Scroll indicator
@@ -129,26 +119,22 @@ impl Pane for HelpPane {
                     (scroll + visible_lines).min(self.display_keymap.len()),
                     self.display_keymap.len()
                 );
-                let ind_area = RatatuiRect::new(inner.x + 1, indicator_y, inner.width.saturating_sub(1), 1);
-                Paragraph::new(Line::from(Span::styled(
-                    indicator,
-                    ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                ))).render(ind_area, buf);
+                let ind_area = Rect::new(inner.x + 1, indicator_y, inner.width.saturating_sub(1), 1);
+                buf.draw_line(ind_area, &[(&indicator, Style::new().fg(Color::DARK_GRAY))]);
             }
         }
 
         // Help text at bottom
         let help_y = rect.y + rect.height - 2;
         if help_y < area.y + area.height {
-            let help_area = RatatuiRect::new(inner.x + 1, help_y, inner.width.saturating_sub(1), 1);
-            Paragraph::new(Line::from(Span::styled(
-                "[ESC/F1] Close  [Up/Down] Scroll",
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-            ))).render(help_area, buf);
+            let help_area = Rect::new(inner.x + 1, help_y, inner.width.saturating_sub(1), 1);
+            buf.draw_line(help_area, &[
+                ("[ESC/F1] Close  [Up/Down] Scroll", Style::new().fg(Color::DARK_GRAY)),
+            ]);
         }
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, _area: RatatuiRect, _state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, _area: Rect, _state: &AppState) -> Action {
         match event.kind {
             MouseEventKind::ScrollUp => {
                 if self.scroll > 0 { self.scroll -= 1; }

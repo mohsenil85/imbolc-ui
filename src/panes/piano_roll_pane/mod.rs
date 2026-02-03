@@ -3,12 +3,10 @@ mod rendering;
 
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Action, InputEvent, Keymap, MouseEvent, Pane, PianoKeyboard, ToggleResult};
+use crate::ui::{Rect, RenderBuf, Action, InputEvent, Keymap, MouseEvent, Pane, PianoKeyboard, ToggleResult};
 
 pub struct PianoRollPane {
     keymap: Keymap,
@@ -186,11 +184,12 @@ impl Pane for PianoRollPane {
         self.handle_action_impl(action, event, state)
     }
 
-    fn handle_mouse(&mut self, event: &MouseEvent, area: RatatuiRect, state: &AppState) -> Action {
+    fn handle_mouse(&mut self, event: &MouseEvent, area: Rect, state: &AppState) -> Action {
         self.handle_mouse_impl(event, area, state)
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
+        let buf = buf.raw_buf();
         self.render_notes_buf(buf, area, state);
 
         // Automation overlay
@@ -206,7 +205,7 @@ impl Pane for PianoRollPane {
             // Overlay occupies the bottom 4 rows of the grid area
             let overlay_rows = 4u16.min(grid_height / 2);
             let overlay_y = rect.y + header_height + grid_height - overlay_rows;
-            let overlay_area = RatatuiRect::new(rect.x, overlay_y, rect.width, overlay_rows);
+            let overlay_area = Rect::new(rect.x, overlay_y, rect.width, overlay_rows);
 
             self.render_automation_overlay(buf, overlay_area, grid_x, grid_width, state);
         }

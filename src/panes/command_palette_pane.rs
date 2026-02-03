@@ -1,14 +1,9 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::widgets::TextInput;
-use crate::ui::{Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, Style};
+use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, KeyCode, Keymap, NavAction, Pane, Style};
 
 pub struct CommandPalettePane {
     keymap: Keymap,
@@ -202,32 +197,23 @@ impl Pane for CommandPalettePane {
         Action::None
     }
 
-    fn render(&mut self, area: RatatuiRect, buf: &mut Buffer, _state: &AppState) {
+    fn render(&mut self, area: Rect, buf: &mut RenderBuf, _state: &AppState) {
         let max_visible: usize = 10;
         let list_height = self.filtered.len().min(max_visible);
-        // 1 for prompt + 1 for divider + list rows + 2 for border
         let total_height = (3 + list_height).max(5) as u16;
         let width = 60u16.min(area.width.saturating_sub(4));
         let rect = center_rect(area, width, total_height);
 
         // Clear background
-        let bg_style = ratatui::style::Style::from(Style::new().bg(Color::new(20, 20, 30)));
+        let bg_style = Style::new().bg(Color::new(20, 20, 30));
         for y in rect.y..rect.y + rect.height {
             for x in rect.x..rect.x + rect.width {
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_style(bg_style);
-                    cell.set_symbol(" ");
-                }
+                buf.set_cell(x, y, ' ', bg_style);
             }
         }
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Command Palette ")
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::CYAN);
+        let inner = buf.draw_block(rect, " Command Palette ", border_style, border_style);
 
         if inner.height == 0 || inner.width == 0 {
             return;
@@ -235,20 +221,16 @@ impl Pane for CommandPalettePane {
 
         // Prompt line: render ": " prefix then TextInput
         let prompt_y = inner.y;
-        let prompt_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN).bold());
-        let prompt_area = RatatuiRect::new(inner.x, prompt_y, 2, 1);
-        Paragraph::new(Line::from(Span::styled(": ", prompt_style))).render(prompt_area, buf);
+        buf.draw_line(Rect::new(inner.x, prompt_y, 2, 1), &[(": ", Style::new().fg(Color::CYAN).bold())]);
 
         // TextInput renders after the ": " prefix
-        self.text_input.render_buf(buf, inner.x + 2, prompt_y, inner.width.saturating_sub(2));
+        self.text_input.render_buf(buf.raw_buf(), inner.x + 2, prompt_y, inner.width.saturating_sub(2));
 
         // Divider
         if inner.height > 1 {
             let div_y = inner.y + 1;
-            let div_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
             let divider = "\u{2500}".repeat(inner.width as usize);
-            let div_area = RatatuiRect::new(inner.x, div_y, inner.width, 1);
-            Paragraph::new(Line::from(Span::styled(divider, div_style))).render(div_area, buf);
+            buf.draw_line(Rect::new(inner.x, div_y, inner.width, 1), &[(&divider, Style::new().fg(Color::DARK_GRAY))]);
         }
 
         // Filtered list
@@ -257,10 +239,8 @@ impl Pane for CommandPalettePane {
 
         if self.filtered.is_empty() {
             if available_rows > 0 {
-                let no_match_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-                let no_match_area = RatatuiRect::new(inner.x + 1, list_start_y, inner.width.saturating_sub(2), 1);
-                Paragraph::new(Line::from(Span::styled("No matches", no_match_style)))
-                    .render(no_match_area, buf);
+                let no_match_area = Rect::new(inner.x + 1, list_start_y, inner.width.saturating_sub(2), 1);
+                buf.draw_line(no_match_area, &[("No matches", Style::new().fg(Color::DARK_GRAY))]);
             }
             return;
         }
@@ -279,33 +259,29 @@ impl Pane for CommandPalettePane {
             }
 
             let is_selected = filter_idx == self.selected;
-            let row_area = RatatuiRect::new(inner.x, y, inner.width, 1);
+            let row_area = Rect::new(inner.x, y, inner.width, 1);
 
             // Clear row with selection bg if selected
             if is_selected {
-                let sel_style = ratatui::style::Style::from(Style::new().bg(Color::SELECTION_BG));
                 for x in row_area.x..row_area.x + row_area.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_style(sel_style);
-                        cell.set_symbol(" ");
-                    }
+                    buf.set_cell(x, y, ' ', Style::new().bg(Color::SELECTION_BG));
                 }
             }
 
             let action_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold())
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE))
+                Style::new().fg(Color::WHITE)
             };
             let desc_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY).bg(Color::SELECTION_BG))
+                Style::new().fg(Color::GRAY).bg(Color::SELECTION_BG)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY))
+                Style::new().fg(Color::GRAY)
             };
             let key_style = if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG))
+                Style::new().fg(Color::DARK_GRAY).bg(Color::SELECTION_BG)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+                Style::new().fg(Color::DARK_GRAY)
             };
 
             // Layout: " action_name  description     keybinding "
@@ -322,13 +298,13 @@ impl Pane for CommandPalettePane {
             let desc_len = desc_display.len().min(desc_remaining);
             let pad_len = w.saturating_sub(action_len + desc_len + key_len);
 
-            let line = Line::from(vec![
-                Span::styled(&action_display[..action_len], action_style),
-                Span::styled(&desc_display[..desc_len], desc_style),
-                Span::styled(" ".repeat(pad_len), desc_style),
-                Span::styled(key_display, key_style),
+            let padding = " ".repeat(pad_len);
+            buf.draw_line(row_area, &[
+                (&action_display[..action_len], action_style),
+                (&desc_display[..desc_len], desc_style),
+                (&padding, desc_style),
+                (&key_display, key_style),
             ]);
-            Paragraph::new(line).render(row_area, buf);
         }
     }
 
