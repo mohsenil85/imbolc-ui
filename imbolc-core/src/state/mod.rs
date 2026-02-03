@@ -141,6 +141,10 @@ pub struct AppState {
     pub midi_port_names: Vec<String>,
     /// Currently connected MIDI port name
     pub midi_connected_port: Option<String>,
+    /// Audio-owned playhead position (updated from AudioReadState each frame)
+    pub audio_playhead: u32,
+    /// Audio-owned BPM (updated from AudioReadState each frame)
+    pub audio_bpm: f32,
 }
 
 impl AppState {
@@ -167,6 +171,8 @@ impl AppState {
             default_settings: MusicalSettings::default(),
             midi_port_names: Vec::new(),
             midi_connected_port: None,
+            audio_playhead: 0,
+            audio_bpm: 120.0,
         }
     }
 
@@ -192,6 +198,8 @@ impl AppState {
             default_settings: defaults,
             midi_port_names: Vec::new(),
             midi_connected_port: None,
+            audio_playhead: 0,
+            audio_bpm: 120.0,
         }
     }
 

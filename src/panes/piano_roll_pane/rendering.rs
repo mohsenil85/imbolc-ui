@@ -192,7 +192,7 @@ impl PianoRollPane {
             ts_den,
             play_icon,
             loop_icon,
-            piano_roll.tick_to_beat(piano_roll.playhead),
+            piano_roll.tick_to_beat(state.audio_playhead),
         );
         Paragraph::new(Line::from(Span::styled(
             header_text,
@@ -297,8 +297,8 @@ impl PianoRollPane {
 
                 let is_cursor = pitch == self.cursor_pitch && tick == self.cursor_tick;
                 let is_playhead = piano_roll.playing
-                    && tick <= piano_roll.playhead
-                    && piano_roll.playhead < tick + self.ticks_per_cell();
+                    && tick <= state.audio_playhead
+                    && state.audio_playhead < tick + self.ticks_per_cell();
 
                 let tpb = piano_roll.ticks_per_beat;
                 let tpbar = piano_roll.ticks_per_bar();

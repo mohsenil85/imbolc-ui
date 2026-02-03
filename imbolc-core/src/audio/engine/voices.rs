@@ -234,6 +234,11 @@ impl AudioEngine {
             .send_bundle(messages, time)
             .map_err(|e| e.to_string())?;
 
+        // Register voice nodes in the node registry
+        self.node_registry.register(group_id);
+        self.node_registry.register(midi_node_id);
+        self.node_registry.register(source_node_id);
+
         self.voice_allocator.add(VoiceChain {
             instrument_id,
             pitch,
@@ -448,6 +453,11 @@ impl AudioEngine {
             .send_bundle(messages, time)
             .map_err(|e| e.to_string())?;
 
+        // Register voice nodes in the node registry
+        self.node_registry.register(group_id);
+        self.node_registry.register(midi_node_id);
+        self.node_registry.register(sampler_node_id);
+
         self.voice_allocator.add(VoiceChain {
             instrument_id,
             pitch,
@@ -520,6 +530,9 @@ impl AudioEngine {
     pub fn release_all_voices(&mut self) {
         if let Some(ref client) = self.client {
             for chain in self.voice_allocator.drain_all() {
+                self.node_registry.unregister(chain.group_id);
+                self.node_registry.unregister(chain.midi_node_id);
+                self.node_registry.unregister(chain.source_node);
                 let _ = client.free_node(chain.group_id);
             }
         }
@@ -544,6 +557,9 @@ impl AudioEngine {
 
         let stolen = self.voice_allocator.steal_voices(instrument_id, pitch);
         for voice in &stolen {
+            self.node_registry.unregister(voice.group_id);
+            self.node_registry.unregister(voice.midi_node_id);
+            self.node_registry.unregister(voice.source_node);
             Self::anti_click_free(client.as_ref(), voice)?;
         }
 

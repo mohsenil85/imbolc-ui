@@ -157,16 +157,22 @@ impl AudioEngine {
         if let Some(ref mut child) = self.scsynth_process {
             match child.try_wait() {
                 Ok(Some(status)) => {
+                    let live_before = self.node_registry.live_count();
+                    self.node_registry.invalidate_all();
                     self.scsynth_process = None;
                     self.is_running = false;
                     self.client = None;
                     self.server_status = ServerStatus::Error;
                     self.groups_created = false;
-                    Some(format!("scsynth exited ({})", status))
+                    Some(format!(
+                        "scsynth exited ({}) \u{2014} {} tracked nodes invalidated",
+                        status, live_before
+                    ))
                 }
                 _ => None,
             }
         } else if self.is_running {
+            self.node_registry.invalidate_all();
             // is_running but no process — stale state
             self.is_running = false;
             self.server_status = ServerStatus::Error;
@@ -363,6 +369,7 @@ impl AudioEngine {
 
     pub(super) fn restart_meter(&mut self) {
         if let Some(node_id) = self.meter_node_id.take() {
+            self.node_registry.unregister(node_id);
             if let Some(ref client) = self.client {
                 let _ = client.free_node(node_id);
             }
@@ -370,6 +377,7 @@ impl AudioEngine {
         // Free existing analysis synths
         if let Some(ref client) = self.client {
             for &node_id in &self.analysis_node_ids {
+                self.node_registry.unregister(node_id);
                 let _ = client.free_node(node_id);
             }
         }
@@ -386,6 +394,7 @@ impl AudioEngine {
                 rosc::OscType::Int(GROUP_OUTPUT),
             ];
             if client.send_message("/s_new", args).is_ok() {
+                self.node_registry.register(node_id);
                 self.meter_node_id = Some(node_id);
             }
 
@@ -400,6 +409,7 @@ impl AudioEngine {
                     rosc::OscType::Int(GROUP_OUTPUT),
                 ];
                 if client.send_message("/s_new", args).is_ok() {
+                    self.node_registry.register(node_id);
                     self.analysis_node_ids.push(node_id);
                 }
             }
@@ -434,6 +444,7 @@ impl AudioEngine {
         self.analysis_node_ids.clear();
         self.buffer_map.clear();
         self.bus_allocator.reset();
+        self.node_registry.invalidate_all();
         self.groups_created = false;
         self.wavetables_initialized = false;
         self.client = None;

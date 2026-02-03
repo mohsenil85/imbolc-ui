@@ -15,7 +15,32 @@ use super::ServerStatus;
 use crate::action::AudioDirty;
 use crate::state::arrangement::PlayMode;
 use crate::state::automation::AutomationTarget;
-use crate::state::{AppState, BufferId, InstrumentId, InstrumentState, SessionState};
+use crate::state::{AppState, BufferId, EffectId, InstrumentId, InstrumentState, SessionState};
+
+/// Audio-owned read state: values that the audio thread is the authority on.
+/// UI reads these for display; audio feedback updates them.
+#[derive(Debug, Clone)]
+pub struct AudioReadState {
+    pub playhead: u32,
+    pub bpm: f32,
+    pub is_recording: bool,
+    pub recording_elapsed: Option<Duration>,
+    pub server_status: ServerStatus,
+    pub server_running: bool,
+}
+
+impl Default for AudioReadState {
+    fn default() -> Self {
+        Self {
+            playhead: 0,
+            bpm: 120.0,
+            is_recording: false,
+            recording_elapsed: None,
+            server_status: ServerStatus::Stopped,
+            server_running: false,
+        }
+    }
+}
 
 /// Main-thread handle to the audio subsystem.
 ///
@@ -24,13 +49,8 @@ pub struct AudioHandle {
     cmd_tx: Sender<AudioCmd>,
     feedback_rx: Receiver<AudioFeedback>,
     monitor: AudioMonitor,
-    status: ServerStatus,
-    server_running: bool,
+    audio_state: AudioReadState,
     is_running: bool,
-    is_recording: bool,
-    recording_elapsed: Option<Duration>,
-    playhead: u32,
-    bpm: f32,
     join_handle: Option<JoinHandle<()>>,
 }
 
@@ -50,13 +70,8 @@ impl AudioHandle {
             cmd_tx,
             feedback_rx,
             monitor,
-            status: ServerStatus::Stopped,
-            server_running: false,
+            audio_state: AudioReadState::default(),
             is_running: false,
-            is_recording: false,
-            recording_elapsed: None,
-            playhead: 0,
-            bpm: 120.0,
             join_handle: Some(join_handle),
         }
     }
@@ -79,20 +94,20 @@ impl AudioHandle {
     fn apply_feedback(&mut self, feedback: &AudioFeedback) {
         match feedback {
             AudioFeedback::PlayheadPosition(pos) => {
-                self.playhead = *pos;
+                self.audio_state.playhead = *pos;
             }
             AudioFeedback::BpmUpdate(bpm) => {
-                self.bpm = *bpm;
+                self.audio_state.bpm = *bpm;
             }
             AudioFeedback::DrumSequencerStep { .. } => {}
             AudioFeedback::ServerStatus { status, server_running, .. } => {
-                self.status = *status;
-                self.server_running = *server_running;
+                self.audio_state.server_status = *status;
+                self.audio_state.server_running = *server_running;
                 self.is_running = matches!(status, ServerStatus::Connected);
             }
             AudioFeedback::RecordingState { is_recording, elapsed_secs } => {
-                self.is_recording = *is_recording;
-                self.recording_elapsed = if *is_recording {
+                self.audio_state.is_recording = *is_recording;
+                self.audio_state.recording_elapsed = if *is_recording {
                     Some(Duration::from_secs(*elapsed_secs))
                 } else {
                     None
@@ -106,6 +121,9 @@ impl AudioHandle {
             AudioFeedback::VstStateSaved { .. } => {}
             AudioFeedback::ExportComplete { .. } => {}
             AudioFeedback::ExportProgress { .. } => {}
+            AudioFeedback::ServerCrashed { .. } => {
+                self.is_running = false;
+            }
         }
     }
 
@@ -164,6 +182,24 @@ impl AudioHandle {
                 self.send_mixer_params_incremental(state);
             }
         }
+
+        // ── Targeted param updates (bypass full state clone + rebuild) ──
+        if let Some((instrument_id, param_kind, value)) = dirty.filter_param {
+            let _ = self.set_filter_param(instrument_id, param_kind.as_str(), value);
+        }
+        if let Some((instrument_id, effect_id, param_idx, value)) = dirty.effect_param {
+            // Resolve param name from instrument state
+            if let Some(inst) = state.instruments.instrument(instrument_id) {
+                if let Some(effect) = inst.effect_by_id(effect_id) {
+                    if let Some(param) = effect.params.get(param_idx) {
+                        let _ = self.set_effect_param(instrument_id, effect_id, &param.name, value);
+                    }
+                }
+            }
+        }
+        if let Some((instrument_id, param_kind, value)) = dirty.lfo_param {
+            let _ = self.set_lfo_param(instrument_id, param_kind.as_str(), value);
+        }
     }
 
     fn send_mixer_params_incremental(&self, state: &AppState) {
@@ -221,12 +257,16 @@ impl AudioHandle {
         self.is_running
     }
 
+    pub fn read_state(&self) -> &AudioReadState {
+        &self.audio_state
+    }
+
     pub fn status(&self) -> ServerStatus {
-        self.status
+        self.audio_state.server_status
     }
 
     pub fn server_running(&self) -> bool {
-        self.server_running
+        self.audio_state.server_running
     }
 
     pub fn master_peak(&self) -> f32 {
@@ -251,11 +291,11 @@ impl AudioHandle {
     }
 
     pub fn is_recording(&self) -> bool {
-        self.is_recording
+        self.audio_state.is_recording
     }
 
     pub fn recording_elapsed(&self) -> Option<Duration> {
-        self.recording_elapsed
+        self.audio_state.recording_elapsed
     }
 
     // ── Server lifecycle ──────────────────────────────────────────
@@ -313,10 +353,10 @@ impl AudioHandle {
         match reply_rx.recv() {
             Ok(result) => {
                 if result.is_ok() {
-                    self.status = ServerStatus::Connected;
+                    self.audio_state.server_status = ServerStatus::Connected;
                     self.is_running = true;
                 } else {
-                    self.status = ServerStatus::Error;
+                    self.audio_state.server_status = ServerStatus::Error;
                     self.is_running = false;
                 }
                 result
@@ -328,7 +368,7 @@ impl AudioHandle {
     pub fn disconnect(&mut self) {
         let _ = self.send_cmd(AudioCmd::Disconnect);
         self.is_running = false;
-        self.status = if self.server_running {
+        self.audio_state.server_status = if self.audio_state.server_running {
             ServerStatus::Running
         } else {
             ServerStatus::Stopped
@@ -349,10 +389,10 @@ impl AudioHandle {
         match reply_rx.recv() {
             Ok(result) => {
                 if result.is_ok() {
-                    self.status = ServerStatus::Running;
-                    self.server_running = true;
+                    self.audio_state.server_status = ServerStatus::Running;
+                    self.audio_state.server_running = true;
                 } else {
-                    self.status = ServerStatus::Error;
+                    self.audio_state.server_status = ServerStatus::Error;
                 }
                 result
             }
@@ -362,8 +402,8 @@ impl AudioHandle {
 
     pub fn stop_server(&mut self) {
         let _ = self.send_cmd(AudioCmd::StopServer);
-        self.status = ServerStatus::Stopped;
-        self.server_running = false;
+        self.audio_state.server_status = ServerStatus::Stopped;
+        self.audio_state.server_running = false;
         self.is_running = false;
     }
 
@@ -477,6 +517,47 @@ impl AudioHandle {
         })
     }
 
+    pub fn set_filter_param(
+        &self,
+        instrument_id: InstrumentId,
+        param: &str,
+        value: f32,
+    ) -> Result<(), String> {
+        self.send_cmd(AudioCmd::SetFilterParam {
+            instrument_id,
+            param: param.to_string(),
+            value,
+        })
+    }
+
+    pub fn set_effect_param(
+        &self,
+        instrument_id: InstrumentId,
+        effect_id: EffectId,
+        param: &str,
+        value: f32,
+    ) -> Result<(), String> {
+        self.send_cmd(AudioCmd::SetEffectParam {
+            instrument_id,
+            effect_id,
+            param: param.to_string(),
+            value,
+        })
+    }
+
+    pub fn set_lfo_param(
+        &self,
+        instrument_id: InstrumentId,
+        param: &str,
+        value: f32,
+    ) -> Result<(), String> {
+        self.send_cmd(AudioCmd::SetLfoParam {
+            instrument_id,
+            param: param.to_string(),
+            value,
+        })
+    }
+
     // ── Voice management ──────────────────────────────────────────
 
     pub fn spawn_voice(
@@ -557,8 +638,8 @@ impl AudioHandle {
         match reply_rx.recv() {
             Ok(result) => {
                 if result.is_ok() {
-                    self.is_recording = true;
-                    self.recording_elapsed = Some(Duration::from_secs(0));
+                    self.audio_state.is_recording = true;
+                    self.audio_state.recording_elapsed = Some(Duration::from_secs(0));
                 }
                 result
             }
@@ -576,8 +657,8 @@ impl AudioHandle {
         match reply_rx.recv() {
             Ok(result) => {
                 if result.is_ok() {
-                    self.is_recording = true;
-                    self.recording_elapsed = Some(Duration::from_secs(0));
+                    self.audio_state.is_recording = true;
+                    self.audio_state.recording_elapsed = Some(Duration::from_secs(0));
                 }
                 result
             }
@@ -595,8 +676,8 @@ impl AudioHandle {
         }
         match reply_rx.recv() {
             Ok(result) => {
-                self.is_recording = false;
-                self.recording_elapsed = None;
+                self.audio_state.is_recording = false;
+                self.audio_state.recording_elapsed = None;
                 result
             }
             Err(_) => None,

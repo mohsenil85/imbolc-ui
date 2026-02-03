@@ -25,7 +25,7 @@ pub(super) fn dispatch_piano_roll(
             pr.playing = !pr.playing;
             audio.set_playing(pr.playing);
             if !pr.playing {
-                pr.playhead = 0;
+                state.audio_playhead = 0;
                 audio.reset_playhead();
                 if audio.is_running() {
                     audio.release_all_voices();
@@ -48,7 +48,7 @@ pub(super) fn dispatch_piano_roll(
                 // Stop playing + recording
                 let pr = &mut state.session.piano_roll;
                 pr.playing = false;
-                pr.playhead = 0;
+                state.audio_playhead = 0;
                 audio.set_playing(false);
                 audio.reset_playhead();
                 if audio.is_running() {
@@ -132,7 +132,7 @@ pub(super) fn dispatch_piano_roll(
                     Some(shape) => shape.expand(pitch),
                     None => vec![pitch],
                 };
-                let playhead = state.session.piano_roll.playhead;
+                let playhead = state.audio_playhead;
                 let duration = 480; // One beat for live recording
                 for &p in &record_pitches {
                     state.session.piano_roll.toggle_note(track, p, playhead, duration, velocity);
@@ -180,7 +180,7 @@ pub(super) fn dispatch_piano_roll(
                         None => vec![pitch],
                     }
                 }).collect();
-                let playhead = state.session.piano_roll.playhead;
+                let playhead = state.audio_playhead;
                 let duration = 480; // One beat for live recording
                 for &p in &all_pitches {
                     state.session.piano_roll.toggle_note(track, p, playhead, duration, velocity);
@@ -387,7 +387,7 @@ pub(super) fn dispatch_piano_roll(
                     pr.looping = export.was_looping;
                 }
                 pr.playing = false;
-                pr.playhead = 0;
+                state.audio_playhead = 0;
                 state.export_progress = 0.0;
                 audio.reset_playhead();
                 let mut result = DispatchResult::with_status(

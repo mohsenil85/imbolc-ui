@@ -251,6 +251,15 @@ impl AudioThread {
             AudioCmd::SetEqParam { instrument_id, param, value } => {
                 let _ = self.engine.set_eq_param(instrument_id, &param, value);
             }
+            AudioCmd::SetFilterParam { instrument_id, param, value } => {
+                let _ = self.engine.set_filter_param(instrument_id, &param, value);
+            }
+            AudioCmd::SetEffectParam { instrument_id, effect_id, param, value } => {
+                let _ = self.engine.set_effect_param(instrument_id, effect_id, &param, value);
+            }
+            AudioCmd::SetLfoParam { instrument_id, param, value } => {
+                let _ = self.engine.set_lfo_param(instrument_id, &param, value);
+            }
             AudioCmd::SpawnVoice { instrument_id, pitch, velocity, offset_secs } => {
                 let _ = self.engine.spawn_voice(instrument_id, pitch, velocity, offset_secs, &self.instruments, &self.session);
             }
@@ -615,6 +624,11 @@ impl AudioThread {
         }
 
         if let Some(msg) = self.engine.check_server_health() {
+            if self.engine.status() == ServerStatus::Error {
+                let _ = self.feedback_tx.send(AudioFeedback::ServerCrashed {
+                    message: msg.clone(),
+                });
+            }
             let _ = self.feedback_tx.send(AudioFeedback::ServerStatus {
                 status: self.engine.status(),
                 message: msg,

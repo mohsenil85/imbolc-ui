@@ -422,7 +422,7 @@ impl WaveformPane {
         let play_icon = if piano_roll.playing { "||" } else { "> " };
         let header_text = format!(
             " BPM:{:.0}  {}  {}",
-            piano_roll.bpm, play_icon, mode_name,
+            state.audio_bpm, play_icon, mode_name,
         );
         Paragraph::new(Line::from(Span::styled(
             header_text,

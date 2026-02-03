@@ -52,6 +52,7 @@ impl AudioEngine {
         self.bus_audio_buses.clear();
         self.instrument_final_buses.clear();
         self.bus_allocator.reset();
+        self.node_registry.invalidate_all();
 
         // Allocate audio buses for each mixer bus first (needed by BusIn instruments)
         for bus in &session.buses {
@@ -424,7 +425,7 @@ impl AudioEngine {
 
             self.instrument_final_buses.insert(instrument.id, current_bus);
 
-            self.node_map.insert(instrument.id, InstrumentNodes {
+            let inst_nodes = InstrumentNodes {
                 source: source_node,
                 lfo: lfo_node,
                 filter: filter_node,
@@ -432,7 +433,11 @@ impl AudioEngine {
                 effects: effect_nodes,
                 effect_order,
                 output: output_node_id,
-            });
+            };
+            for nid in inst_nodes.all_node_ids() {
+                self.node_registry.register(nid);
+            }
+            self.node_map.insert(instrument.id, inst_nodes);
         }
 
         // Sync voice allocator bus watermarks from bus allocator
@@ -472,6 +477,7 @@ impl AudioEngine {
                             .create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)
                             .map_err(|e| e.to_string())?;
                     }
+                    self.node_registry.register(node_id);
                     self.send_node_map.insert((instrument.id, send.bus_id), node_id);
                 }
             }
@@ -494,6 +500,7 @@ impl AudioEngine {
                         .create_synth_in_group("imbolc_bus_out", node_id, GROUP_OUTPUT, &params)
                         .map_err(|e| e.to_string())?;
                 }
+                self.node_registry.register(node_id);
                 self.bus_node_map.insert(bus.id, node_id);
             }
         }
@@ -563,6 +570,7 @@ impl AudioEngine {
         // 1. Free existing nodes for this instrument
         if let Some(nodes) = self.node_map.remove(&instrument_id) {
             for node_id in nodes.all_node_ids() {
+                self.node_registry.unregister(node_id);
                 let _ = client.free_node(node_id);
             }
         }
@@ -574,6 +582,7 @@ impl AudioEngine {
             .collect();
         for key in send_keys {
             if let Some(node_id) = self.send_node_map.remove(&key) {
+                self.node_registry.unregister(node_id);
                 let _ = client.free_node(node_id);
             }
         }
@@ -581,6 +590,9 @@ impl AudioEngine {
         // Free active voices for this instrument
         let drained = self.voice_allocator.drain_instrument(instrument_id);
         for voice in &drained {
+            self.node_registry.unregister(voice.group_id);
+            self.node_registry.unregister(voice.midi_node_id);
+            self.node_registry.unregister(voice.source_node);
             let _ = client.free_node(voice.group_id);
         }
 
@@ -859,7 +871,7 @@ impl AudioEngine {
         };
 
         self.instrument_final_buses.insert(instrument.id, current_bus);
-        self.node_map.insert(instrument.id, InstrumentNodes {
+        let inst_nodes = InstrumentNodes {
             source: source_node,
             lfo: lfo_node,
             filter: filter_node,
@@ -867,7 +879,11 @@ impl AudioEngine {
             effects: effect_nodes,
             effect_order,
             output: output_node_id,
-        });
+        };
+        for nid in inst_nodes.all_node_ids() {
+            self.node_registry.register(nid);
+        }
+        self.node_map.insert(instrument.id, inst_nodes);
 
         // Sync voice allocator bus watermarks
         self.voice_allocator.sync_bus_watermarks(self.bus_allocator.next_audio_bus, self.bus_allocator.next_control_bus);
@@ -895,6 +911,7 @@ impl AudioEngine {
                 }
                 client.create_synth_in_group("imbolc_send", node_id, GROUP_OUTPUT, &params)
                     .map_err(|e| e.to_string())?;
+                self.node_registry.register(node_id);
                 self.send_node_map.insert((instrument.id, send.bus_id), node_id);
             }
         }
@@ -1003,6 +1020,48 @@ impl AudioEngine {
         if let Some(nodes) = self.node_map.get(&instrument_id) {
             if let Some(eq_node) = nodes.eq {
                 let _ = client.set_param(eq_node, param, value);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Set a filter parameter on an instrument in real-time (targeted /n_set, no rebuild).
+    pub fn set_filter_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
+        if !self.is_running { return Ok(()); }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(filter_node) = nodes.filter {
+                let _ = client.set_param(filter_node, param, value);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Set an effect parameter on an instrument in real-time (targeted /n_set, no rebuild).
+    pub fn set_effect_param(&self, instrument_id: InstrumentId, effect_id: EffectId, param: &str, value: f32) -> Result<(), String> {
+        if !self.is_running { return Ok(()); }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(&effect_node) = nodes.effects.get(&effect_id) {
+                let _ = client.set_param(effect_node, param, value);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Set an LFO parameter on an instrument in real-time (targeted /n_set, no rebuild).
+    pub fn set_lfo_param(&self, instrument_id: InstrumentId, param: &str, value: f32) -> Result<(), String> {
+        if !self.is_running { return Ok(()); }
+        let client = self.client.as_ref().ok_or("Not connected")?;
+
+        if let Some(nodes) = self.node_map.get(&instrument_id) {
+            if let Some(lfo_node) = nodes.lfo {
+                let _ = client.set_param(lfo_node, param, value);
             }
         }
 

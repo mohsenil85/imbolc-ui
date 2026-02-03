@@ -93,7 +93,7 @@ pub(super) fn dispatch_automation(
         AutomationAction::RecordValue(target, value) => {
             // Find or create lane for this target
             let lane_id = state.session.automation.add_lane(target.clone());
-            let playhead = state.session.piano_roll.playhead;
+            let playhead = state.audio_playhead;
             if let Some(lane) = state.session.automation.lane_mut(lane_id) {
                 lane.add_point(playhead, *value);
                 result.audio_dirty.automation = true;
@@ -144,7 +144,7 @@ pub(super) fn dispatch_automation(
 /// Record an automation point with thinning.
 /// Respects per-lane arm state: auto-arms newly created lanes, skips unarmed lanes.
 pub(crate) fn record_automation_point(state: &mut AppState, target: AutomationTarget, value: f32) {
-    let playhead = state.session.piano_roll.playhead;
+    let playhead = state.audio_playhead;
 
     // Check if lane already exists before adding
     let is_new = state.session.automation.lane_for_target(&target).is_none();

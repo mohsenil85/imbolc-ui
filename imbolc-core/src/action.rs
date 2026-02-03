@@ -423,7 +423,39 @@ impl Default for DispatchResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Identifies a filter parameter for targeted /n_set updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterParamKind {
+    Cutoff,
+    Resonance,
+}
+
+impl FilterParamKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FilterParamKind::Cutoff => "cutoff",
+            FilterParamKind::Resonance => "resonance",
+        }
+    }
+}
+
+/// Identifies an LFO parameter for targeted /n_set updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LfoParamKind {
+    Rate,
+    Depth,
+}
+
+impl LfoParamKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LfoParamKind::Rate => "rate",
+            LfoParamKind::Depth => "depth",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct AudioDirty {
     pub instruments: bool,
     pub session: bool,
@@ -434,6 +466,16 @@ pub struct AudioDirty {
     /// If `routing` is also true, this is ignored and a full rebuild is performed.
     pub routing_instrument: Option<InstrumentId>,
     pub mixer_params: bool,
+    /// Targeted filter param update: (instrument_id, param_kind, value).
+    /// Sends /n_set directly to the filter node without routing rebuild.
+    pub filter_param: Option<(InstrumentId, FilterParamKind, f32)>,
+    /// Targeted effect param update: (instrument_id, effect_id, param_index, value).
+    /// Sends /n_set directly to the effect node without routing rebuild.
+    /// The param name is resolved from the instrument state at send time.
+    pub effect_param: Option<(InstrumentId, EffectId, usize, f32)>,
+    /// Targeted LFO param update: (instrument_id, param_kind, value).
+    /// Sends /n_set directly to the LFO node without routing rebuild.
+    pub lfo_param: Option<(InstrumentId, LfoParamKind, f32)>,
 }
 
 impl AudioDirty {
@@ -446,6 +488,9 @@ impl AudioDirty {
             routing: true,
             routing_instrument: None,
             mixer_params: true,
+            filter_param: None,
+            effect_param: None,
+            lfo_param: None,
         }
     }
 
@@ -457,6 +502,9 @@ impl AudioDirty {
             || self.routing
             || self.routing_instrument.is_some()
             || self.mixer_params
+            || self.filter_param.is_some()
+            || self.effect_param.is_some()
+            || self.lfo_param.is_some()
     }
 
     pub fn merge(&mut self, other: AudioDirty) {
@@ -479,6 +527,16 @@ impl AudioDirty {
             _ => {} // keep existing
         }
         self.mixer_params |= other.mixer_params;
+        // Targeted param updates: last one wins (these are real-time tweaks)
+        if other.filter_param.is_some() {
+            self.filter_param = other.filter_param;
+        }
+        if other.effect_param.is_some() {
+            self.effect_param = other.effect_param;
+        }
+        if other.lfo_param.is_some() {
+            self.lfo_param = other.lfo_param;
+        }
     }
 
     pub fn clear(&mut self) {

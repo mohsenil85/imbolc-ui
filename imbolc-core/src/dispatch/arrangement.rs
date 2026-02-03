@@ -182,7 +182,7 @@ pub(super) fn dispatch_arrangement(
                 pr.loop_start = 0;
                 pr.loop_end = clip.length_ticks;
                 pr.looping = true;
-                pr.playhead = 0;
+                state.audio_playhead = 0;
 
                 (stashed_notes, stashed_loop_start, stashed_loop_end, stashed_looping)
             };
@@ -240,7 +240,7 @@ pub(super) fn dispatch_arrangement(
             pr.playing = !pr.playing;
             audio.set_playing(pr.playing);
             if !pr.playing {
-                pr.playhead = 0;
+                state.audio_playhead = 0;
                 audio.reset_playhead();
                 if audio.is_running() {
                     audio.release_all_voices();

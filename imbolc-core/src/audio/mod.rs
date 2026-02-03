@@ -11,5 +11,5 @@ pub mod arpeggiator_tick;
 pub mod snapshot;
 
 pub use engine::{AudioEngine, ServerStatus};
-pub use handle::AudioHandle;
+pub use handle::{AudioHandle, AudioReadState};
 pub use osc_client::AudioMonitor;

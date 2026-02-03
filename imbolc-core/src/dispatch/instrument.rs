@@ -1,7 +1,7 @@
 use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::state::automation::AutomationTarget;
-use crate::action::{DispatchResult, InstrumentAction, NavIntent, VstTarget};
+use crate::action::{DispatchResult, FilterParamKind, InstrumentAction, NavIntent, VstTarget};
 
 use super::automation::record_automation_point;
 
@@ -272,10 +272,12 @@ pub(super) fn dispatch_instrument(
         }
         InstrumentAction::AdjustFilterCutoff(id, delta) => {
             let mut record_target: Option<(AutomationTarget, f32)> = None;
+            let mut new_cutoff: Option<f32> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
                 if let Some(ref mut filter) = instrument.filter {
                     filter.cutoff.value = (filter.cutoff.value + delta * filter.cutoff.max * 0.02)
                         .clamp(filter.cutoff.min, filter.cutoff.max);
+                    new_cutoff = Some(filter.cutoff.value);
                     if state.automation_recording && state.session.piano_roll.playing {
                         let target = AutomationTarget::FilterCutoff(instrument.id);
                         record_target = Some((target.clone(), target.normalize_value(filter.cutoff.value)));
@@ -284,6 +286,10 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            // Targeted param update: send /n_set directly to filter node
+            if let Some(cutoff) = new_cutoff {
+                result.audio_dirty.filter_param = Some((*id, FilterParamKind::Cutoff, cutoff));
+            }
             if let Some((target, value)) = record_target {
                 record_automation_point(state, target, value);
                 result.audio_dirty.automation = true;
@@ -292,10 +298,12 @@ pub(super) fn dispatch_instrument(
         }
         InstrumentAction::AdjustFilterResonance(id, delta) => {
             let mut record_target: Option<(AutomationTarget, f32)> = None;
+            let mut new_resonance: Option<f32> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
                 if let Some(ref mut filter) = instrument.filter {
                     filter.resonance.value = (filter.resonance.value + delta * 0.05)
                         .clamp(filter.resonance.min, filter.resonance.max);
+                    new_resonance = Some(filter.resonance.value);
                     if state.automation_recording && state.session.piano_roll.playing {
                         let target = AutomationTarget::FilterResonance(instrument.id);
                         record_target = Some((target.clone(), target.normalize_value(filter.resonance.value)));
@@ -304,6 +312,10 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            // Targeted param update: send /n_set directly to filter node
+            if let Some(resonance) = new_resonance {
+                result.audio_dirty.filter_param = Some((*id, FilterParamKind::Resonance, resonance));
+            }
             if let Some((target, value)) = record_target {
                 record_automation_point(state, target, value);
                 result.audio_dirty.automation = true;
@@ -312,6 +324,7 @@ pub(super) fn dispatch_instrument(
         }
         InstrumentAction::AdjustEffectParam(id, effect_id, param_idx, delta) => {
             let mut record_target: Option<(AutomationTarget, f32)> = None;
+            let mut targeted_value: Option<f32> = None;
             if let Some(instrument) = state.instruments.instrument_mut(*id) {
                 let inst_id = instrument.id;
                 if let Some(effect) = instrument.effect_by_id_mut(*effect_id) {
@@ -320,6 +333,8 @@ pub(super) fn dispatch_instrument(
                         match &mut param.value {
                             crate::state::ParamValue::Float(v) => {
                                 *v = (*v + delta * range * 0.02).clamp(param.min, param.max);
+                                // Targeted param update for float params
+                                targeted_value = Some(*v);
                                 if state.automation_recording && state.session.piano_roll.playing {
                                     let target = AutomationTarget::EffectParam(inst_id, *effect_id, *param_idx);
                                     record_target = Some((target.clone(), target.normalize_value(*v)));
@@ -337,6 +352,10 @@ pub(super) fn dispatch_instrument(
             }
             let mut result = DispatchResult::none();
             result.audio_dirty.instruments = true;
+            // Targeted param update: send /n_set directly to effect node
+            if let Some(value) = targeted_value {
+                result.audio_dirty.effect_param = Some((*id, *effect_id, *param_idx, value));
+            }
             if let Some((target, value)) = record_target {
                 record_automation_point(state, target, value);
                 result.audio_dirty.automation = true;

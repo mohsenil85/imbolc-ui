@@ -10,7 +10,7 @@ use crate::action::VstTarget;
 use crate::audio::snapshot::{AutomationSnapshot, InstrumentSnapshot, PianoRollSnapshot, SessionSnapshot};
 use crate::state::automation::AutomationTarget;
 use crate::state::vst_plugin::VstPluginId;
-use crate::state::{BufferId, InstrumentId};
+use crate::state::{BufferId, EffectId, InstrumentId};
 
 /// Commands sent from the main thread to the audio engine.
 ///
@@ -89,6 +89,25 @@ pub enum AudioCmd {
         value: f32,
     },
     SetEqParam {
+        instrument_id: InstrumentId,
+        param: String,
+        value: f32,
+    },
+    /// Targeted /n_set to filter node (no routing rebuild).
+    SetFilterParam {
+        instrument_id: InstrumentId,
+        param: String,
+        value: f32,
+    },
+    /// Targeted /n_set to effect node (no routing rebuild).
+    SetEffectParam {
+        instrument_id: InstrumentId,
+        effect_id: EffectId,
+        param: String,
+        value: f32,
+    },
+    /// Targeted /n_set to LFO node (no routing rebuild).
+    SetLfoParam {
         instrument_id: InstrumentId,
         param: String,
         value: f32,
@@ -241,6 +260,11 @@ pub enum AudioFeedback {
     },
     ExportProgress {
         progress: f32,
+    },
+    /// The scsynth server process crashed or became unreachable.
+    /// All tracked nodes have been invalidated.
+    ServerCrashed {
+        message: String,
     },
 }
 

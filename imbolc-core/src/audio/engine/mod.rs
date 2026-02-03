@@ -1,4 +1,6 @@
 mod automation;
+pub mod backend;
+pub(crate) mod node_registry;
 mod recording;
 mod routing;
 mod samples;
@@ -15,6 +17,7 @@ use std::time::Instant;
 use super::bus_allocator::BusAllocator;
 use super::osc_client::OscClientLike;
 use crate::state::{BufferId, EffectId, InstrumentId};
+use node_registry::NodeRegistry;
 use voice_allocator::VoiceAllocator;
 
 use recording::{ExportRecordingState, RecordingState};
@@ -128,6 +131,8 @@ pub struct AudioEngine {
     export_state: Option<ExportRecordingState>,
     /// Buffers pending free after export stop
     pending_export_buffer_frees: Vec<(i32, Instant)>,
+    /// Best-effort registry of which SC nodes are believed to be alive
+    pub(crate) node_registry: NodeRegistry,
 }
 
 impl AudioEngine {
@@ -157,6 +162,7 @@ impl AudioEngine {
             pending_buffer_free: None,
             export_state: None,
             pending_export_buffer_frees: Vec::new(),
+            node_registry: NodeRegistry::new(),
         }
     }
 
@@ -540,5 +546,193 @@ mod tests {
         assert!(engine.voice_allocator.chains().iter().any(|v| v.pitch == 72));
         assert!(engine.voice_allocator.chains().iter().any(|v| v.pitch == 48));
         assert!(!engine.voice_allocator.chains().iter().any(|v| v.pitch == 60));
+    }
+
+    mod backend_routing_tests {
+        use super::*;
+        use crate::audio::engine::backend::{TestBackend, TestOp, TestOscAdapter};
+        use std::sync::Arc;
+
+        fn engine_with_test_backend() -> (AudioEngine, Arc<TestBackend>) {
+            let backend = Arc::new(TestBackend::new());
+            let adapter = TestOscAdapter::new(Arc::clone(&backend));
+            let mut engine = AudioEngine::new();
+            engine.client = Some(Box::new(adapter));
+            engine.is_running = true;
+            engine.server_status = ServerStatus::Connected;
+            (engine, backend)
+        }
+
+        #[test]
+        fn routing_creates_correct_synth_chain_for_saw() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::Saw);
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let nodes = engine.node_map.get(&inst_id).expect("nodes must exist");
+            assert!(nodes.source.is_none(), "oscillator instruments have no persistent source");
+            assert!(nodes.lfo.is_none(), "LFO disabled by default");
+            assert!(nodes.filter.is_none(), "no filter by default");
+            let synths = backend.synths_created();
+            let output_synth = synths.iter().find(|op| matches!(op, TestOp::CreateSynth { def_name, group_id, .. } if def_name == "imbolc_output" && *group_id == GROUP_OUTPUT));
+            assert!(output_synth.is_some(), "output synth must be created in GROUP_OUTPUT");
+            let bus_out_count = backend.count(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_bus_out"));
+            assert_eq!(bus_out_count, state.session.buses.len(), "one bus output synth per mixer bus");
+        }
+
+        #[test]
+        fn routing_creates_filter_and_effects_for_audio_in() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::AudioIn);
+            if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+                inst.filter = Some(FilterConfig::new(FilterType::Lpf));
+                inst.add_effect(EffectType::Delay);
+                inst.add_effect(EffectType::Reverb);
+            }
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let nodes = engine.node_map.get(&inst_id).expect("nodes");
+            assert!(nodes.source.is_some(), "AudioIn has a persistent source");
+            assert!(nodes.filter.is_some(), "filter was added");
+            assert_eq!(nodes.effects.len(), 2, "two effects were added");
+            let synths = backend.synths_created();
+            assert!(synths.iter().any(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_audio_in")));
+            assert!(synths.iter().any(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_lpf")));
+            assert!(synths.iter().any(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_delay")));
+            assert!(synths.iter().any(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_reverb")));
+            assert!(synths.iter().any(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_output")));
+        }
+
+        #[test]
+        fn routing_creates_send_synths() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::AudioIn);
+            if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+                inst.sends[0].enabled = true;
+                inst.sends[0].level = 0.5;
+            }
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let send_count = backend.count(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_send"));
+            assert_eq!(send_count, 1, "one send synth for the enabled send");
+            assert!(engine.send_node_map.contains_key(&(inst_id, 1)), "send node registered for bus 1");
+        }
+
+        #[test]
+        fn routing_buses_are_chained_correctly() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::AudioIn);
+            if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+                inst.filter = Some(FilterConfig::new(FilterType::Hpf));
+                inst.add_effect(EffectType::Delay);
+            }
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let synths = backend.synths_created();
+            let source_out = synths.iter().find_map(|op| if let TestOp::CreateSynth { def_name, params, .. } = op { if def_name == "imbolc_audio_in" { params.iter().find(|(k, _)| k == "out").map(|(_, v)| *v) } else { None } } else { None }).expect("source out bus");
+            let filter_in = synths.iter().find_map(|op| if let TestOp::CreateSynth { def_name, params, .. } = op { if def_name == "imbolc_hpf" { params.iter().find(|(k, _)| k == "in").map(|(_, v)| *v) } else { None } } else { None }).expect("filter in bus");
+            assert_eq!(source_out, filter_in, "filter input bus must match source output bus");
+            let filter_out = synths.iter().find_map(|op| if let TestOp::CreateSynth { def_name, params, .. } = op { if def_name == "imbolc_hpf" { params.iter().find(|(k, _)| k == "out").map(|(_, v)| *v) } else { None } } else { None }).expect("filter out bus");
+            let delay_in = synths.iter().find_map(|op| if let TestOp::CreateSynth { def_name, params, .. } = op { if def_name == "imbolc_delay" { params.iter().find(|(k, _)| k == "in").map(|(_, v)| *v) } else { None } } else { None }).expect("delay in bus");
+            assert_eq!(filter_out, delay_in, "delay input bus must match filter output bus");
+            let delay_out = synths.iter().find_map(|op| if let TestOp::CreateSynth { def_name, params, .. } = op { if def_name == "imbolc_delay" { params.iter().find(|(k, _)| k == "out").map(|(_, v)| *v) } else { None } } else { None }).expect("delay out bus");
+            let output_in = synths.iter().find_map(|op| if let TestOp::CreateSynth { def_name, params, .. } = op { if def_name == "imbolc_output" { params.iter().find(|(k, _)| k == "in").map(|(_, v)| *v) } else { None } } else { None }).expect("output in bus");
+            assert_eq!(delay_out, output_in, "output input bus must match delay output bus");
+        }
+
+        #[test]
+        fn rebuild_frees_old_nodes() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::AudioIn);
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("first build");
+            let first_output_node = engine.node_map.get(&inst_id).unwrap().output;
+            backend.clear();
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("second build");
+            let freed = backend.nodes_freed();
+            assert!(freed.contains(&first_output_node), "old output node should be freed on rebuild");
+            let new_output_node = engine.node_map.get(&inst_id).unwrap().output;
+            assert_ne!(first_output_node, new_output_node, "new output node should be a different ID");
+        }
+
+        #[test]
+        fn disabled_effects_are_not_created() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::Saw);
+            if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+                let eid = inst.add_effect(EffectType::Delay);
+                if let Some(effect) = inst.effect_by_id_mut(eid) { effect.enabled = false; }
+                inst.add_effect(EffectType::Reverb);
+            }
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let nodes = engine.node_map.get(&inst_id).expect("nodes");
+            assert_eq!(nodes.effects.len(), 1, "only enabled effects get nodes");
+            assert_eq!(backend.count(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_delay")), 0);
+            assert_eq!(backend.count(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_reverb")), 1);
+        }
+
+        #[test]
+        fn set_param_records_operation() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::AudioIn);
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            engine.set_source_param(inst_id, "gain", 0.75).expect("set_source_param");
+            let set_ops = backend.find(|op| matches!(op, TestOp::SetParam { param, value, .. } if param == "gain" && (*value - 0.75).abs() < 0.001));
+            assert!(set_ops.is_some(), "set_param for gain=0.75 should be recorded");
+        }
+
+        #[test]
+        fn groups_are_created_on_first_routing() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            state.add_instrument(SourceType::Saw);
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let group_count = backend.count(|op| matches!(op, TestOp::CreateGroup { .. }));
+            assert_eq!(group_count, 4, "four execution groups");
+            assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_SOURCES)).is_some());
+            assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_PROCESSING)).is_some());
+            assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_OUTPUT)).is_some());
+            assert!(backend.find(|op| matches!(op, TestOp::CreateGroup { group_id, .. } if *group_id == GROUP_RECORD)).is_some());
+        }
+
+        #[test]
+        fn muted_instrument_creates_output_with_mute_flag() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::Saw);
+            if let Some(inst) = state.instruments.instrument_mut(inst_id) { inst.mute = true; }
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let synths = backend.synths_created();
+            let output = synths.iter().find(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_output"));
+            assert!(output.is_some(), "output synth created");
+            if let Some(TestOp::CreateSynth { params, .. }) = output {
+                assert_eq!(params.iter().find(|(k, _)| k == "mute").map(|(_, v)| *v), Some(1.0));
+            }
+        }
+
+        #[test]
+        fn lfo_creates_synth_with_correct_params() {
+            let (mut engine, backend) = engine_with_test_backend();
+            let mut state = AppState::new();
+            let inst_id = state.add_instrument(SourceType::AudioIn);
+            if let Some(inst) = state.instruments.instrument_mut(inst_id) {
+                inst.lfo.enabled = true;
+                inst.lfo.target = crate::state::LfoTarget::Pan;
+                inst.lfo.rate = 2.0;
+                inst.lfo.depth = 0.5;
+            }
+            engine.rebuild_instrument_routing(&state.instruments, &state.session).expect("rebuild routing");
+            let nodes = engine.node_map.get(&inst_id).expect("nodes");
+            assert!(nodes.lfo.is_some(), "LFO node should exist");
+            let synths = backend.synths_created();
+            let lfo_synth = synths.iter().find(|op| matches!(op, TestOp::CreateSynth { def_name, .. } if def_name == "imbolc_lfo"));
+            assert!(lfo_synth.is_some(), "LFO synth created");
+            if let Some(TestOp::CreateSynth { params, .. }) = lfo_synth {
+                assert_eq!(params.iter().find(|(k, _)| k == "rate").map(|(_, v)| *v), Some(2.0));
+                assert_eq!(params.iter().find(|(k, _)| k == "depth").map(|(_, v)| *v), Some(0.5));
+            }
+        }
     }
 }

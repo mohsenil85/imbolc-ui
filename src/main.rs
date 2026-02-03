@@ -527,6 +527,13 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 state.recorded_waveform_peaks = None;
             }
 
+            // Copy audio-owned state into AppState for pane rendering.
+            {
+                let ars = audio.read_state();
+                state.audio_playhead = ars.playhead;
+                state.audio_bpm = ars.bpm;
+            }
+
             // Render
             let mut frame = backend.begin_frame()?;
             let area = frame.area();
