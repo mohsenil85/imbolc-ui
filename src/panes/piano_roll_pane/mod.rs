@@ -87,16 +87,11 @@ impl PianoRollPane {
     /// or a single-cell region at the cursor if no selection is active.
     pub(crate) fn selection_region(&self) -> (usize, u32, u32, u8, u8) {
         if let Some((anchor_tick, anchor_pitch)) = self.selection_anchor {
-            let (t0, t1) = if anchor_tick <= self.cursor_tick {
-                (anchor_tick, self.cursor_tick + self.ticks_per_cell())
-            } else {
-                (self.cursor_tick, anchor_tick + self.ticks_per_cell())
-            };
-            let (p0, p1) = if anchor_pitch <= self.cursor_pitch {
-                (anchor_pitch, self.cursor_pitch)
-            } else {
-                (self.cursor_pitch, anchor_pitch)
-            };
+            let (t0, t1, p0, p1) = crate::state::grid::normalize_2d_region(
+                anchor_tick, anchor_pitch,
+                self.cursor_tick, self.cursor_pitch,
+                self.ticks_per_cell(),
+            );
             (self.current_track, t0, t1, p0, p1)
         } else {
             // No selection: single cell at cursor

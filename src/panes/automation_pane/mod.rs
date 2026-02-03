@@ -73,11 +73,7 @@ impl AutomationPane {
     pub(crate) fn selection_region(&self, state: &AppState) -> Option<(AutomationLaneId, u32, u32)> {
         let lane_id = self.selected_lane_id(state)?;
         let anchor_tick = self.selection_anchor_tick?;
-        let (t0, t1) = if anchor_tick <= self.cursor_tick {
-            (anchor_tick, self.cursor_tick)
-        } else {
-            (self.cursor_tick, anchor_tick)
-        };
+        let (t0, t1) = crate::state::grid::normalize_tick_range(anchor_tick, self.cursor_tick);
         if t0 < t1 {
             Some((lane_id, t0, t1))
         } else {
