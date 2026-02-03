@@ -3,8 +3,6 @@ mod rendering;
 
 use std::any::Any;
 
-use ratatui::widgets::{Block, Borders, Widget};
-
 use crate::state::automation::{AutomationLaneId, AutomationTarget};
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
@@ -106,7 +104,6 @@ impl Pane for AutomationPane {
     }
 
     fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
-        let buf = buf.raw_buf();
         let rect = center_rect(area, 100.min(area.width), 30.min(area.height));
 
         // Title
@@ -116,13 +113,9 @@ impl Pane for AutomationPane {
         let title = format!(" Automation: {} ", inst_name);
 
         let border_color = Color::CYAN;
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(ratatui::style::Style::from(Style::new().fg(border_color)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(border_color)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(border_color);
+        let title_style = Style::new().fg(border_color);
+        let inner = buf.draw_block(rect, &title, border_style, title_style);
 
         if inner.height < 5 {
             return;
@@ -140,7 +133,7 @@ impl Pane for AutomationPane {
         self.render_lane_list(buf, lane_list_area, state);
 
         // Separator
-        let sep_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let sep_style = Style::new().fg(Color::DARK_GRAY);
         let timeline_title = state.session.automation.selected()
             .map(|l| {
                 let (min, max) = (l.min_value, l.max_value);
@@ -149,18 +142,14 @@ impl Pane for AutomationPane {
             .unwrap_or_else(|| "─".to_string());
 
         for x in inner.x..inner.x + inner.width {
-            if let Some(cell) = buf.cell_mut((x, separator_y)) {
-                cell.set_char('─').set_style(sep_style);
-            }
+            buf.set_cell(x, separator_y, '─', sep_style);
         }
         // Overlay title on separator
-        let title_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN));
+        let title_overlay_style = Style::new().fg(Color::CYAN);
         for (i, ch) in timeline_title.chars().enumerate() {
             let x = inner.x + 1 + i as u16;
             if x >= inner.x + inner.width { break; }
-            if let Some(cell) = buf.cell_mut((x, separator_y)) {
-                cell.set_char(ch).set_style(title_style);
-            }
+            buf.set_cell(x, separator_y, ch, title_overlay_style);
         }
 
         // Render timeline

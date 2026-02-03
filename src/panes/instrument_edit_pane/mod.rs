@@ -236,7 +236,6 @@ impl Pane for InstrumentEditPane {
     }
 
     fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
-        let buf = buf.raw_buf();
         self.render_impl(area, buf, state);
     }
 

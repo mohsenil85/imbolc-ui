@@ -1,9 +1,5 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, Keymap, Pane, Style};
@@ -87,7 +83,7 @@ impl Default for WaveformPane {
 }
 
 impl WaveformPane {
-    fn render_waveform(&self, area: Rect, buf: &mut Buffer, state: &AppState) {
+    fn render_waveform(&self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let is_recorded = state.recorded_waveform_peaks.is_some();
         let waveform = state.recorded_waveform_peaks.as_deref()
             .or(self.audio_in_waveform.as_deref())
@@ -114,11 +110,9 @@ impl WaveformPane {
         // Center line
         let center_y = grid_y + grid_height / 2;
         let half_height = (grid_height / 2) as f32;
-        let dark_gray = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let dark_gray = Style::new().fg(Color::DARK_GRAY);
         for x in 0..grid_width {
-            if let Some(cell) = buf.cell_mut((grid_x + x, center_y)) {
-                cell.set_char('\u{2500}').set_style(dark_gray);
-            }
+            buf.set_cell(grid_x + x, center_y, '\u{2500}', dark_gray);
         }
 
         // Draw waveform
@@ -141,35 +135,29 @@ impl WaveformPane {
                 let y = center_y.saturating_sub(dy + 1);
                 let frac = (dy + 1) as f32 / max_half as f32;
                 let color = waveform_color(frac);
-                let style = ratatui::style::Style::from(Style::new().fg(color));
+                let style = Style::new().fg(color);
                 let char_idx = if dy + 1 == bar_height { ((amplitude * 7.0) as usize).min(7) } else { 7 };
-                if let Some(cell) = buf.cell_mut((grid_x + col as u16, y)) {
-                    cell.set_char(WAVEFORM_CHARS[char_idx]).set_style(style);
-                }
+                buf.set_cell(grid_x + col as u16, y, WAVEFORM_CHARS[char_idx], style);
             }
             for dy in 0..bar_height.min(max_half) {
                 let y = center_y + dy + 1;
                 if y < grid_y + grid_height {
                     let frac = (dy + 1) as f32 / max_half as f32;
                     let color = waveform_color(frac);
-                    let style = ratatui::style::Style::from(Style::new().fg(color));
+                    let style = Style::new().fg(color);
                     let char_idx = if dy + 1 == bar_height { ((amplitude * 7.0) as usize).min(7) } else { 7 };
-                    if let Some(cell) = buf.cell_mut((grid_x + col as u16, y)) {
-                        cell.set_char(WAVEFORM_CHARS[char_idx]).set_style(style);
-                    }
+                    buf.set_cell(grid_x + col as u16, y, WAVEFORM_CHARS[char_idx], style);
                 }
             }
         }
 
         let status_y = grid_y + grid_height;
         let status = format!("Samples: {}  [Tab: cycle mode]", waveform_len);
-        Paragraph::new(Line::from(Span::styled(
-            status,
-            ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-        ))).render(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1),
+            &[(&status, Style::new().fg(Color::GRAY))]);
     }
 
-    fn render_spectrum(&self, area: Rect, buf: &mut Buffer, state: &AppState) {
+    fn render_spectrum(&self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let rect = center_rect(area, 97, 29);
         let header_height: u16 = 2;
         let footer_height: u16 = 3;
@@ -196,12 +184,10 @@ impl WaveformPane {
                 let y = grid_y + grid_height - 1 - dy;
                 let frac = (dy + 1) as f32 / grid_height as f32;
                 let color = waveform_color(frac);
-                let style = ratatui::style::Style::from(Style::new().fg(color));
+                let style = Style::new().fg(color);
                 for bx in 0..bar_width as u16 {
                     if bar_x + bx < grid_x + grid_width {
-                        if let Some(cell) = buf.cell_mut((bar_x + bx, y)) {
-                            cell.set_char(WAVEFORM_CHARS[7]).set_style(style);
-                        }
+                        buf.set_cell(bar_x + bx, y, WAVEFORM_CHARS[7], style);
                     }
                 }
             }
@@ -210,10 +196,8 @@ impl WaveformPane {
             let label_y = grid_y + grid_height;
             let label = SPECTRUM_LABELS[i];
             let label_x = bar_x + (bar_width as u16 / 2).saturating_sub(label.len() as u16 / 2);
-            Paragraph::new(Line::from(Span::styled(
-                label,
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-            ))).render(Rect::new(label_x, label_y, label.len() as u16 + 1, 1), buf);
+            buf.draw_line(Rect::new(label_x, label_y, label.len() as u16 + 1, 1),
+                &[(label, Style::new().fg(Color::GRAY))]);
 
             // dB value above
             let db = amp_to_db(amp);
@@ -221,21 +205,17 @@ impl WaveformPane {
             let db_x = bar_x + (bar_width as u16 / 2).saturating_sub(db_str.len() as u16 / 2);
             let db_y = grid_y + grid_height + 1;
             if db_y < rect.y + rect.height - 1 {
-                Paragraph::new(Line::from(Span::styled(
-                    db_str,
-                    ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-                ))).render(Rect::new(db_x, db_y, 5, 1), buf);
+                buf.draw_line(Rect::new(db_x, db_y, 5, 1),
+                    &[(&db_str, Style::new().fg(Color::DARK_GRAY))]);
             }
         }
 
         let status_y = rect.y + rect.height - 2;
-        Paragraph::new(Line::from(Span::styled(
-            "[Tab: cycle mode]",
-            ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY)),
-        ))).render(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1),
+            &[("[Tab: cycle mode]", Style::new().fg(Color::DARK_GRAY))]);
     }
 
-    fn render_oscilloscope(&self, area: Rect, buf: &mut Buffer, state: &AppState) {
+    fn render_oscilloscope(&self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let rect = center_rect(area, 97, 29);
         let header_height: u16 = 2;
         let footer_height: u16 = 2;
@@ -252,16 +232,14 @@ impl WaveformPane {
         let half_height = (grid_height / 2) as f32;
 
         // Draw center line
-        let dark_gray = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let dark_gray = Style::new().fg(Color::DARK_GRAY);
         for x in 0..grid_width {
-            if let Some(cell) = buf.cell_mut((grid_x + x, center_y)) {
-                cell.set_char('\u{2500}').set_style(dark_gray);
-            }
+            buf.set_cell(grid_x + x, center_y, '\u{2500}', dark_gray);
         }
 
         // Draw scope trace
         let scope_len = scope.len();
-        let green = ratatui::style::Style::from(Style::new().fg(Color::new(60, 200, 80)));
+        let green = Style::new().fg(Color::new(60, 200, 80));
         for col in 0..grid_width as usize {
             let sample_idx = if scope_len > 0 {
                 (col * scope_len / grid_width as usize).min(scope_len - 1)
@@ -271,9 +249,7 @@ impl WaveformPane {
             let sample = scope[sample_idx].clamp(-1.0, 1.0);
             let pixel_y = center_y as f32 - (sample * half_height);
             let y = (pixel_y as u16).clamp(grid_y, grid_y + grid_height - 1);
-            if let Some(cell) = buf.cell_mut((grid_x + col as u16, y)) {
-                cell.set_char('\u{2588}').set_style(green);
-            }
+            buf.set_cell(grid_x + col as u16, y, '\u{2588}', green);
 
             // Draw a connecting line between consecutive samples
             if col > 0 && scope_len > 1 {
@@ -284,30 +260,23 @@ impl WaveformPane {
                 let (y_min, y_max) = if y < prev_y { (y, prev_y) } else { (prev_y, y) };
                 for fill_y in y_min..=y_max {
                     if fill_y >= grid_y && fill_y < grid_y + grid_height {
-                        if let Some(cell) = buf.cell_mut((grid_x + col as u16, fill_y)) {
-                            cell.set_char('\u{2588}').set_style(green);
-                        }
+                        buf.set_cell(grid_x + col as u16, fill_y, '\u{2588}', green);
                     }
                 }
             }
         }
 
         // +1/-1 labels
-        let plus_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
-        Paragraph::new(Line::from(Span::styled("+1", plus_style)))
-            .render(Rect::new(grid_x, grid_y, 2, 1), buf);
-        Paragraph::new(Line::from(Span::styled("-1", plus_style)))
-            .render(Rect::new(grid_x, grid_y + grid_height - 1, 2, 1), buf);
+        buf.draw_line(Rect::new(grid_x, grid_y, 2, 1), &[("+1", dark_gray)]);
+        buf.draw_line(Rect::new(grid_x, grid_y + grid_height - 1, 2, 1), &[("-1", dark_gray)]);
 
         let status_y = grid_y + grid_height;
         let status = format!("Samples: {}  [Tab: cycle mode]", scope_len);
-        Paragraph::new(Line::from(Span::styled(
-            status,
-            ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-        ))).render(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1),
+            &[(&status, Style::new().fg(Color::GRAY))]);
     }
 
-    fn render_lufs_meter(&self, area: Rect, buf: &mut Buffer, state: &AppState) {
+    fn render_lufs_meter(&self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
         let rect = center_rect(area, 97, 29);
         let header_height: u16 = 2;
         let footer_height: u16 = 2;
@@ -338,13 +307,11 @@ impl WaveformPane {
             "L: peak {:.1}dB  rms {:.1}dB    R: peak {:.1}dB  rms {:.1}dB    [Tab: cycle mode]",
             peak_db_l, rms_db_l, peak_db_r, rms_db_r,
         );
-        Paragraph::new(Line::from(Span::styled(
-            status,
-            ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-        ))).render(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1),
+            &[(&status, Style::new().fg(Color::GRAY))]);
     }
 
-    fn render_single_meter(&self, x: u16, y: u16, width: u16, height: u16, peak: f32, rms: f32, label: &str, buf: &mut Buffer) {
+    fn render_single_meter(&self, x: u16, y: u16, width: u16, height: u16, peak: f32, rms: f32, label: &str, buf: &mut RenderBuf) {
         // dB scale: -60 to 0
         let db_range = 60.0_f32;
         let peak_db = amp_to_db(peak).max(-db_range);
@@ -363,11 +330,9 @@ impl WaveformPane {
             let row = y + height - 1 - dy;
             let frac = (dy + 1) as f32 / height as f32;
             let color = waveform_color(frac);
-            let style = ratatui::style::Style::from(Style::new().fg(color));
+            let style = Style::new().fg(color);
             for bx in 0..rms_width {
-                if let Some(cell) = buf.cell_mut((x + bx, row)) {
-                    cell.set_char(WAVEFORM_CHARS[7]).set_style(style);
-                }
+                buf.set_cell(x + bx, row, WAVEFORM_CHARS[7], style);
             }
         }
 
@@ -376,23 +341,19 @@ impl WaveformPane {
             let peak_y = y + height - peak_height.min(height);
             let peak_frac_color = peak_height as f32 / height as f32;
             let peak_color = waveform_color(peak_frac_color);
-            let peak_style = ratatui::style::Style::from(Style::new().fg(peak_color));
-            if let Some(cell) = buf.cell_mut((x + rms_width + 1, peak_y)) {
-                cell.set_char('\u{2501}').set_style(peak_style);
-            }
+            buf.set_cell(x + rms_width + 1, peak_y, '\u{2501}', Style::new().fg(peak_color));
         }
 
         // Channel label
-        let label_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
         let label_x = x + rms_width / 2;
         let label_y = y + height;
         if label_y < y + height + 2 {
-            Paragraph::new(Line::from(Span::styled(label, label_style)))
-                .render(Rect::new(label_x, label_y, 2, 1), buf);
+            buf.draw_line(Rect::new(label_x, label_y, 2, 1),
+                &[(label, Style::new().fg(Color::WHITE))]);
         }
 
         // dB scale markers on the left side of meter
-        let dark_gray = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let dark_gray = Style::new().fg(Color::DARK_GRAY);
         let markers = [("0", 0.0), ("-6", 6.0), ("-12", 12.0), ("-24", 24.0), ("-48", 48.0)];
         for (text, db_offset) in markers {
             let frac = (db_range - db_offset) / db_range;
@@ -400,23 +361,19 @@ impl WaveformPane {
             if marker_y >= y && marker_y < y + height {
                 // Tick mark
                 if x > 0 {
-                    Paragraph::new(Line::from(Span::styled(text, dark_gray)))
-                        .render(Rect::new(x.saturating_sub(text.len() as u16 + 1), marker_y, text.len() as u16, 1), buf);
+                    buf.draw_line(Rect::new(x.saturating_sub(text.len() as u16 + 1), marker_y, text.len() as u16, 1),
+                        &[(text, dark_gray)]);
                 }
             }
         }
     }
 
-    fn render_border(&self, rect: Rect, buf: &mut Buffer, title: &str, color: Color) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(ratatui::style::Style::from(Style::new().fg(color)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(color)));
-        block.render(rect, buf);
+    fn render_border(&self, rect: Rect, buf: &mut RenderBuf, title: &str, color: Color) {
+        let border_style = Style::new().fg(color);
+        buf.draw_block(rect, title, border_style, border_style);
     }
 
-    fn render_header(&self, rect: Rect, buf: &mut Buffer, state: &AppState, mode_name: &str) {
+    fn render_header(&self, rect: Rect, buf: &mut RenderBuf, state: &AppState, mode_name: &str) {
         let piano_roll = &state.session.piano_roll;
         let header_y = rect.y + 1;
         let play_icon = if piano_roll.playing { "||" } else { "> " };
@@ -424,10 +381,8 @@ impl WaveformPane {
             " BPM:{:.0}  {}  {}",
             state.audio_bpm, play_icon, mode_name,
         );
-        Paragraph::new(Line::from(Span::styled(
-            header_text,
-            ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
-        ))).render(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1),
+            &[(&header_text, Style::new().fg(Color::WHITE))]);
     }
 }
 
@@ -447,7 +402,6 @@ impl Pane for WaveformPane {
     }
 
     fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
-        let buf = buf.raw_buf();
         match self.mode {
             WaveformMode::Waveform => self.render_waveform(area, buf, state),
             WaveformMode::Spectrum => self.render_spectrum(area, buf, state),

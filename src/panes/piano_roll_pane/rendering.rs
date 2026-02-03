@@ -1,10 +1,6 @@
-use ratatui::buffer::Buffer;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Rect, Color, Style};
+use crate::ui::{Rect, RenderBuf, Color, Style};
 
 use super::PianoRollPane;
 
@@ -31,7 +27,7 @@ impl PianoRollPane {
     /// Render the automation overlay strip at the bottom of the note grid
     pub(super) fn render_automation_overlay(
         &self,
-        buf: &mut Buffer,
+        buf: &mut RenderBuf,
         overlay_area: Rect,
         grid_x: u16,
         grid_width: u16,
@@ -54,40 +50,34 @@ impl PianoRollPane {
         if overlay_height == 0 { return; }
 
         // Separator line
-        let sep_style = ratatui::style::Style::from(Style::new().fg(Color::new(50, 40, 60)));
+        let sep_style = Style::new().fg(Color::new(50, 40, 60));
         for x in overlay_area.x..overlay_area.x + overlay_area.width {
-            if let Some(cell) = buf.cell_mut((x, overlay_area.y)) {
-                cell.set_char('─').set_style(sep_style);
-            }
+            buf.set_cell(x, overlay_area.y, '─', sep_style);
         }
 
         // Lane name on left edge
         let lane_name = lane
             .map(|l| l.target.short_name())
             .unwrap_or("—");
-        let label_style = ratatui::style::Style::from(Style::new().fg(Color::CYAN));
+        let label_style = Style::new().fg(Color::CYAN);
         for (i, ch) in lane_name.chars().enumerate() {
             let x = overlay_area.x + i as u16;
             if x >= grid_x { break; }
             let y = overlay_area.y + 1;
             if y < overlay_area.y + overlay_height {
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_char(ch).set_style(label_style);
-                }
+                buf.set_cell(x, y, ch, label_style);
             }
         }
 
         // REC indicator
         if state.automation_recording {
             let rec_str = "REC";
-            let rec_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
+            let rec_style = Style::new().fg(Color::WHITE).bg(Color::RED);
             for (i, ch) in rec_str.chars().enumerate() {
                 let x = overlay_area.x + i as u16;
                 let y = overlay_area.y + 2.min(overlay_height - 1);
                 if x < grid_x && y < overlay_area.y + overlay_height {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char(ch).set_style(rec_style);
-                    }
+                    buf.set_cell(x, y, ch, rec_style);
                 }
             }
         }
@@ -100,6 +90,7 @@ impl PianoRollPane {
         if graph_rows == 0 { return; }
 
         let curve_color = if lane.enabled { Color::CYAN } else { Color::DARK_GRAY };
+        let curve_style = Style::new().fg(curve_color);
 
         for col in 0..grid_width {
             let tick = self.view_start_tick + col as u32 * tpc;
@@ -118,11 +109,7 @@ impl PianoRollPane {
                 let x = grid_x + col;
                 let y = overlay_area.y + 1; // First row below separator
                 if y < overlay_area.y + overlay_height && x < overlay_area.x + overlay_area.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char(block_char).set_style(
-                            ratatui::style::Style::from(Style::new().fg(curve_color)),
-                        );
-                    }
+                    buf.set_cell(x, y, block_char, curve_style);
                 }
 
                 // For taller overlays, fill upward with full blocks
@@ -131,11 +118,7 @@ impl PianoRollPane {
                     for r in 1..filled_rows {
                         let y = overlay_area.y + graph_rows - r;
                         if y > overlay_area.y && y < overlay_area.y + overlay_height && x < overlay_area.x + overlay_area.width {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.set_char('▁').set_style(
-                                    ratatui::style::Style::from(Style::new().fg(curve_color)),
-                                );
-                            }
+                            buf.set_cell(x, y, '▁', curve_style);
                         }
                     }
                 }
@@ -144,7 +127,7 @@ impl PianoRollPane {
     }
 
     /// Render notes grid (buffer version)
-    pub(super) fn render_notes_buf(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
+    pub(super) fn render_notes_buf(&self, buf: &mut RenderBuf, area: Rect, state: &AppState) {
         let piano_roll = &state.session.piano_roll;
         let rect = center_rect(area, 97, 29);
 
@@ -174,12 +157,8 @@ impl PianoRollPane {
         } else {
             " Piano Roll: (no tracks) ".to_string()
         };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(track_label.as_str())
-            .border_style(ratatui::style::Style::from(Style::new().fg(Color::PINK)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(Color::PINK)));
-        block.render(rect, buf);
+        let border_style = Style::new().fg(Color::PINK);
+        buf.draw_block(rect, &track_label, border_style, border_style);
 
         // Header: transport info
         let header_y = rect.y + 1;
@@ -194,10 +173,8 @@ impl PianoRollPane {
             loop_icon,
             piano_roll.tick_to_beat(state.audio_playhead),
         );
-        Paragraph::new(Line::from(Span::styled(
-            header_text,
-            ratatui::style::Style::from(Style::new().fg(Color::WHITE)),
-        ))).render(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1),
+            &[(&header_text, Style::new().fg(Color::WHITE))]);
 
         // Loop range indicator
         if piano_roll.looping {
@@ -207,10 +184,8 @@ impl PianoRollPane {
                 piano_roll.tick_to_beat(piano_roll.loop_end),
             );
             let loop_x = rect.x + rect.width - loop_info.len() as u16 - 2;
-            Paragraph::new(Line::from(Span::styled(
-                loop_info,
-                ratatui::style::Style::from(Style::new().fg(Color::YELLOW)),
-            ))).render(Rect::new(loop_x, header_y, rect.width.saturating_sub(loop_x - rect.x), 1), buf);
+            buf.draw_line(Rect::new(loop_x, header_y, rect.width.saturating_sub(loop_x - rect.x), 1),
+                &[(&loop_info, Style::new().fg(Color::YELLOW))]);
         }
 
         // Rendering indicator
@@ -218,10 +193,9 @@ impl PianoRollPane {
             if let Some(track_inst_id) = state.session.piano_roll.track_order.get(self.current_track) {
                 if render.instrument_id == *track_inst_id {
                     let label = " RENDERING ";
-                    let style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
+                    let style = Style::new().fg(Color::WHITE).bg(Color::RED);
                     let x = rect.x + rect.width - label.len() as u16 - 2;
-                    Paragraph::new(Line::from(Span::styled(label, style)))
-                        .render(Rect::new(x, header_y, label.len() as u16, 1), buf);
+                    buf.draw_line(Rect::new(x, header_y, label.len() as u16, 1), &[(label, style)]);
                 }
             }
         }
@@ -243,10 +217,9 @@ impl PianoRollPane {
                 "\u{2591}".repeat(empty),
                 progress * 100.0,
             );
-            let style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::new(200, 120, 0)));
+            let style = Style::new().fg(Color::WHITE).bg(Color::new(200, 120, 0));
             let x = rect.x + rect.width - text.len() as u16 - 2;
-            Paragraph::new(Line::from(Span::styled(&text, style)))
-                .render(Rect::new(x, header_y, text.len() as u16, 1), buf);
+            buf.draw_line(Rect::new(x, header_y, text.len() as u16, 1), &[(&text, style)]);
         }
 
         // Piano keys column + grid rows
@@ -261,24 +234,19 @@ impl PianoRollPane {
             let name = note_name(pitch);
             let is_black = is_black_key(pitch);
             let key_style = if pitch == self.cursor_pitch {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG))
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)
             } else if is_black {
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY))
+                Style::new().fg(Color::GRAY)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE))
+                Style::new().fg(Color::WHITE)
             };
             let key_str = format!("{:>3}", name);
             for (j, ch) in key_str.chars().enumerate() {
-                if let Some(cell) = buf.cell_mut((rect.x + 1 + j as u16, y)) {
-                    cell.set_char(ch).set_style(key_style);
-                }
+                buf.set_cell(rect.x + 1 + j as u16, y, ch, key_style);
             }
 
             // Separator
-            let sep_style = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
-            if let Some(cell) = buf.cell_mut((rect.x + key_col_width - 1, y)) {
-                cell.set_char('|').set_style(sep_style);
-            }
+            buf.set_cell(rect.x + key_col_width - 1, y, '|', Style::new().fg(Color::GRAY));
 
             // Grid cells
             for col in 0..grid_width {
@@ -321,37 +289,35 @@ impl PianoRollPane {
 
                 let (ch, style) = if is_cursor {
                     if has_note {
-                        ('█', ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::WHITE)))
+                        ('█', Style::new().fg(Color::BLACK).bg(Color::WHITE))
                     } else {
-                        ('▒', ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)))
+                        ('▒', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG))
                     }
                 } else if in_selection && has_note {
                     // Selected note
-                    ('█', ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::new(60, 30, 80))))
+                    ('█', Style::new().fg(Color::WHITE).bg(Color::new(60, 30, 80)))
                 } else if in_selection {
                     // Selection region background
-                    ('░', ratatui::style::Style::from(Style::new().fg(Color::new(60, 30, 80))))
+                    ('░', Style::new().fg(Color::new(60, 30, 80)))
                 } else if has_note {
                     if is_note_start {
-                        ('█', ratatui::style::Style::from(Style::new().fg(Color::PINK)))
+                        ('█', Style::new().fg(Color::PINK))
                     } else {
-                        ('█', ratatui::style::Style::from(Style::new().fg(Color::MAGENTA)))
+                        ('█', Style::new().fg(Color::MAGENTA))
                     }
                 } else if is_playhead {
-                    ('│', ratatui::style::Style::from(Style::new().fg(Color::GREEN)))
+                    ('│', Style::new().fg(Color::GREEN))
                 } else if is_bar_line {
-                    ('┊', ratatui::style::Style::from(Style::new().fg(Color::GRAY)))
+                    ('┊', Style::new().fg(Color::GRAY))
                 } else if is_beat_line {
-                    ('·', ratatui::style::Style::from(Style::new().fg(Color::new(40, 40, 40))))
+                    ('·', Style::new().fg(Color::new(40, 40, 40)))
                 } else if is_black {
-                    ('·', ratatui::style::Style::from(Style::new().fg(Color::new(25, 25, 25))))
+                    ('·', Style::new().fg(Color::new(25, 25, 25)))
                 } else {
-                    (' ', ratatui::style::Style::default())
+                    (' ', Style::new())
                 };
 
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_char(ch).set_style(style);
-                }
+                buf.set_cell(x, y, ch, style);
             }
         }
 
@@ -366,17 +332,12 @@ impl PianoRollPane {
             if tick % tpbar == 0 {
                 let bar = tick / tpbar + 1;
                 let label = format!("{}", bar);
-                let white = ratatui::style::Style::from(Style::new().fg(Color::WHITE));
+                let white = Style::new().fg(Color::WHITE);
                 for (j, ch) in label.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut((x + j as u16, footer_y)) {
-                        cell.set_char(ch).set_style(white);
-                    }
+                    buf.set_cell(x + j as u16, footer_y, ch, white);
                 }
             } else if tick % tpb == 0 {
-                let gray = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
-                if let Some(cell) = buf.cell_mut((x, footer_y)) {
-                    cell.set_char('·').set_style(gray);
-                }
+                buf.set_cell(x, footer_y, '·', Style::new().fg(Color::GRAY));
             }
         }
 
@@ -395,10 +356,8 @@ impl PianoRollPane {
                 self.default_duration,
             )
         };
-        Paragraph::new(Line::from(Span::styled(
-            vel_str,
-            ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-        ))).render(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1), buf);
+        buf.draw_line(Rect::new(rect.x + 1, status_y, rect.width.saturating_sub(2), 1),
+            &[(&vel_str, Style::new().fg(Color::GRAY))]);
 
         // Piano mode indicator
         if self.piano.is_active() {
@@ -408,28 +367,22 @@ impl PianoRollPane {
             if self.recording {
                 let rec_str = " REC ";
                 indicator_x -= rec_str.len() as u16;
-                let rec_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
+                let rec_style = Style::new().fg(Color::WHITE).bg(Color::RED);
                 for (j, ch) in rec_str.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut((indicator_x + j as u16, status_y)) {
-                        cell.set_char(ch).set_style(rec_style);
-                    }
+                    buf.set_cell(indicator_x + j as u16, status_y, ch, rec_style);
                 }
                 indicator_x += rec_str.len() as u16;
             }
 
-            let piano_style = ratatui::style::Style::from(Style::new().fg(Color::BLACK).bg(Color::PINK));
+            let piano_style = Style::new().fg(Color::BLACK).bg(Color::PINK);
             for (j, ch) in piano_str.chars().enumerate() {
-                if let Some(cell) = buf.cell_mut((indicator_x + j as u16, status_y)) {
-                    cell.set_char(ch).set_style(piano_style);
-                }
+                buf.set_cell(indicator_x + j as u16, status_y, ch, piano_style);
             }
         } else {
             let hint_str = "/=piano";
             let hint_x = rect.x + rect.width - hint_str.len() as u16 - 2;
-            Paragraph::new(Line::from(Span::styled(
-                hint_str,
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY)),
-            ))).render(Rect::new(hint_x, status_y, hint_str.len() as u16, 1), buf);
+            buf.draw_line(Rect::new(hint_x, status_y, hint_str.len() as u16, 1),
+                &[(hint_str, Style::new().fg(Color::GRAY))]);
         }
     }
 }

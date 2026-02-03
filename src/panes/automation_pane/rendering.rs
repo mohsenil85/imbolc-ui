@@ -1,11 +1,7 @@
-use ratatui::buffer::Buffer;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
-
 use crate::state::automation::CurveType;
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
-use crate::ui::{Rect, Color, Style};
+use crate::ui::{Rect, RenderBuf, Color, Style};
 
 use super::{AutomationFocus, AutomationPane, TargetPickerState};
 
@@ -17,7 +13,7 @@ pub(super) const BLOCK_CHARS: [char; 8] = [
 ];
 
 impl AutomationPane {
-    pub(super) fn render_lane_list(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
+    pub(super) fn render_lane_list(&self, buf: &mut RenderBuf, area: Rect, state: &AppState) {
         if area.height < 2 || area.width < 10 {
             return;
         }
@@ -40,22 +36,19 @@ impl AutomationPane {
 
         if visible_lanes.is_empty() {
             let text = "(no automation lanes)";
-            let style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let style = Style::new().fg(Color::DARK_GRAY);
             let x = area.x + 1;
             let y = area.y;
-            Paragraph::new(Line::from(Span::styled(text, style)))
-                .render(Rect::new(x, y, text.len() as u16, 1), buf);
+            buf.draw_line(Rect::new(x, y, text.len() as u16, 1), &[(text, style)]);
             return;
         }
 
         // Header
         let header = format!("{:<6} {:<16} {:>3} {:>2} {:>4} {:<6}", "Lane", "Target", "En", "R", "Pts", "Curve");
-        let header_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+        let header_style = Style::new().fg(Color::DARK_GRAY);
         for (i, ch) in header.chars().enumerate() {
             if area.x + 1 + i as u16 >= area.x + area.width { break; }
-            if let Some(cell) = buf.cell_mut((area.x + 1 + i as u16, area.y)) {
-                cell.set_char(ch).set_style(header_style);
-            }
+            buf.set_cell(area.x + 1 + i as u16, area.y, ch, header_style);
         }
 
         for (vi, (global_idx, lane)) in visible_lanes.iter().enumerate() {
@@ -93,41 +86,38 @@ impl AutomationPane {
             );
 
             let style = if is_selected && in_focus {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold())
+                Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
             } else if is_selected {
-                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::new(30, 30, 40)))
+                Style::new().fg(Color::WHITE).bg(Color::new(30, 30, 40))
             } else if !lane.enabled {
-                ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY))
+                Style::new().fg(Color::DARK_GRAY)
             } else {
-                ratatui::style::Style::from(Style::new().fg(Color::GRAY))
+                Style::new().fg(Color::GRAY)
             };
 
             // Arm indicator position: 1 (marker) + 5 (short) + 1 (sp) + 16 (name) + 2 (" [") + 1 (en) + 2 ("] ") = 28
             let arm_pos = 28;
-            let arm_style = ratatui::style::Style::from(Style::new().fg(Color::MUTE_COLOR).bold());
+            let arm_style = Style::new().fg(Color::MUTE_COLOR).bold();
             for (i, ch) in line_text.chars().enumerate() {
                 let x = area.x + i as u16;
                 if x >= area.x + area.width { break; }
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    if lane.record_armed && i == arm_pos {
-                        cell.set_char(ch).set_style(arm_style);
-                    } else {
-                        cell.set_char(ch).set_style(style);
-                    }
-                }
+                let cell_style = if lane.record_armed && i == arm_pos {
+                    arm_style
+                } else {
+                    style
+                };
+                buf.set_cell(x, y, ch, cell_style);
             }
             // Fill remaining width for selected row
             if is_selected {
                 for x in (area.x + line_text.len() as u16)..(area.x + area.width) {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_style(style);
-                    }
+                    buf.set_cell(x, y, ' ', style);
                 }
             }
         }
     }
 
-    pub(super) fn render_timeline(&self, buf: &mut Buffer, area: Rect, state: &AppState) {
+    pub(super) fn render_timeline(&self, buf: &mut RenderBuf, area: Rect, state: &AppState) {
         if area.height < 3 || area.width < 10 {
             return;
         }
@@ -137,11 +127,10 @@ impl AutomationPane {
             Some(l) => l,
             None => {
                 let text = "(select a lane)";
-                let style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+                let style = Style::new().fg(Color::DARK_GRAY);
                 let x = area.x + (area.width.saturating_sub(text.len() as u16)) / 2;
                 let y = area.y + area.height / 2;
-                Paragraph::new(Line::from(Span::styled(text, style)))
-                    .render(Rect::new(x, y, text.len() as u16, 1), buf);
+                buf.draw_line(Rect::new(x, y, text.len() as u16, 1), &[(text, style)]);
                 return;
             }
         };
@@ -152,9 +141,9 @@ impl AutomationPane {
         let graph_y = area.y;
 
         // Draw the value graph area
-        let bg_style = ratatui::style::Style::from(Style::new().fg(Color::new(30, 30, 30)));
-        let _beat_style = ratatui::style::Style::from(Style::new().fg(Color::new(45, 45, 45)));
-        let bar_style = ratatui::style::Style::from(Style::new().fg(Color::new(55, 55, 55)));
+        let bg_style = Style::new().fg(Color::new(30, 30, 30));
+        let _beat_style = Style::new().fg(Color::new(45, 45, 45));
+        let bar_style = Style::new().fg(Color::new(55, 55, 55));
         let in_focus = self.focus == AutomationFocus::Timeline;
 
         // Grid dots
@@ -167,21 +156,17 @@ impl AutomationPane {
                 let y = graph_y + row;
                 let x = area.x + col;
                 if is_bar {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char('┊').set_style(bar_style);
-                    }
+                    buf.set_cell(x, y, '┊', bar_style);
                 } else if is_beat && row == 0 {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char('·').set_style(bg_style);
-                    }
+                    buf.set_cell(x, y, '·', bg_style);
                 }
             }
         }
 
         // Draw automation curve
         let curve_color = if lane.enabled { Color::CYAN } else { Color::DARK_GRAY };
-        let curve_style = ratatui::style::Style::from(Style::new().fg(curve_color));
-        let point_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(curve_color));
+        let curve_style = Style::new().fg(curve_color);
+        let point_style = Style::new().fg(Color::WHITE).bg(curve_color);
 
         if !lane.points.is_empty() && graph_height > 0 {
             for col in 0..graph_width {
@@ -197,13 +182,11 @@ impl AutomationPane {
                     let y = graph_y + row;
                     let x = area.x + col;
                     if y < graph_y + graph_height {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            // Check if there's a point exactly at this tick
-                            if lane.point_at(tick).is_some() {
-                                cell.set_char('●').set_style(point_style);
-                            } else {
-                                cell.set_char('─').set_style(curve_style);
-                            }
+                        // Check if there's a point exactly at this tick
+                        if lane.point_at(tick).is_some() {
+                            buf.set_cell(x, y, '●', point_style);
+                        } else {
+                            buf.set_cell(x, y, '─', curve_style);
                         }
                     }
                 }
@@ -225,15 +208,11 @@ impl AutomationPane {
                 // Vertical line at cursor tick
                 for row in 0..graph_height {
                     let y = graph_y + row;
-                    if let Some(cell) = buf.cell_mut((x, y)) {
+                    if let Some(cell) = buf.raw_buf().cell_mut((x, y)) {
                         if row == cursor_row {
-                            cell.set_char('◆').set_style(
-                                ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG)),
-                            );
+                            cell.set_char('◆').set_style(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG));
                         } else if cell.symbol() == " " {
-                            cell.set_char('│').set_style(
-                                ratatui::style::Style::from(Style::new().fg(Color::new(50, 50, 60))),
-                            );
+                            cell.set_char('│').set_style(Style::new().fg(Color::new(50, 50, 60)));
                         }
                     }
                 }
@@ -243,7 +222,7 @@ impl AutomationPane {
         // Beat markers row
         let marker_y = graph_y + graph_height;
         if marker_y < area.y + area.height {
-            let marker_style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
+            let marker_style = Style::new().fg(Color::DARK_GRAY);
             for col in 0..graph_width {
                 let tick = self.view_start_tick + col as u32 * tpc;
                 if tick % 1920 == 0 {
@@ -253,9 +232,7 @@ impl AutomationPane {
                     for (j, ch) in label.chars().enumerate() {
                         let x = area.x + col + j as u16;
                         if x < area.x + graph_width {
-                            if let Some(cell) = buf.cell_mut((x, marker_y)) {
-                                cell.set_char(ch).set_style(marker_style);
-                            }
+                            buf.set_cell(x, marker_y, ch, marker_style);
                         }
                     }
                 }
@@ -283,47 +260,39 @@ impl AutomationPane {
                 rec_indicator,
             );
 
-            let normal_style = ratatui::style::Style::from(Style::new().fg(Color::GRAY));
-            let rec_style = ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::RED));
+            let normal_style = Style::new().fg(Color::GRAY);
+            let rec_style = Style::new().fg(Color::WHITE).bg(Color::RED);
 
             // Render status text
             for (i, ch) in status.chars().enumerate() {
                 let x = area.x + i as u16;
                 if x >= area.x + graph_width { break; }
-                if let Some(cell) = buf.cell_mut((x, status_y)) {
-                    // Use red style for [REC]
-                    let is_rec_section = state.automation_recording
-                        && i >= status.len() - 6;
-                    let style = if is_rec_section { rec_style } else { normal_style };
-                    cell.set_char(ch).set_style(style);
-                }
+                // Use red style for [REC]
+                let is_rec_section = state.automation_recording
+                    && i >= status.len() - 6;
+                let style = if is_rec_section { rec_style } else { normal_style };
+                buf.set_cell(x, status_y, ch, style);
             }
         }
     }
 
-    pub(super) fn render_target_picker(&self, buf: &mut Buffer, area: Rect) {
+    pub(super) fn render_target_picker(&self, buf: &mut RenderBuf, area: Rect) {
         if let TargetPickerState::Active { ref options, cursor } = self.target_picker {
             let picker_width = 30u16.min(area.width.saturating_sub(4));
             let picker_height = (options.len() as u16 + 2).min(area.height.saturating_sub(2));
             let picker_rect = center_rect(area, picker_width, picker_height);
 
-            let block = Block::default()
-                .borders(Borders::ALL)
-                .title(" Add Lane ")
-                .border_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)))
-                .title_style(ratatui::style::Style::from(Style::new().fg(Color::CYAN)));
-            let inner = block.inner(picker_rect);
             // Clear background
+            let clear_style = Style::new().bg(Color::new(20, 20, 30));
             for y in picker_rect.y..picker_rect.y + picker_rect.height {
                 for x in picker_rect.x..picker_rect.x + picker_rect.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char(' ').set_style(
-                            ratatui::style::Style::from(Style::new().bg(Color::new(20, 20, 30))),
-                        );
-                    }
+                    buf.set_cell(x, y, ' ', clear_style);
                 }
             }
-            block.render(picker_rect, buf);
+
+            let border_style = Style::new().fg(Color::CYAN);
+            let title_style = Style::new().fg(Color::CYAN);
+            let inner = buf.draw_block(picker_rect, " Add Lane ", border_style, title_style);
 
             for (i, target) in options.iter().enumerate() {
                 let y = inner.y + i as u16;
@@ -336,24 +305,20 @@ impl AutomationPane {
                     target.name()
                 );
                 let style = if is_selected {
-                    ratatui::style::Style::from(Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold())
+                    Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold()
                 } else {
-                    ratatui::style::Style::from(Style::new().fg(Color::GRAY))
+                    Style::new().fg(Color::GRAY)
                 };
 
                 for (j, ch) in text.chars().enumerate() {
                     let x = inner.x + j as u16;
                     if x >= inner.x + inner.width { break; }
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_char(ch).set_style(style);
-                    }
+                    buf.set_cell(x, y, ch, style);
                 }
                 // Fill remaining for selected
                 if is_selected {
                     for x in (inner.x + text.len() as u16)..(inner.x + inner.width) {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.set_style(style);
-                        }
+                        buf.set_cell(x, y, ' ', style);
                     }
                 }
             }

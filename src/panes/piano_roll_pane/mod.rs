@@ -189,7 +189,6 @@ impl Pane for PianoRollPane {
     }
 
     fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
-        let buf = buf.raw_buf();
         self.render_notes_buf(buf, area, state);
 
         // Automation overlay

@@ -1,9 +1,5 @@
 use std::any::Any;
 
-use ratatui::buffer::Buffer;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Widget};
-
 use crate::state::{AppState, EqBandType, EqConfig, InstrumentId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, InputEvent, InstrumentAction, Keymap, Pane, Style};
@@ -86,7 +82,6 @@ impl Pane for EqPane {
     }
 
     fn render(&mut self, area: Rect, buf: &mut RenderBuf, state: &AppState) {
-        let buf = buf.raw_buf();
         let rect = center_rect(area, 78, 24);
 
         let instrument = state.instruments.selected_instrument();
@@ -96,13 +91,8 @@ impl Pane for EqPane {
         };
 
         let border_color = Color::new(100, 180, 255);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(ratatui::style::Style::from(Style::new().fg(border_color)))
-            .title_style(ratatui::style::Style::from(Style::new().fg(border_color)));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
+        let border_style = Style::new().fg(border_color);
+        let inner = buf.draw_block(rect, &title, border_style, border_style);
 
         let instrument = match instrument {
             Some(i) => i,
@@ -130,14 +120,14 @@ impl Pane for EqPane {
 
         // dB axis labels
         let db_labels = ["+24", "+12", "  0", "-12", "-24"];
+        let db_style = Style::new().fg(Color::DARK_GRAY);
         for (i, label) in db_labels.iter().enumerate() {
             let y = curve_y + (i as u16) * (curve_height.saturating_sub(1)) / 4;
             if y < inner.y + inner.height {
-                let style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
                 for (ci, ch) in label.chars().enumerate() {
                     let x = inner.x + ci as u16;
                     if x < inner.x + 4 {
-                        buf[(x, y)].set_char(ch).set_style(style);
+                        buf.set_cell(x, y, ch, db_style);
                     }
                 }
             }
@@ -146,15 +136,15 @@ impl Pane for EqPane {
         // Frequency axis labels
         let freq_labels = ["20", "100", "500", "1k", "5k", "10k", "20k"];
         let freq_axis_y = curve_y + curve_height;
+        let freq_style = Style::new().fg(Color::DARK_GRAY);
         if freq_axis_y < inner.y + inner.height {
             for (i, label) in freq_labels.iter().enumerate() {
                 let frac = i as f32 / (freq_labels.len() - 1) as f32;
                 let x = curve_x + (frac * (curve_width.saturating_sub(1) as f32)) as u16;
-                let style = ratatui::style::Style::from(Style::new().fg(Color::DARK_GRAY));
                 for (ci, ch) in label.chars().enumerate() {
                     let px = x + ci as u16;
                     if px < inner.x + inner.width {
-                        buf[(px, freq_axis_y)].set_char(ch).set_style(style);
+                        buf.set_cell(px, freq_axis_y, ch, freq_style);
                     }
                 }
             }
@@ -176,14 +166,11 @@ impl Pane for EqPane {
 
 // -- Helpers --
 
-fn render_centered_text(area: Rect, buf: &mut Buffer, text: &str, color: Color) {
+fn render_centered_text(area: Rect, buf: &mut RenderBuf, text: &str, color: Color) {
     let x = area.x + (area.width.saturating_sub(text.len() as u16)) / 2;
     let y = area.y + area.height / 2;
-    let line = Line::from(Span::styled(
-        text,
-        ratatui::style::Style::from(Style::new().fg(color)),
-    ));
-    ratatui::widgets::Paragraph::new(line).render(Rect::new(x, y, text.len() as u16, 1), buf);
+    let style = Style::new().fg(color);
+    buf.draw_line(Rect::new(x, y, text.len() as u16, 1), &[(text, style)]);
 }
 
 fn adjust_param(
@@ -279,22 +266,22 @@ fn render_frequency_curve(
     x: u16, y: u16, width: u16, height: u16,
     eq: &EqConfig,
     selected_band: usize,
-    buf: &mut Buffer,
+    buf: &mut RenderBuf,
 ) {
     if width < 2 || height < 2 {
         return;
     }
 
     // Zero-line
-    let grid_style = ratatui::style::Style::from(Style::new().fg(Color::new(40, 40, 40)));
+    let grid_style = Style::new().fg(Color::new(40, 40, 40));
     let zero_row = y + height / 2;
     for col in x..x + width {
-        buf[(col, zero_row)].set_char('-').set_style(grid_style);
+        buf.set_cell(col, zero_row, '-', grid_style);
     }
 
     // Compute response at each column (log-spaced 20Hz..20kHz)
     let curve_color = Color::new(100, 200, 255);
-    let curve_style = ratatui::style::Style::from(Style::new().fg(curve_color));
+    let curve_style = Style::new().fg(curve_color);
 
     let db_range = 24.0_f32;
     let mut responses = Vec::with_capacity(width as usize);
@@ -315,7 +302,7 @@ fn render_frequency_curve(
         if py >= y && py < y + height {
             let sub = (row_f - row_f.floor()) * 2.0;
             let ch = if sub < 1.0 { '\u{2584}' } else { '\u{2588}' };
-            buf[(px, py)].set_char(ch).set_style(curve_style);
+            buf.set_cell(px, py, ch, curve_style);
         }
     }
 
@@ -337,8 +324,7 @@ fn render_frequency_curve(
             } else {
                 Color::WHITE
             };
-            let marker_style = ratatui::style::Style::from(Style::new().fg(marker_color));
-            buf[(px, py)].set_char('\u{25cf}').set_style(marker_style);
+            buf.set_cell(px, py, '\u{25cf}', Style::new().fg(marker_color));
         }
     }
 }
@@ -349,7 +335,7 @@ fn render_band_info(
     eq: &EqConfig,
     selected_band: usize,
     selected_param: usize,
-    buf: &mut Buffer,
+    buf: &mut RenderBuf,
 ) {
     let bands_per_row = 6;
     let band_width = (width / bands_per_row as u16).max(10);
@@ -369,23 +355,17 @@ fn render_band_info(
             band.band_type.name(),
             format_freq(band.freq),
         );
-        let label_style = ratatui::style::Style::from(
-            Style::new().fg(if is_selected && selected_param == 0 { Color::new(255, 200, 50) } else { type_color })
-        );
+        let label_style = Style::new().fg(if is_selected && selected_param == 0 { Color::new(255, 200, 50) } else { type_color });
         render_text_at(bx, by, &label, label_style, width, buf);
 
         // Row 1: gain
         let gain_str = format!("{:+.1}dB", band.gain);
-        let gain_style = ratatui::style::Style::from(
-            Style::new().fg(if is_selected && selected_param == 1 { Color::new(255, 200, 50) } else { Color::WHITE })
-        );
+        let gain_style = Style::new().fg(if is_selected && selected_param == 1 { Color::new(255, 200, 50) } else { Color::WHITE });
         render_text_at(bx, by + 1, &gain_str, gain_style, width, buf);
 
         // Row 2: Q
         let q_str = format!("Q:{:.2}", band.q);
-        let q_style = ratatui::style::Style::from(
-            Style::new().fg(if is_selected && selected_param == 2 { Color::new(255, 200, 50) } else { Color::WHITE })
-        );
+        let q_style = Style::new().fg(if is_selected && selected_param == 2 { Color::new(255, 200, 50) } else { Color::WHITE });
         render_text_at(bx, by + 2, &q_str, q_style, width, buf);
 
         // Row 3: enabled
@@ -397,16 +377,15 @@ fn render_band_info(
         } else {
             Color::new(80, 200, 80)
         };
-        let on_style = ratatui::style::Style::from(Style::new().fg(on_color));
-        render_text_at(bx, by + 3, on_str, on_style, width, buf);
+        render_text_at(bx, by + 3, on_str, Style::new().fg(on_color), width, buf);
     }
 }
 
-fn render_text_at(x: u16, y: u16, text: &str, style: ratatui::style::Style, max_width: u16, buf: &mut Buffer) {
+fn render_text_at(x: u16, y: u16, text: &str, style: Style, max_width: u16, buf: &mut RenderBuf) {
     for (i, ch) in text.chars().enumerate() {
         let px = x + i as u16;
-        if px < x + max_width && y < buf.area().bottom() && px < buf.area().right() {
-            buf[(px, y)].set_char(ch).set_style(style);
+        if px < x + max_width {
+            buf.set_cell(px, y, ch, style);
         }
     }
 }
