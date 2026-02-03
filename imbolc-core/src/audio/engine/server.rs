@@ -77,8 +77,26 @@ impl AudioEngine {
 
         let mut child = None;
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+        // On Linux, try launching scsynth via pw-jack so it routes through
+        // PipeWire's JACK emulation instead of requiring a standalone JACK daemon.
+        let use_pw_jack = cfg!(target_os = "linux")
+            && Command::new("pw-jack")
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok();
+
         for path in &scsynth_paths {
-            match Command::new(path)
+            let mut cmd = if use_pw_jack {
+                let mut c = Command::new("pw-jack");
+                c.arg(path);
+                c
+            } else {
+                Command::new(path)
+            };
+            match cmd
                 .args(&arg_refs)
                 .stdout(stdout_file.as_ref()
                     .and_then(|f| f.try_clone().ok())
@@ -114,6 +132,14 @@ impl AudioEngine {
                     }
                     _ => {
                         self.scsynth_process = Some(c);
+
+                        // On Linux with pw-jack, WirePlumber may not auto-connect
+                        // SuperCollider's JACK outputs to the hardware. Explicitly
+                        // connect them so audio reaches the speakers.
+                        if use_pw_jack {
+                            Self::connect_jack_ports();
+                        }
+
                         Ok(())
                     }
                 }
@@ -267,14 +293,18 @@ impl AudioEngine {
         ];
 
         for path in &sclang_paths {
-            match Command::new(path).arg(scd_path).output() {
+            match Command::new(path)
+                .arg(scd_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    return Ok("Synthdefs compiled successfully".to_string());
+                }
                 Ok(output) => {
-                    if output.status.success() {
-                        return Ok("Synthdefs compiled successfully".to_string());
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        return Err(format!("Compilation failed: {}", stderr));
-                    }
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("Compilation failed: {}", stderr));
                 }
                 Err(_) => continue,
             }
@@ -395,5 +425,61 @@ impl AudioEngine {
         client.create_group(GROUP_RECORD, 1, 0).map_err(|e| e.to_string())?;
         self.groups_created = true;
         Ok(())
+    }
+
+    /// Connect SuperCollider's JACK output ports to the first available
+    /// hardware playback ports. Uses `pw-jack jack_lsp` to discover port
+    /// names and `pw-jack jack_connect` to wire them up.
+    /// Spawns a background thread to avoid blocking startup — scsynth may
+    /// need a few seconds to register its JACK ports with PipeWire.
+    fn connect_jack_ports() {
+        thread::spawn(|| {
+            // Wait for SuperCollider JACK ports to appear (up to 5s)
+            let mut sc_ports_ready = false;
+            for _ in 0..25 {
+                thread::sleep(Duration::from_millis(200));
+                if let Ok(output) = Command::new("pw-jack")
+                    .args(["jack_lsp"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .output()
+                {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    if text.lines().any(|l| l == "SuperCollider:out_1") {
+                        sc_ports_ready = true;
+                        break;
+                    }
+                }
+            }
+            if !sc_ports_ready {
+                return;
+            }
+
+            // Discover hardware playback ports
+            let playback_ports: Vec<String> = Command::new("pw-jack")
+                .args(["jack_lsp"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output()
+                .map(|output| {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    text.lines()
+                        .filter(|l| !l.starts_with("SuperCollider:"))
+                        .filter(|l| l.contains(":playback_"))
+                        .take(2)
+                        .map(|l| l.to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let sc_outs = ["SuperCollider:out_1", "SuperCollider:out_2"];
+            for (sc_port, hw_port) in sc_outs.iter().zip(playback_ports.iter()) {
+                let _ = Command::new("pw-jack")
+                    .args(["jack_connect", sc_port, hw_port])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        });
     }
 }
