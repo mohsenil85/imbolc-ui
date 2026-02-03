@@ -642,7 +642,7 @@ pub(super) fn dispatch_chopper(
                                 if audio.is_running() {
                                     let _ = audio.play_drum_hit_to_instrument(
                                         buffer_id, 0.8, instrument.id,
-                                        slice.start, slice.end, 1.0,
+                                        slice.start, slice.end, 1.0, 0.0,
                                     );
                                 }
                             }

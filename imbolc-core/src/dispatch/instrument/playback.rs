@@ -79,7 +79,7 @@ pub(super) fn handle_play_drum_pad(
                     if audio.is_running() {
                         let _ = audio.play_drum_hit_to_instrument(
                             buffer_id, amp, instrument_id,
-                            pad.slice_start, pad.slice_end, rate,
+                            pad.slice_start, pad.slice_end, rate, 0.0,
                         );
                     }
                 }

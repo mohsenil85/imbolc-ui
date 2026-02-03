@@ -150,6 +150,7 @@ pub enum AudioCmd {
         slice_start: f32,
         slice_end: f32,
         rate: f32,
+        offset_secs: f64,
     },
 
     // ── Samples ───────────────────────────────────────────────────

@@ -25,18 +25,18 @@ pub fn tick_drum_sequencer(
         }
 
         let pattern_length = seq.pattern().length;
-        let steps_per_beat = 4.0_f32;
-        let steps_per_second = (bpm / 60.0) * steps_per_beat;
+        let steps_per_beat = 4.0_f64;
+        let steps_per_second = (bpm as f64 / 60.0) * steps_per_beat;
 
-        seq.step_accumulator += elapsed.as_secs_f32() * steps_per_second;
+        seq.step_accumulator += elapsed.as_secs_f64() * steps_per_second;
 
         // Swing: odd-numbered steps need a higher threshold to fire (delayed)
         let next_step = (seq.current_step + 1) % pattern_length;
-        let swing_threshold = if seq.swing_amount > 0.0 && next_step % 2 == 1 {
-            1.0 + seq.swing_amount * 0.5
+        let swing_threshold: f64 = if seq.swing_amount > 0.0 && next_step % 2 == 1 {
+            1.0 + seq.swing_amount as f64 * 0.5
         } else if seq.swing_amount > 0.0 && seq.current_step % 2 == 1 {
             // After a swung step, the following even step comes sooner
-            1.0 - seq.swing_amount * 0.5
+            1.0 - seq.swing_amount as f64 * 0.5
         } else {
             1.0
         };
@@ -91,7 +91,7 @@ pub fn tick_drum_sequencer(
                                 let rate = if pad.reverse { -pitch_rate } else { pitch_rate };
                                 let _ = engine.play_drum_hit_to_instrument(
                                     buffer_id, amp, instrument.id,
-                                    pad.slice_start, pad.slice_end, rate,
+                                    pad.slice_start, pad.slice_end, rate, 0.0,
                                 );
                             }
                         }

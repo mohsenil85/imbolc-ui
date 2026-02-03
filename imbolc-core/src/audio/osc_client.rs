@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::UdpSocket;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 
 /// Maximum number of waveform samples to keep per audio input instrument
@@ -618,15 +618,26 @@ impl OscClientLike for OscClient {
     }
 }
 
-/// Convert a SystemTime offset (seconds from now) to an OSC timetag.
+/// Convert a monotonic offset (seconds from now) to an OSC timetag.
 /// SC uses NTP epoch (1900-01-01), so we add the NTP-Unix offset.
+/// Uses a monotonic Instant anchor to avoid wall-clock jumps from NTP adjustments.
 const NTP_UNIX_OFFSET: u64 = 2_208_988_800;
 
-pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
-    let now = SystemTime::now()
+/// Anchor pair captured once at init: (monotonic instant, wall-clock time).
+/// All timetags are derived from the Instant elapsed since this anchor,
+/// using the SystemTime only as the epoch reference.
+static CLOCK_ANCHOR: LazyLock<(Instant, f64)> = LazyLock::new(|| {
+    let wall = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let total_secs = now.as_secs_f64() + offset_secs;
+        .unwrap_or_default()
+        .as_secs_f64();
+    (Instant::now(), wall)
+});
+
+pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
+    let (anchor_instant, anchor_wall) = &*CLOCK_ANCHOR;
+    let elapsed = anchor_instant.elapsed().as_secs_f64();
+    let total_secs = anchor_wall + elapsed + offset_secs;
     let secs = total_secs as u64 + NTP_UNIX_OFFSET;
     let frac = ((total_secs.fract()) * (u32::MAX as f64)) as u32;
     OscTime { seconds: secs as u32, fractional: frac }
@@ -636,4 +647,16 @@ pub fn osc_time_from_now(offset_secs: f64) -> OscTime {
 #[allow(dead_code)]
 pub fn osc_time_immediate() -> OscTime {
     OscTime { seconds: 0, fractional: 1 }
+}
+
+/// Build an /n_set message for a single parameter on a node.
+pub fn build_n_set_message(node_id: i32, param: &str, value: f32) -> OscMessage {
+    OscMessage {
+        addr: "/n_set".to_string(),
+        args: vec![
+            OscType::Int(node_id),
+            OscType::String(param.to_string()),
+            OscType::Float(value),
+        ],
+    }
 }

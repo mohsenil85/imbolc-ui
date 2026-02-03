@@ -49,6 +49,8 @@ pub(crate) struct AudioThread {
     export_state: Option<ExportState>,
     /// Last export progress sent (for throttling)
     last_export_progress: f32,
+    /// Fractional tick accumulator for sub-tick precision (avoids truncation drift)
+    tick_accumulator: f64,
 }
 
 fn config_synthdefs_dir() -> PathBuf {
@@ -86,6 +88,7 @@ impl AudioThread {
             render_state: None,
             export_state: None,
             last_export_progress: 0.0,
+            tick_accumulator: 0.0,
         }
     }
 
@@ -225,9 +228,13 @@ impl AudioThread {
             }
             AudioCmd::SetPlaying { playing } => {
                 self.piano_roll.playing = playing;
+                if playing {
+                    self.tick_accumulator = 0.0;
+                }
             }
             AudioCmd::ResetPlayhead => {
                 self.piano_roll.playhead = 0;
+                self.tick_accumulator = 0.0;
                 let _ = self.feedback_tx.send(AudioFeedback::PlayheadPosition(0));
             }
             AudioCmd::SetBpm { bpm } => {
@@ -288,9 +295,9 @@ impl AudioThread {
             AudioCmd::ReleaseAllVoices => {
                 self.engine.release_all_voices();
             }
-            AudioCmd::PlayDrumHit { buffer_id, amp, instrument_id, slice_start, slice_end, rate } => {
+            AudioCmd::PlayDrumHit { buffer_id, amp, instrument_id, slice_start, slice_end, rate, offset_secs } => {
                 let _ = self.engine.play_drum_hit_to_instrument(
-                    buffer_id, amp, instrument_id, slice_start, slice_end, rate,
+                    buffer_id, amp, instrument_id, slice_start, slice_end, rate, offset_secs,
                 );
             }
             AudioCmd::LoadSample { buffer_id, path, reply } => {
@@ -532,6 +539,7 @@ impl AudioThread {
             &mut self.rng_state,
             &self.feedback_tx,
             elapsed,
+            &mut self.tick_accumulator,
         );
 
         // Check if render-to-WAV should stop

@@ -50,8 +50,11 @@ pub fn tick_arpeggiator(
         }
 
         // Advance accumulator
-        let steps_per_second = (bpm / 60.0) * config.rate.steps_per_beat();
-        arp.accumulator += elapsed.as_secs_f32() * steps_per_second;
+        let steps_per_second = (bpm as f64 / 60.0) * config.rate.steps_per_beat() as f64;
+        arp.accumulator += elapsed.as_secs_f64() * steps_per_second;
+
+        let step_duration_secs = if steps_per_second > 0.0 { 1.0 / steps_per_second } else { 0.0 };
+        let mut step_offset: f64 = 0.0;
 
         while arp.accumulator >= 1.0 {
             arp.accumulator -= 1.0;
@@ -59,7 +62,7 @@ pub fn tick_arpeggiator(
             // Release previous note
             if let Some(pitch) = arp.current_pitch.take() {
                 if engine.is_running() {
-                    let _ = engine.release_voice(instrument_id, pitch, 0.0, instruments);
+                    let _ = engine.release_voice(instrument_id, pitch, step_offset, instruments);
                 }
             }
 
@@ -117,10 +120,11 @@ pub fn tick_arpeggiator(
                         !inst.active || if any_solo { !inst.solo } else { inst.mute }
                     });
                     if skip { continue; }
-                    let _ = engine.spawn_voice(target_id, pitch, vel_f, 0.0, instruments, session);
+                    let _ = engine.spawn_voice(target_id, pitch, vel_f, step_offset, instruments, session);
                 }
             }
             arp.current_pitch = Some(pitch);
+            step_offset += step_duration_secs;
         }
     }
 

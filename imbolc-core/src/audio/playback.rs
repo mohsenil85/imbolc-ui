@@ -24,9 +24,11 @@ pub fn tick_playback(
     rng_state: &mut u64,
     feedback_tx: &Sender<AudioFeedback>,
     elapsed: Duration,
+    tick_accumulator: &mut f64,
 ) {
+    // (instrument_id, pitch, velocity, duration, note_tick, probability, ticks_from_old_playhead)
     let mut playback_data: Option<(
-        Vec<(u32, u8, u8, u32, u32, f32)>, // instrument_id, pitch, velocity, duration, tick, probability
+        Vec<(u32, u8, u8, u32, u32, f32, f64)>,
         u32,
         u32,
         u32,
@@ -34,50 +36,62 @@ pub fn tick_playback(
     )> = None;
 
     if piano_roll.playing {
-        let seconds = elapsed.as_secs_f32();
-        let ticks_f = seconds * (piano_roll.bpm / 60.0) * piano_roll.ticks_per_beat as f32;
-        let tick_delta = ticks_f as u32;
+        *tick_accumulator += elapsed.as_secs_f64()
+            * (piano_roll.bpm as f64 / 60.0)
+            * piano_roll.ticks_per_beat as f64;
+        let tick_delta = *tick_accumulator as u32;
+        *tick_accumulator -= tick_delta as f64;
 
         if tick_delta > 0 {
             let old_playhead = piano_roll.playhead;
             piano_roll.advance(tick_delta);
             let new_playhead = piano_roll.playhead;
 
-            let (scan_start, scan_end) = if new_playhead >= old_playhead {
-                (old_playhead, new_playhead)
+            // Build scan ranges: (start, end, base_ticks_from_old_playhead)
+            // On wrap, scan both [old_playhead, loop_end) and [loop_start, new_playhead)
+            let wrapped = new_playhead < old_playhead;
+            let scan_ranges: Vec<(u32, u32, f64)> = if wrapped {
+                vec![
+                    (old_playhead, piano_roll.loop_end, 0.0),
+                    (piano_roll.loop_start, new_playhead, (piano_roll.loop_end - old_playhead) as f64),
+                ]
             } else {
-                (piano_roll.loop_start, new_playhead)
+                vec![(old_playhead, new_playhead, 0.0)]
             };
 
             let secs_per_tick = 60.0 / (piano_roll.bpm as f64 * piano_roll.ticks_per_beat as f64);
 
-            let mut note_ons: Vec<(u32, u8, u8, u32, u32, f32)> = Vec::new();
+            let mut note_ons: Vec<(u32, u8, u8, u32, u32, f32, f64)> = Vec::new();
             let any_solo = instruments.any_instrument_solo();
             for &instrument_id in &piano_roll.track_order {
                 if let Some(track) = piano_roll.tracks.get(&instrument_id) {
-                    // Binary search for efficiency (Phase 3B)
-                    // Notes are expected to be sorted by tick
-                    let start_idx = track.notes.partition_point(|n| n.tick < scan_start);
-                    let end_idx = track.notes.partition_point(|n| n.tick < scan_end);
-
                     // Expand layer group: collect all target IDs for this instrument
                     let targets = instruments.layer_group_members(instrument_id);
 
-                    for note in &track.notes[start_idx..end_idx] {
-                        for &target_id in &targets {
-                            // Skip muted/inactive siblings
-                            let skip = instruments.instrument(target_id).map_or(true, |inst| {
-                                !inst.active || if any_solo { !inst.solo } else { inst.mute }
-                            });
-                            if skip { continue; }
-                            note_ons.push((
-                                target_id,
-                                note.pitch,
-                                note.velocity,
-                                note.duration,
-                                note.tick,
-                                note.probability,
-                            ));
+                    for &(scan_start, scan_end, base_ticks) in &scan_ranges {
+                        // Binary search for efficiency
+                        // Notes are expected to be sorted by tick
+                        let start_idx = track.notes.partition_point(|n| n.tick < scan_start);
+                        let end_idx = track.notes.partition_point(|n| n.tick < scan_end);
+
+                        for note in &track.notes[start_idx..end_idx] {
+                            let ticks_from_old = base_ticks + (note.tick - scan_start) as f64;
+                            for &target_id in &targets {
+                                // Skip muted/inactive siblings
+                                let skip = instruments.instrument(target_id).map_or(true, |inst| {
+                                    !inst.active || if any_solo { !inst.solo } else { inst.mute }
+                                });
+                                if skip { continue; }
+                                note_ons.push((
+                                    target_id,
+                                    note.pitch,
+                                    note.velocity,
+                                    note.duration,
+                                    note.tick,
+                                    note.probability,
+                                    ticks_from_old,
+                                ));
+                            }
                         }
                     }
                 }
@@ -87,12 +101,12 @@ pub fn tick_playback(
         }
     }
 
-    if let Some((note_ons, old_playhead, new_playhead, tick_delta, secs_per_tick)) = playback_data {
+    if let Some((note_ons, _old_playhead, new_playhead, tick_delta, secs_per_tick)) = playback_data {
         if engine.is_running() {
             let swing_amount = piano_roll.swing_amount;
             let humanize_vel = session.humanize_velocity;
             let humanize_time = session.humanize_timing;
-            for &(instrument_id, pitch, velocity, duration, note_tick, probability) in &note_ons {
+            for &(instrument_id, pitch, velocity, duration, note_tick, probability, ticks_from_old) in &note_ons {
                 // Probability check: skip note if random exceeds probability
                 if probability < 1.0 && next_random(rng_state) > probability {
                     continue;
@@ -117,12 +131,7 @@ pub fn tick_playback(
                     continue;
                 }
 
-                let ticks_from_now = if note_tick >= old_playhead {
-                    (note_tick - old_playhead) as f64
-                } else {
-                    0.0
-                };
-                let mut offset = ticks_from_now * secs_per_tick;
+                let mut offset = ticks_from_old * secs_per_tick;
                 // Apply swing: delay notes on offbeat positions (odd 8th notes)
                 if swing_amount > 0.0 {
                     let tpb = piano_roll.ticks_per_beat as f64;
@@ -147,6 +156,8 @@ pub fn tick_playback(
                 active_notes.push((instrument_id, pitch, duration));
             }
 
+            // Collect automation updates into a single bundle
+            let mut automation_msgs = Vec::new();
             for lane in automation_lanes {
                 if !lane.enabled {
                     continue;
@@ -158,10 +169,13 @@ pub fn tick_playback(
                             let _ = feedback_tx.send(AudioFeedback::BpmUpdate(value));
                         }
                     } else {
-                        let _ = engine.apply_automation(&lane.target, value, instruments, session);
+                        automation_msgs.extend(
+                            engine.collect_automation_messages(&lane.target, value, instruments, session)
+                        );
                     }
                 }
             }
+            let _ = engine.send_automation_bundle(automation_msgs);
         }
 
         let mut note_offs: Vec<(u32, u8, u32)> = Vec::new();

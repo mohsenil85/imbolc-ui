@@ -93,7 +93,7 @@ pub struct DrumSequencerState {
     pub current_step: usize,
     pub next_buffer_id: BufferId,
     #[serde(skip)]
-    pub step_accumulator: f32,
+    pub step_accumulator: f64,
     #[serde(skip)]
     pub last_played_step: Option<usize>,
     pub chopper: Option<ChopperState>,

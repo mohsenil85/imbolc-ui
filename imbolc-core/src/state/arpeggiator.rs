@@ -194,7 +194,7 @@ impl ChordShape {
 pub struct ArpPlayState {
     pub held_notes: Vec<u8>,       // Currently held MIDI pitches (sorted)
     pub step_index: usize,         // Current position in the note sequence
-    pub accumulator: f32,          // Fractional step accumulator
+    pub accumulator: f64,          // Fractional step accumulator
     pub ascending: bool,           // For UpDown direction tracking
     pub current_pitch: Option<u8>, // Currently sounding pitch (for release)
 }

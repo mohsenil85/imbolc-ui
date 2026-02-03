@@ -600,6 +600,7 @@ impl AudioEngine {
         slice_start: f32,
         slice_end: f32,
         rate: f32,
+        offset_secs: f64,
     ) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Not connected")?;
         let bufnum = *self.buffer_map.get(&buffer_id).ok_or("Buffer not loaded")?;
@@ -611,28 +612,30 @@ impl AudioEngine {
         let node_id = self.next_node_id;
         self.next_node_id += 1;
 
+        let msg = rosc::OscMessage {
+            addr: "/s_new".to_string(),
+            args: vec![
+                rosc::OscType::String("imbolc_sampler_oneshot".to_string()),
+                rosc::OscType::Int(node_id),
+                rosc::OscType::Int(0), // addToHead
+                rosc::OscType::Int(GROUP_SOURCES),
+                rosc::OscType::String("bufnum".to_string()),
+                rosc::OscType::Int(bufnum),
+                rosc::OscType::String("amp".to_string()),
+                rosc::OscType::Float(amp),
+                rosc::OscType::String("sliceStart".to_string()),
+                rosc::OscType::Float(slice_start),
+                rosc::OscType::String("sliceEnd".to_string()),
+                rosc::OscType::Float(slice_end),
+                rosc::OscType::String("rate".to_string()),
+                rosc::OscType::Float(rate),
+                rosc::OscType::String("out".to_string()),
+                rosc::OscType::Int(out_bus), // Route to instrument's source bus
+            ],
+        };
+        let time = super::super::osc_client::osc_time_from_now(offset_secs);
         client
-            .send_message(
-                "/s_new",
-                vec![
-                    rosc::OscType::String("imbolc_sampler_oneshot".to_string()),
-                    rosc::OscType::Int(node_id),
-                    rosc::OscType::Int(0), // addToHead
-                    rosc::OscType::Int(GROUP_SOURCES),
-                    rosc::OscType::String("bufnum".to_string()),
-                    rosc::OscType::Int(bufnum),
-                    rosc::OscType::String("amp".to_string()),
-                    rosc::OscType::Float(amp),
-                    rosc::OscType::String("sliceStart".to_string()),
-                    rosc::OscType::Float(slice_start),
-                    rosc::OscType::String("sliceEnd".to_string()),
-                    rosc::OscType::Float(slice_end),
-                    rosc::OscType::String("rate".to_string()),
-                    rosc::OscType::Float(rate),
-                    rosc::OscType::String("out".to_string()),
-                    rosc::OscType::Int(out_bus), // Route to instrument's source bus
-                ],
-            )
+            .send_bundle(vec![msg], time)
             .map_err(|e| e.to_string())?;
 
         Ok(())
