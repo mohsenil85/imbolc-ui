@@ -355,6 +355,31 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 FOREIGN KEY (clip_id) REFERENCES arrangement_clips(id)
             );
 
+            CREATE TABLE IF NOT EXISTS arrangement_clip_automation_lanes (
+                id INTEGER PRIMARY KEY,
+                clip_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,
+                target_instrument_id INTEGER NOT NULL,
+                target_effect_idx INTEGER,
+                target_param_idx INTEGER,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                record_armed INTEGER NOT NULL DEFAULT 0,
+                min_value REAL NOT NULL,
+                max_value REAL NOT NULL,
+                FOREIGN KEY (clip_id) REFERENCES arrangement_clips(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS arrangement_clip_automation_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lane_id INTEGER NOT NULL,
+                clip_id INTEGER NOT NULL,
+                tick INTEGER NOT NULL,
+                value REAL NOT NULL,
+                curve_type TEXT NOT NULL DEFAULT 'linear',
+                FOREIGN KEY (lane_id) REFERENCES arrangement_clip_automation_lanes(id),
+                FOREIGN KEY (clip_id) REFERENCES arrangement_clips(id)
+            );
+
             CREATE TABLE IF NOT EXISTS arrangement_settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 play_mode TEXT NOT NULL DEFAULT 'pattern',
@@ -397,6 +422,8 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
 
             -- Clear existing data
             DELETE FROM instrument_filter_params;
+            DELETE FROM arrangement_clip_automation_points;
+            DELETE FROM arrangement_clip_automation_lanes;
             DELETE FROM arrangement_clip_notes;
             DELETE FROM arrangement_placements;
             DELETE FROM arrangement_settings;

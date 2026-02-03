@@ -167,7 +167,15 @@ impl AudioHandle {
             }
         }
         if dirty.automation {
-            self.update_automation_lanes(&state.session.automation.lanes);
+            if state.session.arrangement.play_mode == PlayMode::Song
+                && state.session.arrangement.editing_clip.is_none()
+            {
+                let mut merged = state.session.automation.lanes.clone();
+                merged.extend(state.session.arrangement.flatten_automation());
+                self.update_automation_lanes(&merged);
+            } else {
+                self.update_automation_lanes(&state.session.automation.lanes);
+            }
         }
         if dirty.routing {
             self.send(AudioCmd::RebuildRouting);

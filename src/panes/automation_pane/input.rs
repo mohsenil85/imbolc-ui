@@ -62,6 +62,7 @@ impl AutomationPane {
             // Add lane
             "add_lane" => {
                 let inst_id = state.instruments.selected_instrument().map(|i| i.id);
+                let editing_clip = state.session.arrangement.editing_clip.is_some();
                 let mut options: Vec<AutomationTarget> = Vec::new();
                 if let Some(id) = inst_id {
                     options = AutomationTarget::targets_for_instrument(id);
@@ -72,11 +73,13 @@ impl AutomationPane {
                         }
                     }
                 }
-                // Add global targets
-                for bus_id in 1..=8u8 {
-                    options.push(AutomationTarget::BusLevel(bus_id));
+                // Add global targets (skip when editing a clip — only instrument targets apply)
+                if !editing_clip {
+                    for bus_id in 1..=8u8 {
+                        options.push(AutomationTarget::BusLevel(bus_id));
+                    }
+                    options.push(AutomationTarget::Bpm);
                 }
-                options.push(AutomationTarget::Bpm);
 
                 self.target_picker = TargetPickerState::Active { options, cursor: 0 };
                 Action::None

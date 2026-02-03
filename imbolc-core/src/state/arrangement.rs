@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use super::automation::{AutomationLane, AutomationLaneId, AutomationTarget};
 use super::instrument::InstrumentId;
 use super::piano_roll::Note;
 use serde::{Serialize, Deserialize};
@@ -27,6 +28,9 @@ pub struct Clip {
     pub instrument_id: InstrumentId,
     pub length_ticks: u32,
     pub notes: Vec<Note>,
+    /// Per-clip automation lanes (0-based tick positions, like notes)
+    #[serde(default)]
+    pub automation_lanes: Vec<AutomationLane>,
 }
 
 /// A placement of a clip on the timeline. Multiple placements can share a clip.
@@ -58,6 +62,12 @@ pub struct ClipEditContext {
     pub stashed_loop_start: u32,
     pub stashed_loop_end: u32,
     pub stashed_looping: bool,
+    /// Session automation lanes for this instrument, stashed on clip edit enter
+    #[serde(default)]
+    pub stashed_automation_lanes: Vec<AutomationLane>,
+    /// Session selected_lane, stashed on clip edit enter
+    #[serde(default)]
+    pub stashed_selected_automation_lane: Option<usize>,
 }
 
 /// Top-level arrangement state. Owned by SessionState.
@@ -78,6 +88,7 @@ pub struct ArrangementState {
 
     pub(crate) next_clip_id: ClipId,
     pub(crate) next_placement_id: PlacementId,
+    pub(crate) next_clip_automation_lane_id: AutomationLaneId,
 }
 
 impl Default for ArrangementState {
@@ -100,6 +111,7 @@ impl ArrangementState {
             cursor_tick: 0,
             next_clip_id: 1,
             next_placement_id: 1,
+            next_clip_automation_lane_id: 0,
         }
     }
 
@@ -112,6 +124,7 @@ impl ArrangementState {
             instrument_id,
             length_ticks,
             notes: Vec::new(),
+            automation_lanes: Vec::new(),
         });
         id
     }
@@ -240,6 +253,57 @@ impl ArrangementState {
         max_end
     }
 
+    /// Flatten per-clip automation into absolute-tick lanes for Song mode playback.
+    /// Merges lanes from all placements by AutomationTarget; same-tick conflicts
+    /// resolve in placement order (later placement wins via dedup).
+    pub fn flatten_automation(&self) -> Vec<AutomationLane> {
+        let mut merged: HashMap<AutomationTarget, Vec<super::automation::AutomationPoint>> = HashMap::new();
+        // Track min/max per target so merged lanes keep correct ranges
+        let mut ranges: HashMap<AutomationTarget, (f32, f32)> = HashMap::new();
+
+        let mut sorted_placements: Vec<&ClipPlacement> = self.placements.iter().collect();
+        sorted_placements.sort_by_key(|p| p.start_tick);
+
+        for placement in sorted_placements {
+            if let Some(clip) = self.clip(placement.clip_id) {
+                let effective_len = placement.effective_length(clip);
+
+                for lane in &clip.automation_lanes {
+                    let points = merged.entry(lane.target.clone()).or_default();
+                    ranges.entry(lane.target.clone()).or_insert((lane.min_value, lane.max_value));
+
+                    for point in &lane.points {
+                        if point.tick < effective_len {
+                            let mut new_point = point.clone();
+                            new_point.tick = placement.start_tick + point.tick;
+                            points.push(new_point);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut result = Vec::new();
+        for (target, mut points) in merged {
+            points.sort_by_key(|p| p.tick);
+            // Dedup same-tick: last wins (later placement overwrites)
+            points.dedup_by_key(|p| p.tick);
+
+            let (min_value, max_value) = ranges.get(&target).copied().unwrap_or_else(|| target.default_range());
+            result.push(AutomationLane {
+                id: 0, // IDs don't matter for flattened playback snapshot
+                target,
+                points,
+                enabled: true,
+                record_armed: false,
+                min_value,
+                max_value,
+            });
+        }
+
+        result
+    }
+
     pub fn remove_instrument_data(&mut self, instrument_id: InstrumentId) {
         let clip_ids_to_remove: Vec<ClipId> = self
             .clips
@@ -260,6 +324,19 @@ impl ArrangementState {
     pub fn recalculate_next_ids(&mut self) {
         self.next_clip_id = self.clips.iter().map(|c| c.id).max().unwrap_or(0) + 1;
         self.next_placement_id = self.placements.iter().map(|p| p.id).max().unwrap_or(0) + 1;
+        self.next_clip_automation_lane_id = self
+            .clips
+            .iter()
+            .flat_map(|c| c.automation_lanes.iter().map(|l| l.id))
+            .max()
+            .map_or(0, |m| m + 1);
+    }
+
+    /// Allocate a fresh automation lane ID for use in clips
+    pub fn next_clip_lane_id(&mut self) -> AutomationLaneId {
+        let id = self.next_clip_automation_lane_id;
+        self.next_clip_automation_lane_id += 1;
+        id
     }
 }
 
@@ -391,5 +468,126 @@ mod tests {
         assert!(arr.placement_at(1, 20).is_some());
         assert!(arr.placement_at(1, 50).is_some());
         assert!(arr.placement_at(1, 120).is_none());
+    }
+
+    #[test]
+    fn test_flatten_automation_single_clip() {
+        use crate::state::automation::{AutomationLane, AutomationPoint, AutomationTarget};
+
+        let mut arr = ArrangementState::new();
+        let cid = arr.add_clip("Test".to_string(), 1, 384);
+
+        if let Some(clip) = arr.clip_mut(cid) {
+            let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(1));
+            lane.points.push(AutomationPoint::new(0, 0.0));
+            lane.points.push(AutomationPoint::new(192, 1.0));
+            clip.automation_lanes.push(lane);
+        }
+
+        arr.add_placement(cid, 1, 100);
+
+        let flat = arr.flatten_automation();
+        assert_eq!(flat.len(), 1);
+        assert_eq!(flat[0].target, AutomationTarget::InstrumentLevel(1));
+        assert_eq!(flat[0].points.len(), 2);
+        assert_eq!(flat[0].points[0].tick, 100);
+        assert_eq!(flat[0].points[1].tick, 292);
+    }
+
+    #[test]
+    fn test_flatten_automation_multiple_placements() {
+        use crate::state::automation::{AutomationLane, AutomationPoint, AutomationTarget};
+
+        let mut arr = ArrangementState::new();
+        let cid = arr.add_clip("Test".to_string(), 1, 200);
+
+        if let Some(clip) = arr.clip_mut(cid) {
+            let mut lane = AutomationLane::new(0, AutomationTarget::FilterCutoff(1));
+            lane.points.push(AutomationPoint::new(0, 0.5));
+            lane.points.push(AutomationPoint::new(100, 1.0));
+            clip.automation_lanes.push(lane);
+        }
+
+        arr.add_placement(cid, 1, 0);
+        arr.add_placement(cid, 1, 500);
+
+        let flat = arr.flatten_automation();
+        assert_eq!(flat.len(), 1);
+        let lane = &flat[0];
+        assert_eq!(lane.points.len(), 4);
+        assert_eq!(lane.points[0].tick, 0);
+        assert_eq!(lane.points[1].tick, 100);
+        assert_eq!(lane.points[2].tick, 500);
+        assert_eq!(lane.points[3].tick, 600);
+    }
+
+    #[test]
+    fn test_flatten_automation_empty_clip() {
+        let mut arr = ArrangementState::new();
+        let cid = arr.add_clip("Test".to_string(), 1, 384);
+        arr.add_placement(cid, 1, 0);
+
+        let flat = arr.flatten_automation();
+        assert!(flat.is_empty());
+    }
+
+    #[test]
+    fn test_flatten_automation_overlapping_dedup() {
+        use crate::state::automation::{AutomationLane, AutomationPoint, AutomationTarget};
+
+        let mut arr = ArrangementState::new();
+        // Two clips with same target, placed so they produce points at the same tick
+        let cid1 = arr.add_clip("A".to_string(), 1, 100);
+        let cid2 = arr.add_clip("B".to_string(), 1, 100);
+
+        if let Some(clip) = arr.clip_mut(cid1) {
+            let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentLevel(1));
+            lane.points.push(AutomationPoint::new(50, 0.2));
+            clip.automation_lanes.push(lane);
+        }
+        if let Some(clip) = arr.clip_mut(cid2) {
+            let mut lane = AutomationLane::new(1, AutomationTarget::InstrumentLevel(1));
+            lane.points.push(AutomationPoint::new(0, 0.8));
+            clip.automation_lanes.push(lane);
+        }
+
+        // Place clip1 at tick 0 → point at tick 50
+        // Place clip2 at tick 50 → point at tick 50 (conflict!)
+        arr.add_placement(cid1, 1, 0);
+        arr.add_placement(cid2, 1, 50);
+
+        let flat = arr.flatten_automation();
+        assert_eq!(flat.len(), 1);
+        // dedup_by_key keeps the first occurrence — clip1's point at tick 50 (value 0.2)
+        // comes first in sorted order, clip2's point at tick 50 (value 0.8) comes second
+        // dedup_by_key keeps the first, removes duplicates
+        let points_at_50: Vec<_> = flat[0].points.iter().filter(|p| p.tick == 50).collect();
+        assert_eq!(points_at_50.len(), 1);
+    }
+
+    #[test]
+    fn test_flatten_automation_respects_effective_length() {
+        use crate::state::automation::{AutomationLane, AutomationPoint, AutomationTarget};
+
+        let mut arr = ArrangementState::new();
+        let cid = arr.add_clip("Test".to_string(), 1, 200);
+
+        if let Some(clip) = arr.clip_mut(cid) {
+            let mut lane = AutomationLane::new(0, AutomationTarget::InstrumentPan(1));
+            lane.points.push(AutomationPoint::new(0, 0.0));
+            lane.points.push(AutomationPoint::new(50, 0.5));
+            lane.points.push(AutomationPoint::new(150, 1.0)); // Past trim point
+            clip.automation_lanes.push(lane);
+        }
+
+        let pid = arr.add_placement(cid, 1, 0);
+        arr.resize_placement(pid, Some(100)); // Trim to 100
+
+        let flat = arr.flatten_automation();
+        assert_eq!(flat.len(), 1);
+        // Point at tick 150 should be excluded (past effective_length of 100)
+        assert_eq!(flat[0].points.len(), 2);
+        assert_eq!(flat[0].points[0].tick, 0);
+        assert_eq!(flat[0].points[1].tick, 50);
     }
 }
