@@ -1,13 +1,10 @@
-[workspace]
-members = [".", "imbolc-core"]
-
 [package]
 name = "imbolc"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-imbolc-core = { path = "imbolc-core" }
+imbolc-core = { path = "../imbolc-core" }
 ratatui = { version = "0.29", features = ["crossterm"] }
 crossterm = "0.28"
 rusqlite = { version = "0.31", features = ["bundled"] }
