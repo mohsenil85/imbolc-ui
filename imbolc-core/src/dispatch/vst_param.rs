@@ -159,12 +159,42 @@ pub(super) fn dispatch_vst_param(
             )
         }
         VstParamAction::DiscoverParams(instrument_id, target) => {
-            if audio.is_running() {
-                if let Err(e) = audio.send_cmd(AudioCmd::QueryVstParams {
-                    instrument_id: *instrument_id,
-                    target: *target,
-                }) {
-                    eprintln!("[audio] QueryVstParams dropped: {}", e);
+            // Try VST3 probe first — direct binary probing gives real param names
+            let probed = state.instruments.instrument(*instrument_id)
+                .and_then(|inst| {
+                    let plugin_id = get_vst_plugin_id(inst, *target)?;
+                    let plugin = state.session.vst_plugins.get(plugin_id)?;
+                    let path = &plugin.plugin_path;
+                    if path.extension().and_then(|e| e.to_str()) == Some("vst3") {
+                        match crate::vst3_probe::probe_vst3_params(path) {
+                            Ok(params) if !params.is_empty() => Some((plugin_id, params)),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some((plugin_id, probed_params)) = probed {
+                // Update the plugin registry with probed params
+                use crate::state::vst_plugin::VstParamSpec;
+                if let Some(plugin) = state.session.vst_plugins.get_mut(plugin_id) {
+                    plugin.params = probed_params.iter().map(|p| VstParamSpec {
+                        index: p.index as u32,
+                        name: p.name.clone(),
+                        default: p.default_normalized as f32,
+                        label: if p.units.is_empty() { None } else { Some(p.units.clone()) },
+                    }).collect();
+                }
+            } else {
+                // Fall back to OSC discovery
+                if audio.is_running() {
+                    if let Err(e) = audio.send_cmd(AudioCmd::QueryVstParams {
+                        instrument_id: *instrument_id,
+                        target: *target,
+                    }) {
+                        eprintln!("[audio] QueryVstParams dropped: {}", e);
+                    }
                 }
             }
             DispatchResult::none()

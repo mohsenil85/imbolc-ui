@@ -33,6 +33,17 @@ struct ExportState {
     paths: Vec<PathBuf>,
 }
 
+/// Tracks an in-flight VST parameter query via OSC /param_query
+struct PendingVstQuery {
+    instrument_id: InstrumentId,
+    target: VstTarget,
+    vst_plugin_id: crate::state::vst_plugin::VstPluginId,
+    node_id: i32,
+    started_at: Instant,
+    last_count: usize,
+    last_change_at: Instant,
+}
+
 pub(crate) struct AudioThread {
     engine: AudioEngine,
     cmd_rx: Receiver<AudioCmd>,
@@ -62,6 +73,8 @@ pub(crate) struct AudioThread {
     last_status_poll: Instant,
     /// Deferred connection after server start (non-blocking restart)
     pending_server_connect: Option<PendingServerConnect>,
+    /// In-flight VST parameter queries awaiting OSC replies
+    pending_vst_queries: Vec<PendingVstQuery>,
 }
 
 fn config_synthdefs_dir() -> PathBuf {
@@ -102,6 +115,7 @@ impl AudioThread {
             tick_accumulator: 0.0,
             last_status_poll: Instant::now(),
             pending_server_connect: None,
+            pending_vst_queries: Vec::new(),
         }
     }
 
@@ -391,21 +405,24 @@ impl AudioThread {
                 let _ = self.engine.apply_automation(&target, value, &mut self.instruments, &self.session);
             }
             AudioCmd::QueryVstParams { instrument_id, target } => {
-                if let Some(node_id) = self.resolve_vst_node_id(instrument_id, target) {
-                    let _ = self.engine.query_vst_param_count_node(node_id);
-                }
-                // Generate synthetic VstParamsDiscovered feedback (128 placeholder params)
-                // since SC doesn't reply via OSC for param queries
+                let node_id = self.resolve_vst_node_id(instrument_id, target);
                 let vst_plugin_id = self.resolve_vst_plugin_id(instrument_id, target);
-                if let Some(vst_plugin_id) = vst_plugin_id {
-                    let params: Vec<(u32, String, Option<String>, f32)> = (0..128)
-                        .map(|i| (i, format!("Param {}", i), None, 0.5))
-                        .collect();
-                    let _ = self.feedback_tx.send(AudioFeedback::VstParamsDiscovered {
+                if let (Some(node_id), Some(vst_plugin_id)) = (node_id, vst_plugin_id) {
+                    // Clear any previous replies for this node
+                    self.monitor.clear_vst_params(node_id);
+                    // Send /param_query 0 256 — VSTPlugin silently ignores out-of-range indices
+                    let _ = self.engine.query_vst_params_range(node_id, 0, 256);
+                    // Remove any existing query for the same node
+                    self.pending_vst_queries.retain(|q| q.node_id != node_id);
+                    let now = Instant::now();
+                    self.pending_vst_queries.push(PendingVstQuery {
                         instrument_id,
                         target,
                         vst_plugin_id,
-                        params,
+                        node_id,
+                        started_at: now,
+                        last_count: 0,
+                        last_change_at: now,
                     });
                 }
             }
@@ -459,6 +476,68 @@ impl AudioThread {
     }
 
     /// Resolve a VstTarget to a SuperCollider node ID using the instrument snapshot and engine node map
+    /// Check pending VST param queries — complete when replies stop arriving or timeout
+    fn poll_vst_param_queries(&mut self) {
+        let now = Instant::now();
+        let mut completed = Vec::new();
+
+        for query in &mut self.pending_vst_queries {
+            let current_count = self.monitor.vst_param_count(query.node_id);
+            if current_count != query.last_count {
+                query.last_count = current_count;
+                query.last_change_at = now;
+            }
+            // Complete if: no new params for 150ms, or total timeout of 2s
+            let idle = now.duration_since(query.last_change_at) >= Duration::from_millis(150);
+            let timeout = now.duration_since(query.started_at) >= Duration::from_secs(2);
+            if (idle && current_count > 0) || timeout {
+                completed.push((
+                    query.instrument_id,
+                    query.target,
+                    query.vst_plugin_id,
+                    query.node_id,
+                ));
+            }
+        }
+
+        for (instrument_id, target, vst_plugin_id, node_id) in completed {
+            self.pending_vst_queries.retain(|q| q.node_id != node_id);
+            let replies = self.monitor.take_vst_params(node_id).unwrap_or_default();
+            if replies.is_empty() {
+                // No replies received — send synthetic placeholders as fallback
+                let params: Vec<(u32, String, Option<String>, f32)> = (0..128)
+                    .map(|i| (i, format!("Param {}", i), None, 0.5))
+                    .collect();
+                let _ = self.feedback_tx.send(AudioFeedback::VstParamsDiscovered {
+                    instrument_id,
+                    target,
+                    vst_plugin_id,
+                    params,
+                });
+            } else {
+                let mut params: Vec<(u32, String, Option<String>, f32)> = replies.iter()
+                    .map(|r| {
+                        // Use display string as name for now (Phase 1);
+                        // Phase 2 VST3 probing will provide real names
+                        let name = if r.display.is_empty() {
+                            format!("Param {}", r.index)
+                        } else {
+                            r.display.clone()
+                        };
+                        (r.index, name, None, r.value)
+                    })
+                    .collect();
+                params.sort_by_key(|(idx, _, _, _)| *idx);
+                let _ = self.feedback_tx.send(AudioFeedback::VstParamsDiscovered {
+                    instrument_id,
+                    target,
+                    vst_plugin_id,
+                    params,
+                });
+            }
+        }
+    }
+
     fn resolve_vst_node_id(&self, instrument_id: u32, target: VstTarget) -> Option<i32> {
         let nodes = self.engine.node_map.get(&instrument_id)?;
         match target {
@@ -699,6 +778,9 @@ impl AudioThread {
             self.monitor.mark_status_sent();
             self.engine.send_status_query();
         }
+
+        // Poll pending VST param queries for completed OSC replies
+        self.poll_vst_param_queries();
 
         if self.engine.poll_pending_buffer_free() {
             let _ = self.feedback_tx.send(AudioFeedback::PendingBufferFreed);

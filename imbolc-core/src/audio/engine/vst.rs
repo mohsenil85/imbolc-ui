@@ -67,6 +67,19 @@ impl AudioEngine {
         Ok(())
     }
 
+    /// Query a range of VST parameters via /param_query.
+    /// VSTPlugin replies with /vst_param messages via SendNodeReply for each param in range.
+    pub(crate) fn query_vst_params_range(&self, node_id: i32, start: u32, count: u32) -> Result<(), String> {
+        let backend = self.backend.as_ref().ok_or("Not connected")?;
+        backend.send_unit_cmd(
+            node_id,
+            VST_UGEN_INDEX,
+            "/param_query",
+            vec![RawArg::Int(start as i32), RawArg::Int(count as i32)],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Set a VST parameter value on a resolved node
     pub(crate) fn set_vst_param_node(&self, node_id: i32, param_index: u32, value: f32) -> Result<(), String> {
         let backend = self.backend.as_ref().ok_or("Not connected")?;

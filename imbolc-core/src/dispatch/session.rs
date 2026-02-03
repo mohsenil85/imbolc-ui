@@ -209,7 +209,7 @@ pub(super) fn dispatch_session(
             result.audio_dirty.session = true;
         }
         SessionAction::ImportVstPlugin(ref path, kind) => {
-            use crate::state::vst_plugin::VstPlugin;
+            use crate::state::vst_plugin::{VstPlugin, VstParamSpec};
 
             let kind = *kind;
 
@@ -218,17 +218,38 @@ pub(super) fn dispatch_session(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "VST Plugin".to_string());
 
+            // Probe the VST3 binary for parameter metadata
+            let params = if path.extension().and_then(|e| e.to_str()) == Some("vst3") {
+                match crate::vst3_probe::probe_vst3_params(path) {
+                    Ok(probed) => probed.iter().map(|p| VstParamSpec {
+                        index: p.index as u32,
+                        name: p.name.clone(),
+                        default: p.default_normalized as f32,
+                        label: if p.units.is_empty() { None } else { Some(p.units.clone()) },
+                    }).collect(),
+                    Err(_) => vec![], // Probe failed — will discover via OSC later
+                }
+            } else {
+                vec![]
+            };
+
+            let param_count = params.len();
             let plugin = VstPlugin {
                 id: 0, // Will be set by registry.add()
                 name: name.clone(),
                 plugin_path: path.clone(),
                 kind,
-                params: vec![],
+                params,
             };
 
             let _id = state.session.vst_plugins.add(plugin);
 
-            result.push_status(audio.status(), &format!("Imported VST: {}", name));
+            let status_msg = if param_count > 0 {
+                format!("Imported VST: {} ({} params)", name, param_count)
+            } else {
+                format!("Imported VST: {}", name)
+            };
+            result.push_status(audio.status(), &status_msg);
 
             result.push_nav(NavIntent::Pop);
             result.audio_dirty.session = true;

@@ -11,6 +11,14 @@ const WAVEFORM_BUFFER_SIZE: usize = 100;
 /// Maximum scope samples to keep
 const SCOPE_BUFFER_SIZE: usize = 200;
 
+/// A single discovered VST parameter from /vst_param OSC reply
+#[derive(Debug, Clone)]
+pub struct VstParamReply {
+    pub index: u32,
+    pub value: f32,
+    pub display: String,
+}
+
 /// Shared meter + waveform + visualization data accessible from both threads.
 #[derive(Clone, Default)]
 pub struct AudioMonitor {
@@ -28,6 +36,8 @@ pub struct AudioMonitor {
     osc_latency_ms: Arc<RwLock<f32>>,
     /// Timestamp when /status was last sent (for latency measurement)
     status_sent_at: Arc<RwLock<Option<Instant>>>,
+    /// VST param query replies: nodeID → Vec<VstParamReply>
+    vst_params: Arc<RwLock<HashMap<i32, Vec<VstParamReply>>>>,
 }
 
 impl AudioMonitor {
@@ -41,6 +51,7 @@ impl AudioMonitor {
             sc_cpu: Arc::new(RwLock::new(0.0)),
             osc_latency_ms: Arc::new(RwLock::new(0.0)),
             status_sent_at: Arc::new(RwLock::new(None)),
+            vst_params: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -98,6 +109,38 @@ impl AudioMonitor {
             *ts = Some(Instant::now());
         }
     }
+
+    /// Take accumulated VST param replies for a node (clears the entry)
+    pub fn take_vst_params(&self, node_id: i32) -> Option<Vec<VstParamReply>> {
+        if let Ok(mut map) = self.vst_params.write() {
+            map.remove(&node_id)
+        } else {
+            None
+        }
+    }
+
+    /// Clear VST param replies for a node (before starting a new query)
+    pub fn clear_vst_params(&self, node_id: i32) {
+        if let Ok(mut map) = self.vst_params.write() {
+            map.remove(&node_id);
+        }
+    }
+
+    /// Check if any VST param replies have accumulated for a node
+    pub fn has_vst_params(&self, node_id: i32) -> bool {
+        self.vst_params
+            .read()
+            .map(|map| map.contains_key(&node_id))
+            .unwrap_or(false)
+    }
+
+    /// Get the count of accumulated VST param replies for a node
+    pub fn vst_param_count(&self, node_id: i32) -> usize {
+        self.vst_params
+            .read()
+            .map(|map| map.get(&node_id).map(|v| v.len()).unwrap_or(0))
+            .unwrap_or(0)
+    }
 }
 
 pub struct OscClient {
@@ -112,6 +155,7 @@ pub struct OscClient {
     sc_cpu: Arc<RwLock<f32>>,
     osc_latency_ms: Arc<RwLock<f32>>,
     status_sent_at: Arc<RwLock<Option<Instant>>>,
+    vst_params: Arc<RwLock<HashMap<i32, Vec<VstParamReply>>>>,
     _recv_thread: Option<JoinHandle<()>>,
 }
 
@@ -125,6 +169,7 @@ struct OscRefs {
     sc_cpu: Arc<RwLock<f32>>,
     osc_latency_ms: Arc<RwLock<f32>>,
     status_sent_at: Arc<RwLock<Option<Instant>>>,
+    vst_params: Arc<RwLock<HashMap<i32, Vec<VstParamReply>>>>,
 }
 
 fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
@@ -223,6 +268,45 @@ fn handle_osc_packet(packet: &OscPacket, refs: &OscRefs) {
                         }
                     }
                 }
+            } else if msg.addr == "/vst_param" && msg.args.len() >= 5 {
+                // VSTPlugin SendNodeReply: /vst_param nodeID replyID index value display_len char0 char1 ...
+                let node_id = match msg.args.get(0) {
+                    Some(OscType::Int(v)) => *v,
+                    Some(OscType::Float(v)) => *v as i32,
+                    _ => return,
+                };
+                // args[1] = replyID (skip)
+                let index = match msg.args.get(2) {
+                    Some(OscType::Float(v)) => *v as u32,
+                    Some(OscType::Int(v)) => *v as u32,
+                    _ => return,
+                };
+                let value = match msg.args.get(3) {
+                    Some(OscType::Float(v)) => *v,
+                    _ => return,
+                };
+                // Decode display string from float array: len = args[4], chars = args[5..5+len]
+                let display_len = match msg.args.get(4) {
+                    Some(OscType::Float(v)) => *v as usize,
+                    Some(OscType::Int(v)) => *v as usize,
+                    _ => 0,
+                };
+                let display: String = (0..display_len)
+                    .filter_map(|i| {
+                        match msg.args.get(5 + i) {
+                            Some(OscType::Float(v)) => Some(*v as u8 as char),
+                            Some(OscType::Int(v)) => Some(*v as u8 as char),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                if let Ok(mut map) = refs.vst_params.write() {
+                    map.entry(node_id).or_default().push(VstParamReply {
+                        index,
+                        value,
+                        display,
+                    });
+                }
             }
         }
         OscPacket::Bundle(bundle) => {
@@ -249,6 +333,7 @@ impl OscClient {
         let sc_cpu = Arc::clone(&monitor.sc_cpu);
         let osc_latency_ms = Arc::clone(&monitor.osc_latency_ms);
         let status_sent_at = Arc::clone(&monitor.status_sent_at);
+        let vst_params = Arc::clone(&monitor.vst_params);
 
         // Clone socket for receive thread
         let recv_socket = socket.try_clone()?;
@@ -262,6 +347,7 @@ impl OscClient {
             sc_cpu: Arc::clone(&sc_cpu),
             osc_latency_ms: Arc::clone(&osc_latency_ms),
             status_sent_at: Arc::clone(&status_sent_at),
+            vst_params: Arc::clone(&vst_params),
         };
 
         let handle = thread::spawn(move || {
@@ -290,6 +376,7 @@ impl OscClient {
             sc_cpu,
             osc_latency_ms,
             status_sent_at,
+            vst_params,
             _recv_thread: Some(handle),
         })
     }
@@ -305,6 +392,7 @@ impl OscClient {
             sc_cpu: Arc::clone(&self.sc_cpu),
             osc_latency_ms: Arc::clone(&self.osc_latency_ms),
             status_sent_at: Arc::clone(&self.status_sent_at),
+            vst_params: Arc::clone(&self.vst_params),
         }
     }
 

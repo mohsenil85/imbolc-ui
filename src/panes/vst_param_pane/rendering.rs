@@ -109,10 +109,14 @@ impl VstParamPane {
             // Indicator
             let indicator = if is_selected { ">" } else { " " };
 
-            // Format: > 001 Cutoff          [===|======-------] 0.72
+            // Format: > 001 Cutoff          [===|======-------] 0.72 Hz
             let index_str = format!("{:03}", spec.index);
             let name = &spec.name;
             let value_str = format!("{:.2}", value);
+            let label_suffix = spec.label.as_deref()
+                .filter(|l| !l.is_empty())
+                .map(|l| format!(" {}", l))
+                .unwrap_or_default();
 
             // Build bar
             let filled = (value * bar_width as f32).round() as usize;
@@ -121,10 +125,10 @@ impl VstParamPane {
             }).collect();
 
             let line = format!(
-                "{} {} {:<20} [{}] {}",
+                "{} {} {:<20} [{}] {}{}",
                 indicator, index_str,
                 if name.len() > 20 { &name[..20] } else { name },
-                bar, value_str,
+                bar, value_str, label_suffix,
             );
 
             let style = if is_selected {

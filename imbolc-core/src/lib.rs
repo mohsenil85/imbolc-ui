@@ -53,3 +53,4 @@ pub mod dispatch;
 pub mod midi;
 pub mod scd_parser;
 pub mod state;
+pub mod vst3_probe;
