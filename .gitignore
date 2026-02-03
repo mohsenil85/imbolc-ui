@@ -4,3 +4,4 @@
 *.vst3
 *.vst2
 imbolc-core/target
+.DS_Store
