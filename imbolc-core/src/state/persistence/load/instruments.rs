@@ -397,6 +397,43 @@ pub(crate) fn load_modulations(conn: &SqlConnection, instruments: &mut [Instrume
     Ok(())
 }
 
+pub(crate) fn load_filter_params(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
+    let has_table = conn
+        .prepare("SELECT 1 FROM instrument_filter_params LIMIT 0")
+        .is_ok();
+    if !has_table {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT param_name, param_value, param_min, param_max, param_type
+         FROM instrument_filter_params WHERE instrument_id = ?1",
+    )?;
+    for inst in instruments {
+        if let Some(ref mut f) = inst.filter {
+            let params: Vec<(String, f64, f64, f64, String)> = stmt
+                .query_map([&inst.id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for (name, value, min, max, param_type) in params {
+                if let Some(p) = f.extra_params.iter_mut().find(|p| p.name == name) {
+                    p.value = match param_type.as_str() {
+                        "int" => ParamValue::Int(value as i32),
+                        "bool" => ParamValue::Bool(value != 0.0),
+                        _ => ParamValue::Float(value as f32),
+                    };
+                    p.min = min as f32;
+                    p.max = max as f32;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn load_layer_groups(conn: &SqlConnection, instruments: &mut [Instrument]) -> SqlResult<()> {
     let has_col = conn
         .prepare("SELECT layer_group FROM instruments LIMIT 0")

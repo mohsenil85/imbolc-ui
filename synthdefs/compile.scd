@@ -397,6 +397,94 @@ SynthDef(\imbolc_granular, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1),
 }).writeDefFile(dir);
 
 // ============================================================================
+// Physical Models - Bowed, Blown, Membrane
+// ============================================================================
+
+// Bowed — delay-line resonator excited by filtered noise
+SynthDef(\imbolc_bowed, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1),
+    freq=440, amp=0.5, lag=0.02, pressure=0.5, bow_pos=0.12,
+    attack=0.01, decay=0.1, sustain=0.7, release=0.3,
+    amp_mod_in=(-1), pitch_mod_in=(-1), detune_mod_in=(-1), attack_mod_in=(-1), release_mod_in=(-1)|
+
+    var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var ampMod = Select.kr(amp_mod_in >= 0, [0, In.kr(amp_mod_in)]);
+    var pitchMod = Select.kr(pitch_mod_in >= 0, [0, In.kr(pitch_mod_in)]);
+    var detuneMod = Select.kr(detune_mod_in >= 0, [0, In.kr(detune_mod_in)]);
+    var attackMod = Select.kr(attack_mod_in >= 0, [0, In.kr(attack_mod_in)]);
+    var releaseMod = Select.kr(release_mod_in >= 0, [0, In.kr(release_mod_in)]);
+    var finalFreq = freqSig * (2 ** pitchMod) * (1 + (detuneMod * 0.01));
+    var finalAmp = amp.lag(lag) * (1 + ampMod).max(0);
+    var finalAttack = (attack * (1 + attackMod)).max(0.001);
+    var finalRelease = (release * (1 + releaseMod)).max(0.001);
+
+    var exciter = BrownNoise.ar * pressure.lag(lag) * gateSig;
+    var sig = CombL.ar(exciter, 0.05, finalFreq.reciprocal * (1 - bow_pos.lag(lag)),
+        pressure.lag(lag).linlin(0, 1, 0.5, 4.0));
+    var env = EnvGen.kr(Env.adsr(finalAttack, decay, sustain, finalRelease), gateSig);
+    sig = LPF.ar(sig, finalFreq * 4);
+    Out.ar(out, (sig * finalAmp * velSig * env) ! 2);
+}).writeDefFile(dir);
+
+// Blown — jet noise excitation + waveguide delay
+SynthDef(\imbolc_blown, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1),
+    freq=440, amp=0.5, lag=0.02, pressure=0.5, embouchure=0.5,
+    attack=0.01, decay=0.1, sustain=0.7, release=0.3,
+    amp_mod_in=(-1), pitch_mod_in=(-1), detune_mod_in=(-1), attack_mod_in=(-1), release_mod_in=(-1)|
+
+    var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var ampMod = Select.kr(amp_mod_in >= 0, [0, In.kr(amp_mod_in)]);
+    var pitchMod = Select.kr(pitch_mod_in >= 0, [0, In.kr(pitch_mod_in)]);
+    var detuneMod = Select.kr(detune_mod_in >= 0, [0, In.kr(detune_mod_in)]);
+    var attackMod = Select.kr(attack_mod_in >= 0, [0, In.kr(attack_mod_in)]);
+    var releaseMod = Select.kr(release_mod_in >= 0, [0, In.kr(release_mod_in)]);
+    var finalFreq = freqSig * (2 ** pitchMod) * (1 + (detuneMod * 0.01));
+    var finalAmp = amp.lag(lag) * (1 + ampMod).max(0);
+    var finalAttack = (attack * (1 + attackMod)).max(0.001);
+    var finalRelease = (release * (1 + releaseMod)).max(0.001);
+
+    var jet = WhiteNoise.ar * pressure.lag(lag) * gateSig;
+    var embLag = embouchure.lag(lag);
+    var jetClip = (jet * embLag.linlin(0, 1, 1, 4)).clip2(1);
+    var sig = CombL.ar(jetClip, 0.05, finalFreq.reciprocal,
+        pressure.lag(lag).linlin(0, 1, 0.2, 2.0));
+    var env = EnvGen.kr(Env.adsr(finalAttack, decay, sustain, finalRelease), gateSig);
+    sig = LPF.ar(sig, finalFreq * (2 + (embLag * 3)));
+    Out.ar(out, (sig * finalAmp * velSig * env) ! 2);
+}).writeDefFile(dir);
+
+// Membrane — impulse into parallel modal resonators
+SynthDef(\imbolc_membrane, { |out=1024, freq_in=(-1), gate_in=(-1), vel_in=(-1),
+    freq=440, amp=0.5, lag=0.02, tension=0.05, loss=0.99,
+    attack=0.001, decay=0.3, sustain=0.0, release=0.1,
+    amp_mod_in=(-1), pitch_mod_in=(-1), detune_mod_in=(-1), attack_mod_in=(-1), release_mod_in=(-1)|
+
+    var freqSig = Select.kr(freq_in >= 0, [freq.lag(lag), In.kr(freq_in)]);
+    var gateSig = Select.kr(gate_in >= 0, [1, In.kr(gate_in)]);
+    var velSig = Select.kr(vel_in >= 0, [1, In.kr(vel_in)]);
+    var ampMod = Select.kr(amp_mod_in >= 0, [0, In.kr(amp_mod_in)]);
+    var pitchMod = Select.kr(pitch_mod_in >= 0, [0, In.kr(pitch_mod_in)]);
+    var detuneMod = Select.kr(detune_mod_in >= 0, [0, In.kr(detune_mod_in)]);
+    var attackMod = Select.kr(attack_mod_in >= 0, [0, In.kr(attack_mod_in)]);
+    var releaseMod = Select.kr(release_mod_in >= 0, [0, In.kr(release_mod_in)]);
+    var finalFreq = freqSig * (2 ** pitchMod) * (1 + (detuneMod * 0.01));
+    var finalAmp = amp.lag(lag) * (1 + ampMod).max(0);
+    var finalAttack = (attack * (1 + attackMod)).max(0.001);
+    var finalRelease = (release * (1 + releaseMod)).max(0.001);
+
+    var exciter = WhiteNoise.ar(0.5) * EnvGen.ar(Env.perc(0.001, tension.lag(lag)), gateSig);
+    var mode1 = CombL.ar(exciter, 0.05, finalFreq.reciprocal, loss.lag(lag).linlin(0.9, 1.0, 0.1, 3.0));
+    var mode2 = CombL.ar(exciter, 0.05, (finalFreq * 1.59).reciprocal, loss.lag(lag).linlin(0.9, 1.0, 0.05, 2.0));
+    var mode3 = CombL.ar(exciter, 0.05, (finalFreq * 2.14).reciprocal, loss.lag(lag).linlin(0.9, 1.0, 0.02, 1.5));
+    var sig = mode1 + (mode2 * 0.5) + (mode3 * 0.25);
+    var env = EnvGen.kr(Env.adsr(finalAttack, decay, sustain, finalRelease), gateSig);
+    Out.ar(out, (sig * finalAmp * velSig * env) ! 2);
+}).writeDefFile(dir);
+
+// ============================================================================
 // Audio Input - Live audio from hardware input
 // ============================================================================
 SynthDef(\imbolc_audio_in, { |out=1024, channel=0, gain=1, test_tone=0, test_freq=440, instrument_id=0|
@@ -518,6 +606,63 @@ SynthDef(\imbolc_bpf, { |in=1024, out=1026, cutoff_mod_in=(-1), res_mod_in=(-1),
     var finalRes = (resonance.lag(lag) + resMod).clip(0, 1);
     var q = finalRes.linlin(0, 1, 1, 0.01);
     Out.ar(out, BPF.ar(sig, finalCutoff, q));
+}).writeDefFile(dir);
+
+// Notch (Band-Reject)
+SynthDef(\imbolc_notch, { |in=1024, out=1026, cutoff_mod_in=(-1), res_mod_in=(-1), cutoff=1000, resonance=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
+    var resMod = Select.kr(res_mod_in >= 0, [0, In.kr(res_mod_in)]);
+    var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
+    var q = (resonance.lag(lag) + resMod).clip(0, 1).linlin(0, 1, 1, 0.01);
+    Out.ar(out, BRF.ar(sig, finalCutoff, q));
+}).writeDefFile(dir);
+
+// Comb — cutoff maps to comb frequency, resonance to decay
+SynthDef(\imbolc_comb, { |in=1024, out=1026, cutoff_mod_in=(-1), res_mod_in=(-1), cutoff=440, resonance=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
+    var resMod = Select.kr(res_mod_in >= 0, [0, In.kr(res_mod_in)]);
+    var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
+    var finalRes = (resonance.lag(lag) + resMod).clip(0, 1);
+    var delay = finalCutoff.reciprocal.clip(0.00005, 0.05);
+    var decayTime = finalRes.linlin(0, 1, 0.01, 2.0);
+    Out.ar(out, CombC.ar(sig, 0.05, delay, decayTime));
+}).writeDefFile(dir);
+
+// Allpass — same param mapping as Comb
+SynthDef(\imbolc_allpass, { |in=1024, out=1026, cutoff_mod_in=(-1), res_mod_in=(-1), cutoff=440, resonance=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
+    var resMod = Select.kr(res_mod_in >= 0, [0, In.kr(res_mod_in)]);
+    var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
+    var finalRes = (resonance.lag(lag) + resMod).clip(0, 1);
+    var delay = finalCutoff.reciprocal.clip(0.00005, 0.05);
+    var decayTime = finalRes.linlin(0, 1, 0.01, 2.0);
+    Out.ar(out, AllpassC.ar(sig, 0.05, delay, decayTime));
+}).writeDefFile(dir);
+
+// Vowel — morphs A/E/I/O/U formants via shape param
+SynthDef(\imbolc_vowel, { |in=1024, out=1026, cutoff_mod_in=(-1), res_mod_in=(-1), cutoff=1000, resonance=0.5, shape=0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
+    var resMod = Select.kr(res_mod_in >= 0, [0, In.kr(res_mod_in)]);
+    var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
+    var q = (resonance.lag(lag) + resMod).clip(0, 1).linlin(0, 1, 1, 0.05);
+    var vowelFreqs = #[800, 400, 270, 450, 325]; // A E I O U
+    var idx = shape.lag(lag) * 4;
+    var f1 = Select.kr(idx.round, vowelFreqs) * (finalCutoff / 1000);
+    Out.ar(out, BPF.ar(sig, f1.clip(80, 12000), q));
+}).writeDefFile(dir);
+
+// ResDrive — resonant LPF with input saturation
+SynthDef(\imbolc_resdrive, { |in=1024, out=1026, cutoff_mod_in=(-1), res_mod_in=(-1), cutoff=1000, resonance=0.5, drive=1, lag=0.02|
+    var sig = In.ar(in, 2);
+    var cutoffMod = Select.kr(cutoff_mod_in >= 0, [0, In.kr(cutoff_mod_in)]);
+    var resMod = Select.kr(res_mod_in >= 0, [0, In.kr(res_mod_in)]);
+    var finalCutoff = (cutoff.lag(lag) * (1 + cutoffMod)).clip(20, 20000);
+    var q = (resonance.lag(lag) + resMod).clip(0, 1).linlin(0, 1, 1, 0.05);
+    Out.ar(out, RLPF.ar((sig * drive.lag(lag)).tanh, finalCutoff, q));
 }).writeDefFile(dir);
 
 // ============================================================================
@@ -935,6 +1080,154 @@ SynthDef(\imbolc_convolution_reverb, { |in=1024, out=1026, ir_buffer=(-1), mix=0
     var hasIR = (ir_buffer >= 0);
     var output = Select.ar(hasIR, [sig, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag))]);
     Out.ar(out, output);
+}).writeDefFile(dir);
+
+// ============================================================================
+// New Effects - Vocoder, Ring Mod, Autopan, Resonator, Multiband Comp,
+// Para EQ, Spectral Freeze, Glitch, Leslie, Spring Reverb,
+// Env Follower, Mid/Side, Crossfader
+// ============================================================================
+
+// Vocoder — analysis bands on input, resynthesis with oscillator bank
+SynthDef(\imbolc_vocoder, { |in=1024, out=1026, bands=16, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var wet = Mix.fill(16, { |i|
+        var active = (i < bands);
+        var freq = (100 * (2 ** (i * 0.5))).min(16000);
+        var analysis = Amplitude.kr(BPF.ar(mono, freq, 0.1), 0.01, 0.05);
+        SinOsc.ar(freq) * analysis * active;
+    });
+    wet = [wet, wet];
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Ring Modulator
+SynthDef(\imbolc_ringmod, { |in=1024, out=1026, freq=440, depth=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mod = SinOsc.ar(freq.lag(lag));
+    var wet = sig * ((1 - depth.lag(lag)) + (mod * depth.lag(lag)));
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Autopan — LFO-driven stereo panning (shape: 0=sine, 1=square, 2=tri)
+SynthDef(\imbolc_autopan, { |in=1024, out=1026, rate=2, depth=0.5, shape=0, mix=1.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var lfo = Select.kr(shape, [SinOsc.kr(rate), LFPulse.kr(rate).range(-1,1), LFTri.kr(rate)]) * depth.lag(lag);
+    var wet = Pan2.ar(mono, lfo);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Resonator — tuned CombC feedback
+SynthDef(\imbolc_resonator, { |in=1024, out=1026, freq=440, decay=1.0, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var delay = freq.lag(lag).reciprocal.clip(0.00005, 0.05);
+    var wet = CombC.ar(sig, 0.05, delay, decay.lag(lag));
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Multiband Compressor — 3-band split + independent Compander
+SynthDef(\imbolc_multiband_comp, { |in=1024, out=1026, low_thresh=0.3, mid_thresh=0.3, hi_thresh=0.3, mix=1.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var lo = LPF.ar(sig, 250);
+    var mid = BPF.ar(sig, 2000, 1);
+    var hi = HPF.ar(sig, 6000);
+    var wet = Compander.ar(lo, lo, low_thresh.lag(lag), 1, 0.25, 0.01, 0.1)
+            + Compander.ar(mid, mid, mid_thresh.lag(lag), 1, 0.25, 0.01, 0.1)
+            + Compander.ar(hi, hi, hi_thresh.lag(lag), 1, 0.25, 0.01, 0.1);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Parametric EQ — 3-band BPeakEQ
+SynthDef(\imbolc_para_eq, { |in=1024, out=1026,
+    lo_freq=200, lo_gain=0, mid_freq=1000, mid_gain=0, hi_freq=5000, hi_gain=0, lag=0.02|
+    var sig = In.ar(in, 2);
+    sig = BPeakEQ.ar(sig, lo_freq.lag(lag).clip(20, 20000), 1, lo_gain.lag(lag));
+    sig = BPeakEQ.ar(sig, mid_freq.lag(lag).clip(20, 20000), 1, mid_gain.lag(lag));
+    sig = BPeakEQ.ar(sig, hi_freq.lag(lag).clip(20, 20000), 1, hi_gain.lag(lag));
+    Out.ar(out, sig);
+}).writeDefFile(dir);
+
+// Spectral Freeze — FFT freeze + blur
+SynthDef(\imbolc_spectral_freeze, { |in=1024, out=1026, freeze=0, blur=0, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var chain = FFT(LocalBuf(2048), mono);
+    var wet;
+    chain = PV_MagFreeze(chain, freeze.lag(lag) > 0.5);
+    chain = PV_MagSmear(chain, (blur.lag(lag) * 20).asInteger);
+    wet = IFFT(chain) ! 2;
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Glitch — buffer capture with triggered stutter replay
+SynthDef(\imbolc_glitch, { |in=1024, out=1026, rate=4, size=0.1, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var buf = LocalBuf(44100, 1);
+    var phase = Phasor.ar(0, 1, 0, 44100);
+    var trig = Impulse.ar(rate);
+    var readPhase = Latch.ar(phase, trig);
+    var wet = BufRd.ar(1, buf,
+        Phasor.ar(trig, 1, readPhase, readPhase + (size.lag(lag) * SampleRate.ir)), loop: 1) ! 2;
+    BufWr.ar(mono, buf, phase);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Leslie — rotary speaker (horn doppler + drum)
+SynthDef(\imbolc_leslie, { |in=1024, out=1026, speed=1, horn_depth=0.5, mix=0.5, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var hornRate = speed.lag(lag).linlin(0, 2, 0.5, 8);
+    var hornMod = SinOsc.kr(hornRate) * horn_depth.lag(lag);
+    var horn = DelayL.ar(mono, 0.01, (0.003 + (hornMod * 0.002)).clip(0.0001, 0.01));
+    var hornAM = horn * (1 + (SinOsc.kr(hornRate, 0.5pi) * horn_depth.lag(lag) * 0.3));
+    var drumRate = hornRate * 0.6;
+    var drumMod = SinOsc.kr(drumRate);
+    var drum = DelayL.ar(mono, 0.01, (0.004 + (drumMod * 0.001)).clip(0.0001, 0.01));
+    var wet = [(hornAM * 0.7) + (drum * 0.3), (DelayL.ar(hornAM, 0.001, 0.0003) * 0.7) + (drum * 0.3)];
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Spring Reverb — allpass diffusion + comb bank
+SynthDef(\imbolc_spring_reverb, { |in=1024, out=1026, decay=2.0, tone=0.5, mix=0.3, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mono = (sig[0] + sig[1]) * 0.5;
+    var input = AllpassN.ar(AllpassN.ar(mono, 0.05, 0.017, 0.1), 0.05, 0.023, 0.1);
+    var wet = Mix([
+        CombL.ar(input, 0.2, 0.0397, decay.lag(lag)),
+        CombL.ar(input, 0.2, 0.0531, decay.lag(lag) * 0.9),
+        CombL.ar(input, 0.2, 0.0673, decay.lag(lag) * 0.8),
+        CombL.ar(input, 0.2, 0.0789, decay.lag(lag) * 0.7),
+    ]) * 0.25;
+    wet = LPF.ar(wet, tone.lag(lag).linexp(0, 1, 500, 8000));
+    wet = [wet, DelayL.ar(wet, 0.01, 0.003)];
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (wet * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Envelope Follower — amplitude-shaping
+SynthDef(\imbolc_env_follower, { |in=1024, out=1026, attack=0.01, release=0.1, depth=0.5, mix=1.0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var follower = Amplitude.kr((sig[0] + sig[1]) * 0.5, attack.lag(lag), release.lag(lag));
+    var shaped = sig * follower.linlin(0, 1, 1 - depth.lag(lag), 1);
+    Out.ar(out, (sig * (1 - mix.lag(lag))) + (shaped * mix.lag(lag)));
+}).writeDefFile(dir);
+
+// Mid/Side — width + independent mid/side gain
+SynthDef(\imbolc_midside, { |in=1024, out=1026, width=1.0, mid_gain=0, side_gain=0, lag=0.02|
+    var sig = In.ar(in, 2);
+    var mid = (sig[0] + sig[1]) * 0.5 * (mid_gain.lag(lag) / 6).dbamp;
+    var side = (sig[0] - sig[1]) * 0.5 * (side_gain.lag(lag) / 6).dbamp * width.lag(lag);
+    Out.ar(out, [mid + side, mid - side]);
+}).writeDefFile(dir);
+
+// Crossfader — A/B crossfade between input and secondary bus
+SynthDef(\imbolc_crossfader, { |in=1024, out=1026, crossfade=0.5, bus_b=0, lag=0.02|
+    var sigA = In.ar(in, 2);
+    var sigB = Select.ar(bus_b > 0, [DC.ar(0) ! 2, In.ar(bus_b, 2)]);
+    var cf = crossfade.lag(lag);
+    Out.ar(out, (sigA * (1 - cf)) + (sigB * cf));
 }).writeDefFile(dir);
 
 // ============================================================================

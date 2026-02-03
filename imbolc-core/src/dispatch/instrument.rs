@@ -261,8 +261,14 @@ pub(super) fn dispatch_instrument(
                     filter.filter_type = match filter.filter_type {
                         crate::state::FilterType::Lpf => crate::state::FilterType::Hpf,
                         crate::state::FilterType::Hpf => crate::state::FilterType::Bpf,
-                        crate::state::FilterType::Bpf => crate::state::FilterType::Lpf,
+                        crate::state::FilterType::Bpf => crate::state::FilterType::Notch,
+                        crate::state::FilterType::Notch => crate::state::FilterType::Comb,
+                        crate::state::FilterType::Comb => crate::state::FilterType::Allpass,
+                        crate::state::FilterType::Allpass => crate::state::FilterType::Vowel,
+                        crate::state::FilterType::Vowel => crate::state::FilterType::ResDrive,
+                        crate::state::FilterType::ResDrive => crate::state::FilterType::Lpf,
                     };
+                    filter.extra_params = filter.filter_type.default_extra_params();
                 }
             }
             let mut result = DispatchResult::none();

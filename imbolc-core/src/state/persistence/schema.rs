@@ -317,6 +317,16 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
                 PRIMARY KEY (instrument_id, slice_id)
             );
 
+            CREATE TABLE IF NOT EXISTS instrument_filter_params (
+                instrument_id INTEGER NOT NULL,
+                param_name TEXT NOT NULL,
+                param_value REAL NOT NULL,
+                param_min REAL NOT NULL,
+                param_max REAL NOT NULL,
+                param_type TEXT NOT NULL,
+                PRIMARY KEY (instrument_id, param_name)
+            );
+
             CREATE TABLE IF NOT EXISTS arrangement_clips (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -385,6 +395,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
             );
 
             -- Clear existing data
+            DELETE FROM instrument_filter_params;
             DELETE FROM arrangement_clip_notes;
             DELETE FROM arrangement_placements;
             DELETE FROM arrangement_settings;
@@ -425,7 +436,7 @@ pub(super) fn create_tables_and_clear(conn: &SqlConnection) -> SqlResult<()> {
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (8, datetime('now'))",
+        "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (9, datetime('now'))",
         [],
     )?;
 

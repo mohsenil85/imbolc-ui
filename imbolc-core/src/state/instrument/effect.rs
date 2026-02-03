@@ -34,6 +34,20 @@ pub enum EffectType {
     GranularFreeze,
     // Convolution
     ConvolutionReverb,
+    // New effects
+    Vocoder,
+    RingMod,
+    Autopan,
+    Resonator,
+    MultibandComp,
+    ParaEq,
+    SpectralFreeze,
+    Glitch,
+    Leslie,
+    SpringReverb,
+    EnvFollower,
+    MidSide,
+    Crossfader,
     Vst(VstPluginId),
 }
 
@@ -63,6 +77,19 @@ impl EffectType {
             EffectType::GranularDelay => "Granular Delay",
             EffectType::GranularFreeze => "Granular Freeze",
             EffectType::ConvolutionReverb => "Conv Reverb",
+            EffectType::Vocoder => "Vocoder",
+            EffectType::RingMod => "Ring Mod",
+            EffectType::Autopan => "Autopan",
+            EffectType::Resonator => "Resonator",
+            EffectType::MultibandComp => "MB Comp",
+            EffectType::ParaEq => "Para EQ",
+            EffectType::SpectralFreeze => "Spectral Freeze",
+            EffectType::Glitch => "Glitch",
+            EffectType::Leslie => "Leslie",
+            EffectType::SpringReverb => "Spring Reverb",
+            EffectType::EnvFollower => "Env Follower",
+            EffectType::MidSide => "Mid/Side",
+            EffectType::Crossfader => "Crossfader",
             EffectType::Vst(_) => "VST",
         }
     }
@@ -103,6 +130,19 @@ impl EffectType {
             EffectType::GranularDelay => "imbolc_granular_delay",
             EffectType::GranularFreeze => "imbolc_granular_freeze",
             EffectType::ConvolutionReverb => "imbolc_convolution_reverb",
+            EffectType::Vocoder => "imbolc_vocoder",
+            EffectType::RingMod => "imbolc_ringmod",
+            EffectType::Autopan => "imbolc_autopan",
+            EffectType::Resonator => "imbolc_resonator",
+            EffectType::MultibandComp => "imbolc_multiband_comp",
+            EffectType::ParaEq => "imbolc_para_eq",
+            EffectType::SpectralFreeze => "imbolc_spectral_freeze",
+            EffectType::Glitch => "imbolc_glitch",
+            EffectType::Leslie => "imbolc_leslie",
+            EffectType::SpringReverb => "imbolc_spring_reverb",
+            EffectType::EnvFollower => "imbolc_env_follower",
+            EffectType::MidSide => "imbolc_midside",
+            EffectType::Crossfader => "imbolc_crossfader",
             EffectType::Vst(_) => "imbolc_vst_effect",
         }
     }
@@ -249,6 +289,75 @@ impl EffectType {
                 Param { name: "mix".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
                 Param { name: "predelay".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 0.5 },
             ],
+            EffectType::Vocoder => vec![
+                Param { name: "bands".to_string(), value: ParamValue::Int(16), min: 4.0, max: 32.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::RingMod => vec![
+                Param { name: "freq".to_string(), value: ParamValue::Float(440.0), min: 20.0, max: 5000.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Autopan => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(2.0), min: 0.1, max: 20.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "shape".to_string(), value: ParamValue::Int(0), min: 0.0, max: 2.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Resonator => vec![
+                Param { name: "freq".to_string(), value: ParamValue::Float(440.0), min: 20.0, max: 5000.0 },
+                Param { name: "decay".to_string(), value: ParamValue::Float(1.0), min: 0.01, max: 5.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::MultibandComp => vec![
+                Param { name: "low_thresh".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "mid_thresh".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "hi_thresh".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
+            ],
+            EffectType::ParaEq => vec![
+                Param { name: "lo_freq".to_string(), value: ParamValue::Float(200.0), min: 20.0, max: 20000.0 },
+                Param { name: "lo_gain".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+                Param { name: "mid_freq".to_string(), value: ParamValue::Float(1000.0), min: 20.0, max: 20000.0 },
+                Param { name: "mid_gain".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+                Param { name: "hi_freq".to_string(), value: ParamValue::Float(5000.0), min: 20.0, max: 20000.0 },
+                Param { name: "hi_gain".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+            ],
+            EffectType::SpectralFreeze => vec![
+                Param { name: "freeze".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 1.0 },
+                Param { name: "blur".to_string(), value: ParamValue::Float(0.0), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Glitch => vec![
+                Param { name: "rate".to_string(), value: ParamValue::Float(4.0), min: 0.5, max: 32.0 },
+                Param { name: "size".to_string(), value: ParamValue::Float(0.1), min: 0.01, max: 0.5 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::Leslie => vec![
+                Param { name: "speed".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 2.0 },
+                Param { name: "horn_depth".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+            ],
+            EffectType::SpringReverb => vec![
+                Param { name: "decay".to_string(), value: ParamValue::Float(2.0), min: 0.1, max: 6.0 },
+                Param { name: "tone".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(0.3), min: 0.0, max: 1.0 },
+            ],
+            EffectType::EnvFollower => vec![
+                Param { name: "attack".to_string(), value: ParamValue::Float(0.01), min: 0.001, max: 0.5 },
+                Param { name: "release".to_string(), value: ParamValue::Float(0.1), min: 0.01, max: 1.0 },
+                Param { name: "depth".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "mix".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 1.0 },
+            ],
+            EffectType::MidSide => vec![
+                Param { name: "width".to_string(), value: ParamValue::Float(1.0), min: 0.0, max: 3.0 },
+                Param { name: "mid_gain".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+                Param { name: "side_gain".to_string(), value: ParamValue::Float(0.0), min: -12.0, max: 12.0 },
+            ],
+            EffectType::Crossfader => vec![
+                Param { name: "crossfade".to_string(), value: ParamValue::Float(0.5), min: 0.0, max: 1.0 },
+                Param { name: "bus_b".to_string(), value: ParamValue::Int(0), min: 0.0, max: 8.0 },
+            ],
             EffectType::Vst(_) => vec![], // VST params discovered from plugin
         }
     }
@@ -266,6 +375,11 @@ impl EffectType {
             EffectType::Vinyl, EffectType::Cabinet,
             EffectType::GranularDelay, EffectType::GranularFreeze,
             EffectType::ConvolutionReverb,
+            EffectType::Vocoder, EffectType::RingMod, EffectType::Autopan,
+            EffectType::Resonator, EffectType::MultibandComp, EffectType::ParaEq,
+            EffectType::SpectralFreeze, EffectType::Glitch, EffectType::Leslie,
+            EffectType::SpringReverb, EffectType::EnvFollower, EffectType::MidSide,
+            EffectType::Crossfader,
         ]
     }
 }

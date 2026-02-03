@@ -119,6 +119,9 @@ pub(super) fn parse_source_type(s: &str) -> SourceType {
         "additive" => SourceType::Additive,
         "wavetable" => SourceType::Wavetable,
         "granular" => SourceType::Granular,
+        "bowed" => SourceType::Bowed,
+        "blown" => SourceType::Blown,
+        "membrane" => SourceType::Membrane,
         "audio_in" => SourceType::AudioIn,
         "sample" | "sampler" | "pitched_sampler" => SourceType::PitchedSampler,
         "kit" | "drum" => SourceType::Kit,
@@ -146,6 +149,11 @@ pub(super) fn parse_filter_type(s: &str) -> FilterType {
         "lpf" => FilterType::Lpf,
         "hpf" => FilterType::Hpf,
         "bpf" => FilterType::Bpf,
+        "notch" => FilterType::Notch,
+        "comb" => FilterType::Comb,
+        "allpass" => FilterType::Allpass,
+        "vowel" => FilterType::Vowel,
+        "resdrive" => FilterType::ResDrive,
         _ => FilterType::Lpf,
     }
 }
@@ -175,6 +183,19 @@ pub(super) fn parse_effect_type(s: &str) -> EffectType {
         "granulardelay" => EffectType::GranularDelay,
         "granularfreeze" => EffectType::GranularFreeze,
         "convolutionreverb" => EffectType::ConvolutionReverb,
+        "vocoder" => EffectType::Vocoder,
+        "ringmod" => EffectType::RingMod,
+        "autopan" => EffectType::Autopan,
+        "resonator" => EffectType::Resonator,
+        "multibandcomp" => EffectType::MultibandComp,
+        "paraeq" => EffectType::ParaEq,
+        "spectralfreeze" => EffectType::SpectralFreeze,
+        "glitch" => EffectType::Glitch,
+        "leslie" => EffectType::Leslie,
+        "springreverb" => EffectType::SpringReverb,
+        "envfollower" => EffectType::EnvFollower,
+        "midside" => EffectType::MidSide,
+        "crossfader" => EffectType::Crossfader,
         other if other.starts_with("vst:") => {
             if let Ok(id) = other[4..].parse::<u32>() {
                 EffectType::Vst(id)

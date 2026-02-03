@@ -227,7 +227,7 @@ impl AudioEngine {
                     -1.0
                 };
 
-                let params = vec![
+                let mut params = vec![
                     ("in".to_string(), current_bus as f32),
                     ("out".to_string(), filter_out_bus as f32),
                     ("cutoff".to_string(), filter.cutoff.value),
@@ -235,6 +235,15 @@ impl AudioEngine {
                     ("cutoff_mod_in".to_string(), cutoff_mod_bus),
                     ("res_mod_in".to_string(), res_mod_bus),
                 ];
+                // Append extra filter params (e.g. shape for Vowel, drive for ResDrive)
+                for p in &filter.extra_params {
+                    let val = match &p.value {
+                        crate::state::param::ParamValue::Float(v) => *v,
+                        crate::state::param::ParamValue::Int(v) => *v as f32,
+                        crate::state::param::ParamValue::Bool(v) => if *v { 1.0 } else { 0.0 },
+                    };
+                    params.push((p.name.clone(), val));
+                }
 
                 let client = self.client.as_ref().ok_or("Not connected")?;
                 client.create_synth_in_group(

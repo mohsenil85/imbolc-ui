@@ -133,6 +133,13 @@ impl InstrumentEditPane {
                 y += 1;
                 global_row += 1;
             }
+            // Extra filter params (e.g. shape for Vowel, drive for ResDrive)
+            for param in &f.extra_params {
+                let is_sel = self.selected_row == global_row;
+                render_param_row_buf(buf, content_x, y, param, is_sel, self.editing && is_sel, &mut self.edit_input);
+                y += 1;
+                global_row += 1;
+            }
         } else {
             let is_sel = self.selected_row == global_row;
             let style = if is_sel {

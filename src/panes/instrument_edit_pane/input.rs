@@ -74,7 +74,14 @@ impl InstrumentEditPane {
                             match local_idx {
                                 1 => if let Ok(v) = text.parse::<f32>() { f.cutoff.value = v.clamp(f.cutoff.min, f.cutoff.max); },
                                 2 => if let Ok(v) = text.parse::<f32>() { f.resonance.value = v.clamp(f.resonance.min, f.resonance.max); },
-                                _ => {}
+                                idx => {
+                                    let extra_idx = idx - 3;
+                                    if let Some(param) = f.extra_params.get_mut(extra_idx) {
+                                        if let Ok(v) = text.parse::<f32>() {
+                                            param.value = ParamValue::Float(v.clamp(param.min, param.max));
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -120,7 +127,14 @@ impl InstrumentEditPane {
                                 match local_idx {
                                     1 => if let Ok(v) = backup.parse::<f32>() { f.cutoff.value = v.clamp(f.cutoff.min, f.cutoff.max); },
                                     2 => if let Ok(v) = backup.parse::<f32>() { f.resonance.value = v.clamp(f.resonance.min, f.resonance.max); },
-                                    _ => {}
+                                    idx => {
+                                        let extra_idx = idx - 3;
+                                        if let Some(param) = f.extra_params.get_mut(extra_idx) {
+                                            if let Ok(v) = backup.parse::<f32>() {
+                                                param.value = ParamValue::Float(v.clamp(param.min, param.max));
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -226,8 +240,14 @@ impl InstrumentEditPane {
                     f.filter_type = match f.filter_type {
                         FilterType::Lpf => FilterType::Hpf,
                         FilterType::Hpf => FilterType::Bpf,
-                        FilterType::Bpf => FilterType::Lpf,
+                        FilterType::Bpf => FilterType::Notch,
+                        FilterType::Notch => FilterType::Comb,
+                        FilterType::Comb => FilterType::Allpass,
+                        FilterType::Allpass => FilterType::Vowel,
+                        FilterType::Vowel => FilterType::ResDrive,
+                        FilterType::ResDrive => FilterType::Lpf,
                     };
+                    f.extra_params = f.filter_type.default_extra_params();
                     return self.emit_update();
                 }
                 Action::None

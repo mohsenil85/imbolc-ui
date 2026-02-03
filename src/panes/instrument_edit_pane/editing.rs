@@ -95,7 +95,17 @@ impl InstrumentEditPane {
                                 else { f.resonance.value = (f.resonance.value - delta).max(f.resonance.min); }
                             }
                         }
-                        _ => {}
+                        idx => {
+                            // Extra filter params (local_idx >= 3)
+                            let extra_idx = idx - 3;
+                            if let Some(param) = f.extra_params.get_mut(extra_idx) {
+                                if mode == AdjustMode::Musical {
+                                    adjust_param_musical(param, increase, tuning_a4);
+                                } else {
+                                    adjust_param(param, increase, fraction);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -198,7 +208,12 @@ impl InstrumentEditPane {
                         0 => {} // type - can't zero
                         1 => f.cutoff.value = f.cutoff.min,
                         2 => f.resonance.value = f.resonance.min,
-                        _ => {}
+                        idx => {
+                            let extra_idx = idx - 3;
+                            if let Some(param) = f.extra_params.get_mut(extra_idx) {
+                                zero_param(param);
+                            }
+                        }
                     }
                 }
             }
@@ -244,6 +259,9 @@ impl InstrumentEditPane {
                 if let Some(ref mut f) = self.filter {
                     f.cutoff.value = f.cutoff.min;
                     f.resonance.value = f.resonance.min;
+                    for param in &mut f.extra_params {
+                        zero_param(param);
+                    }
                 }
             }
             Section::Effects => {
@@ -293,7 +311,18 @@ impl InstrumentEditPane {
                     match local_idx {
                         1 => format!("{:.2}", f.cutoff.value),
                         2 => format!("{:.2}", f.resonance.value),
-                        _ => String::new(),
+                        idx => {
+                            let extra_idx = idx - 3;
+                            if let Some(param) = f.extra_params.get(extra_idx) {
+                                match &param.value {
+                                    ParamValue::Float(v) => format!("{:.2}", v),
+                                    ParamValue::Int(v) => format!("{}", v),
+                                    ParamValue::Bool(v) => format!("{}", v),
+                                }
+                            } else {
+                                String::new()
+                            }
+                        }
                     }
                 } else {
                     String::new()

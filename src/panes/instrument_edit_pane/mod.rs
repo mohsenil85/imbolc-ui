@@ -159,7 +159,9 @@ impl InstrumentEditPane {
     fn total_rows(&self) -> usize {
         let sample_row = if self.source.is_sample() { 1 } else { 0 };
         let source_rows = sample_row + self.source_params.len().max(1);
-        let filter_rows = if self.filter.is_some() { 3 } else { 1 };
+        let filter_rows = if let Some(ref f) = self.filter {
+            3 + f.extra_params.len()
+        } else { 1 };
         let effect_rows = self.effects.len().max(1);
         let lfo_rows = 4;
         let env_rows = if self.source.is_vst() { 0 } else { 4 };
@@ -170,7 +172,9 @@ impl InstrumentEditPane {
     fn section_for_row(&self, row: usize) -> Section {
         let sample_row = if self.source.is_sample() { 1 } else { 0 };
         let source_rows = sample_row + self.source_params.len().max(1);
-        let filter_rows = if self.filter.is_some() { 3 } else { 1 };
+        let filter_rows = if let Some(ref f) = self.filter {
+            3 + f.extra_params.len()
+        } else { 1 };
         let effect_rows = self.effects.len().max(1);
         let lfo_rows = 4;
 
@@ -191,7 +195,9 @@ impl InstrumentEditPane {
     fn row_info(&self, row: usize) -> (Section, usize) {
         let sample_row = if self.source.is_sample() { 1 } else { 0 };
         let source_rows = sample_row + self.source_params.len().max(1);
-        let filter_rows = if self.filter.is_some() { 3 } else { 1 };
+        let filter_rows = if let Some(ref f) = self.filter {
+            3 + f.extra_params.len()
+        } else { 1 };
         let effect_rows = self.effects.len().max(1);
         let lfo_rows = 4;
 

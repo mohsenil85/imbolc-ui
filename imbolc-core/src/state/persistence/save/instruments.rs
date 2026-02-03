@@ -229,6 +229,33 @@ pub(crate) fn save_modulations(conn: &SqlConnection, instruments: &InstrumentSta
     Ok(())
 }
 
+pub(crate) fn save_filter_params(conn: &SqlConnection, instruments: &InstrumentState) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO instrument_filter_params (instrument_id, param_name, param_value, param_min, param_max, param_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for inst in &instruments.instruments {
+        if let Some(ref f) = inst.filter {
+            for param in &f.extra_params {
+                let (value, param_type) = match &param.value {
+                    ParamValue::Float(v) => (*v as f64, "float"),
+                    ParamValue::Int(v) => (*v as f64, "int"),
+                    ParamValue::Bool(v) => (if *v { 1.0 } else { 0.0 }, "bool"),
+                };
+                stmt.execute(rusqlite::params![
+                    inst.id,
+                    param.name,
+                    value,
+                    param.min as f64,
+                    param.max as f64,
+                    param_type,
+                ])?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn insert_mod_source(
     stmt: &mut rusqlite::Statement,
     instrument_id: InstrumentId,
