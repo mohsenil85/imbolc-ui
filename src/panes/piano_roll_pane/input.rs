@@ -21,13 +21,8 @@ impl PianoRollPane {
         match action {
             // Piano mode actions (from piano layer)
             ActionId::Mode(ModeActionId::PianoEscape) => {
-                let was_active = self.piano.is_active();
-                self.piano.handle_escape();
-                if was_active && !self.piano.is_active() {
-                    Action::ExitPerformanceMode
-                } else {
-                    Action::None
-                }
+                self.piano.deactivate();
+                Action::ExitPerformanceMode
             }
             ActionId::Mode(ModeActionId::PianoOctaveDown) => {
                 if self.piano.octave_down() {

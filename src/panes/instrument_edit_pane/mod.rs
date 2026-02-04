@@ -167,6 +167,21 @@ impl InstrumentEditPane {
         self.section_for_row(self.selected_row)
     }
 
+    /// Decode a local_idx within the Effects section into (effect_index, param_offset).
+    /// param_offset == 0 means the effect header row (name/enabled).
+    /// param_offset >= 1 means param at index (param_offset - 1).
+    fn effect_row_info(&self, local_idx: usize) -> Option<(usize, usize)> {
+        let mut offset = 0;
+        for (i, effect) in self.effects.iter().enumerate() {
+            let rows = 1 + effect.params.len();
+            if local_idx < offset + rows {
+                return Some((i, local_idx - offset));
+            }
+            offset += rows;
+        }
+        None
+    }
+
     pub fn is_editing(&self) -> bool {
         self.editing
     }

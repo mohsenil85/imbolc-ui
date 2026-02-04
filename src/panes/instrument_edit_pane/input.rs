@@ -11,13 +11,8 @@ impl InstrumentEditPane {
         match action {
             // Piano mode actions
             ActionId::Mode(ModeActionId::PianoEscape) => {
-                let was_active = self.piano.is_active();
-                self.piano.handle_escape();
-                if was_active && !self.piano.is_active() {
-                    Action::ExitPerformanceMode
-                } else {
-                    Action::None
-                }
+                self.piano.deactivate();
+                Action::ExitPerformanceMode
             }
             ActionId::Mode(ModeActionId::PianoOctaveDown) => { self.piano.octave_down(); Action::None }
             ActionId::Mode(ModeActionId::PianoOctaveUp) => { self.piano.octave_up(); Action::None }
@@ -82,6 +77,18 @@ impl InstrumentEditPane {
                             }
                         }
                     }
+                    Section::Effects => {
+                        if let Some((effect_idx, param_offset)) = self.effect_row_info(local_idx) {
+                            if param_offset > 0 {
+                                let param_idx = param_offset - 1;
+                                if let Some(effect) = self.effects.get_mut(effect_idx) {
+                                    if let Some(param) = effect.params.get_mut(param_idx) {
+                                        param.parse_and_set(&text);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Section::Envelope => {
                         if let Ok(v) = text.parse::<f32>() {
                             let max = if local_idx == 2 { 1.0 } else { 5.0 };
@@ -125,6 +132,18 @@ impl InstrumentEditPane {
                                     idx => {
                                         let extra_idx = idx - 3;
                                         if let Some(param) = f.extra_params.get_mut(extra_idx) {
+                                            param.parse_and_set(backup);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Section::Effects => {
+                            if let Some((effect_idx, param_offset)) = self.effect_row_info(local_idx) {
+                                if param_offset > 0 {
+                                    let param_idx = param_offset - 1;
+                                    if let Some(effect) = self.effects.get_mut(effect_idx) {
+                                        if let Some(param) = effect.params.get_mut(param_idx) {
                                             param.parse_and_set(backup);
                                         }
                                     }
@@ -202,13 +221,21 @@ impl InstrumentEditPane {
                 self.emit_update()
             }
             ActionId::InstrumentEdit(InstrumentEditActionId::EnterEdit) => {
+                let (section, local_idx) = self.row_info(self.selected_row);
                 // On the sample row, trigger load_sample instead of text edit
                 if self.source.is_sample() {
-                    let (section, local_idx) = self.row_info(self.selected_row);
                     if section == Section::Source && local_idx == 0 {
                         if let Some(id) = self.instrument_id {
                             return Action::Session(SessionAction::OpenFileBrowser(FileSelectAction::LoadPitchedSample(id)));
                         }
+                        return Action::None;
+                    }
+                }
+                // Skip text edit on effect header rows
+                if section == Section::Effects {
+                    if let Some((_, param_offset)) = self.effect_row_info(local_idx) {
+                        if param_offset == 0 { return Action::None; }
+                    } else {
                         return Action::None;
                     }
                 }
@@ -251,9 +278,13 @@ impl InstrumentEditPane {
             ActionId::InstrumentEdit(InstrumentEditActionId::RemoveEffect) => {
                 let (section, local_idx) = self.row_info(self.selected_row);
                 if section == Section::Effects && !self.effects.is_empty() {
-                    let idx = local_idx.min(self.effects.len() - 1);
-                    self.effects.remove(idx);
-                    return self.emit_update();
+                    if let Some((effect_idx, _)) = self.effect_row_info(local_idx) {
+                        self.effects.remove(effect_idx);
+                        // Clamp selected_row after removal
+                        let max = self.total_rows().saturating_sub(1);
+                        self.selected_row = self.selected_row.min(max);
+                        return self.emit_update();
+                    }
                 }
                 Action::None
             }
@@ -314,7 +345,7 @@ impl InstrumentEditPane {
                     // Navigate to VST params pane for VST instrument source
                     Action::Nav(crate::ui::NavAction::PushPane("vst_params"))
                 } else if section == Section::Effects {
-                    let idx = local_idx.min(self.effects.len().saturating_sub(1));
+                    let idx = self.effect_row_info(local_idx).map(|(i, _)| i).unwrap_or(0);
                     if let Some(effect) = self.effects.get(idx) {
                         if effect.effect_type.is_vst() {
                             if let Some(instrument_id) = self.instrument_id {

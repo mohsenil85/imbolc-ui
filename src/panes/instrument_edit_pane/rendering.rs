@@ -150,8 +150,8 @@ impl InstrumentEditPane {
             global_row += 1;
         } else {
             for effect in &self.effects {
+                // Header row: effect name + enabled badge
                 let is_sel = self.selected_row == global_row;
-                // Selection indicator
                 if is_sel {
                     buf.set_cell(content_x, y, '>', Style::new().fg(Color::WHITE).bg(Color::SELECTION_BG).bold());
                 }
@@ -165,23 +165,16 @@ impl InstrumentEditPane {
                 };
                 buf.draw_line(Rect::new(content_x + 2, y, 18, 1), &[(&effect_text, effect_style)]);
 
-                // Params inline
-                let params_str: String = effect.params.iter().take(3).map(|p| {
-                    match &p.value {
-                        ParamValue::Float(v) => format!("{}:{:.2}", p.name, v),
-                        ParamValue::Int(v) => format!("{}:{}", p.name, v),
-                        ParamValue::Bool(v) => format!("{}:{}", p.name, v),
-                    }
-                }).collect::<Vec<_>>().join("  ");
-                let params_style = if is_sel {
-                    Style::new().fg(Color::SKY_BLUE).bg(Color::SELECTION_BG)
-                } else {
-                    Style::new().fg(Color::DARK_GRAY)
-                };
-                buf.draw_line(Rect::new(content_x + 20, y, inner.width.saturating_sub(22), 1), &[(&params_str, params_style)]);
-
                 y += 1;
                 global_row += 1;
+
+                // Per-param rows with sliders
+                for param in &effect.params {
+                    let is_sel = self.selected_row == global_row;
+                    render_param_row_buf(buf, content_x, y, param, is_sel, self.editing && is_sel, &mut self.edit_input);
+                    y += 1;
+                    global_row += 1;
+                }
             }
         }
         y += 1;

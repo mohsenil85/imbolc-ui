@@ -80,12 +80,16 @@ impl InstrumentEditPane {
                 }
             }
             Section::Effects => {
-                if let Some(effect) = self.effects.get_mut(local_idx) {
-                    if let Some(param) = effect.params.first_mut() {
-                        if mode == AdjustMode::Musical {
-                            param.adjust_musical(increase, tuning_a4);
-                        } else {
-                            param.adjust(increase, fraction);
+                if let Some((effect_idx, param_offset)) = self.effect_row_info(local_idx) {
+                    if param_offset == 0 { return; } // header row — not adjustable
+                    let param_idx = param_offset - 1;
+                    if let Some(effect) = self.effects.get_mut(effect_idx) {
+                        if let Some(param) = effect.params.get_mut(param_idx) {
+                            if mode == AdjustMode::Musical {
+                                param.adjust_musical(increase, tuning_a4);
+                            } else {
+                                param.adjust(increase, fraction);
+                            }
                         }
                     }
                 }
@@ -189,9 +193,13 @@ impl InstrumentEditPane {
                 }
             }
             Section::Effects => {
-                if let Some(effect) = self.effects.get_mut(local_idx) {
-                    if let Some(param) = effect.params.first_mut() {
-                        param.zero();
+                if let Some((effect_idx, param_offset)) = self.effect_row_info(local_idx) {
+                    if param_offset == 0 { return; } // header row
+                    let param_idx = param_offset - 1;
+                    if let Some(effect) = self.effects.get_mut(effect_idx) {
+                        if let Some(param) = effect.params.get_mut(param_idx) {
+                            param.zero();
+                        }
                     }
                 }
             }
@@ -286,6 +294,16 @@ impl InstrumentEditPane {
                 } else {
                     String::new()
                 }
+            }
+            Section::Effects => {
+                if let Some((effect_idx, param_offset)) = self.effect_row_info(local_idx) {
+                    if param_offset == 0 { return String::new(); }
+                    let param_idx = param_offset - 1;
+                    self.effects.get(effect_idx)
+                        .and_then(|e| e.params.get(param_idx))
+                        .map(|p| p.value_string())
+                        .unwrap_or_default()
+                } else { String::new() }
             }
             Section::Envelope => {
                 match local_idx {

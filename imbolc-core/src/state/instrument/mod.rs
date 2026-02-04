@@ -111,7 +111,11 @@ pub fn instrument_row_count(
     let filter_rows = if let Some(ref f) = filter {
         3 + f.extra_params.len()
     } else { 1 };
-    let effect_rows = effects.len().max(1);
+    let effect_rows = if effects.is_empty() {
+        1
+    } else {
+        effects.iter().map(|e| 1 + e.params.len()).sum()
+    };
     let lfo_rows = 4;
     let env_rows = if source.is_vst() { 0 } else { 4 };
     source_rows + filter_rows + effect_rows + lfo_rows + env_rows
@@ -132,7 +136,11 @@ pub fn instrument_section_for_row(
     let filter_rows = if let Some(ref f) = filter {
         3 + f.extra_params.len()
     } else { 1 };
-    let effect_rows = effects.len().max(1);
+    let effect_rows = if effects.is_empty() {
+        1
+    } else {
+        effects.iter().map(|e| 1 + e.params.len()).sum()
+    };
     let lfo_rows = 4;
 
     if row < source_rows {
@@ -163,7 +171,11 @@ pub fn instrument_row_info(
     let filter_rows = if let Some(ref f) = filter {
         3 + f.extra_params.len()
     } else { 1 };
-    let effect_rows = effects.len().max(1);
+    let effect_rows = if effects.is_empty() {
+        1
+    } else {
+        effects.iter().map(|e| 1 + e.params.len()).sum()
+    };
     let lfo_rows = 4;
 
     if row < source_rows {
