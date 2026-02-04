@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
@@ -75,17 +75,6 @@ pub(crate) struct AudioThread {
     pending_server_connect: Option<PendingServerConnect>,
     /// In-flight VST parameter queries awaiting OSC replies
     pending_vst_queries: Vec<PendingVstQuery>,
-}
-
-fn config_synthdefs_dir() -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home)
-            .join(".config")
-            .join("imbolc")
-            .join("synthdefs")
-    } else {
-        PathBuf::from("synthdefs")
-    }
 }
 
 impl AudioThread {
@@ -581,10 +570,10 @@ impl AudioThread {
     }
 
     fn load_synthdefs_and_samples(&mut self) -> Result<(), String> {
-        let synthdef_dir = Path::new("synthdefs");
-        let builtin_result = self.engine.load_synthdefs(synthdef_dir);
+        let synthdef_dir = crate::paths::synthdefs_dir();
+        let builtin_result = self.engine.load_synthdefs(&synthdef_dir);
 
-        let config_dir = config_synthdefs_dir();
+        let config_dir = crate::paths::custom_synthdefs_dir();
         let custom_result = if config_dir.exists() {
             self.engine.load_synthdefs(&config_dir)
         } else {
@@ -709,20 +698,17 @@ impl AudioThread {
                 Ok(msg) => {
                     // Auto-reload synthdefs after successful compile
                     let mut reload_msg = msg;
-                    let builtin_dir = Path::new("synthdefs");
+                    let builtin_dir = crate::paths::synthdefs_dir();
                     if builtin_dir.exists() {
-                        match self.engine.load_synthdefs(builtin_dir) {
+                        match self.engine.load_synthdefs(&builtin_dir) {
                             Ok(()) => reload_msg += " — reloaded",
                             Err(e) => reload_msg += &format!(" — reload failed: {e}"),
                         }
                     }
                     // Also reload custom synthdefs from config dir
-                    if let Some(home) = std::env::var_os("HOME") {
-                        let config_dir = std::path::PathBuf::from(home)
-                            .join(".config/imbolc/synthdefs");
-                        if config_dir.exists() {
-                            let _ = self.engine.load_synthdefs(&config_dir);
-                        }
+                    let config_dir = crate::paths::custom_synthdefs_dir();
+                    if config_dir.exists() {
+                        let _ = self.engine.load_synthdefs(&config_dir);
                     }
                     Ok(reload_msg)
                 }

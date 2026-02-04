@@ -5,7 +5,7 @@ use crate::scd_parser;
 use crate::state::{AppState, CustomSynthDef, ParamSpec};
 use crate::action::{DispatchResult, IoFeedback, NavIntent, SessionAction};
 
-use super::server::{compile_synthdef, config_synthdefs_dir};
+use super::server::compile_synthdef;
 use super::default_rack_path;
 
 fn dispatch_save(
@@ -173,7 +173,7 @@ pub(super) fn dispatch_session(
                                 };
 
                                 // Copy the .scd file to the config synthdefs directory
-                                let config_dir = config_synthdefs_dir();
+                                let config_dir = crate::paths::custom_synthdefs_dir();
                                 let _ = std::fs::create_dir_all(&config_dir);
 
                                 // Copy .scd file

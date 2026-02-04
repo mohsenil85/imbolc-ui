@@ -33,8 +33,8 @@ pub(super) fn dispatch_server(
             result.push_status(audio.status(), "Stopping server...");
         }
         ServerAction::CompileSynthDefs => {
-            let scd_path = std::path::Path::new("synthdefs/compile.scd");
-            match audio.compile_synthdefs_async(scd_path) {
+            let scd_path = crate::paths::compile_scd_path();
+            match audio.compile_synthdefs_async(&scd_path) {
                 Ok(()) => {
                     result.push_status(audio.status(), "Compiling synthdefs...");
                 }
@@ -44,8 +44,8 @@ pub(super) fn dispatch_server(
             }
         }
         ServerAction::CompileVstSynthDefs => {
-            let scd_path = std::path::Path::new("synthdefs/compile_vst.scd");
-            match audio.compile_synthdefs_async(scd_path) {
+            let scd_path = crate::paths::compile_vst_scd_path();
+            match audio.compile_synthdefs_async(&scd_path) {
                 Ok(()) => {
                     result.push_status(audio.status(), "Compiling VST synthdefs...");
                 }
@@ -56,11 +56,11 @@ pub(super) fn dispatch_server(
         }
         ServerAction::LoadSynthDefs => {
             // Load built-in synthdefs
-            let synthdef_dir = std::path::Path::new("synthdefs");
-            let builtin_result = audio.load_synthdefs(synthdef_dir);
+            let synthdef_dir = crate::paths::synthdefs_dir();
+            let builtin_result = audio.load_synthdefs(&synthdef_dir);
 
             // Also load custom synthdefs from config dir
-            let config_dir = config_synthdefs_dir();
+            let config_dir = crate::paths::custom_synthdefs_dir();
             let custom_result = if config_dir.exists() {
                 audio.load_synthdefs(&config_dir)
             } else {
@@ -181,18 +181,6 @@ pub(super) fn dispatch_server(
     }
 
     result
-}
-
-/// Get the config directory for custom synthdefs
-pub(super) fn config_synthdefs_dir() -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home)
-            .join(".config")
-            .join("imbolc")
-            .join("synthdefs")
-    } else {
-        PathBuf::from("synthdefs")
-    }
 }
 
 /// Find sclang executable, checking common locations
