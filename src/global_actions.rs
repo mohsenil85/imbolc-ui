@@ -191,10 +191,7 @@ pub(crate) fn handle_global_action(
         ActionId::Global(g) => match g {
             GlobalActionId::Quit => {
                 if state.dirty {
-                    if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
-                        confirm.set_confirm("Unsaved changes will be lost. Quit anyway?", PendingAction::Quit);
-                    }
-                    panes.push_to("confirm", &*state);
+                    panes.push_to("quit_prompt", &*state);
                     sync_pane_layer(panes, layer_stack);
                     return GlobalResult::Handled;
                 }
@@ -215,9 +212,19 @@ pub(crate) fn handle_global_action(
                 sync_instrument_edit(state, panes);
             }
             GlobalActionId::Save => {
-                let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
-                pending_audio_dirty.merge(r.audio_dirty);
-                apply_dispatch_result(r, state, panes, app_frame, audio);
+                if state.project_path.is_none() {
+                    // Unnamed project — open SaveAs
+                    let default_name = "untitled".to_string();
+                    if let Some(sa) = panes.get_pane_mut::<SaveAsPane>("save_as") {
+                        sa.reset(&default_name);
+                    }
+                    panes.push_to("save_as", &*state);
+                    sync_pane_layer(panes, layer_stack);
+                } else {
+                    let r = dispatch::dispatch_action(&Action::Session(SessionAction::Save), state, audio, io_tx);
+                    pending_audio_dirty.merge(r.audio_dirty);
+                    apply_dispatch_result(r, state, panes, app_frame, audio);
+                }
             }
             GlobalActionId::Load => {
                 if state.dirty {

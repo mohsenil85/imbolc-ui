@@ -765,7 +765,7 @@ pub fn parse_action_id(layer: &str, action: &str) -> Option<ActionId> {
         "piano_mode" | "pad_mode" | "text_edit" | "command_palette" => {
             ModeActionId::from_str(action).map(ActionId::Mode)
         }
-        "save_as" => None, // No actions in save_as layer
+        "quit_prompt" | "save_as" => None, // No actions — handled via raw input
         _ => None,
     }
 }

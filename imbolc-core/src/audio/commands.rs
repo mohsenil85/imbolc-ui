@@ -159,6 +159,9 @@ pub enum AudioCmd {
         path: String,
         reply: Sender<Result<i32, String>>,
     },
+    FreeSamples {
+        buffer_ids: Vec<BufferId>,
+    },
 
     // ── Recording ─────────────────────────────────────────────────
     StartRecording {

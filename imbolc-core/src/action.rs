@@ -333,6 +333,8 @@ pub enum Action {
     Undo,
     /// Redo the last undone state change
     Redo,
+    /// Save the project then quit (used by quit prompt)
+    SaveAndQuit,
 }
 
 /// Result of toggling performance mode (piano/pad keyboard)
@@ -360,6 +362,7 @@ pub enum FileSelectAction {
     LoadChopperSample,
     LoadPitchedSample(InstrumentId),
     LoadImpulseResponse(InstrumentId, EffectId), // instrument_id, effect_id
+    ImportProject,
 }
 
 /// Navigation intent returned from dispatch — processed by the UI layer

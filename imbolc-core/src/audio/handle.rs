@@ -487,6 +487,12 @@ impl AudioHandle {
         }
     }
 
+    pub fn free_samples(&self, buffer_ids: Vec<BufferId>) {
+        if !buffer_ids.is_empty() {
+            self.send(AudioCmd::FreeSamples { buffer_ids });
+        }
+    }
+
     // ── Routing & mixing ──────────────────────────────────────────
 
     pub fn rebuild_instrument_routing(&mut self) -> Result<(), String> {

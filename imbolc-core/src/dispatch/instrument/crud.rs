@@ -1,5 +1,7 @@
+use crate::audio::AudioHandle;
 use crate::state::AppState;
 use crate::state::automation::AutomationTarget;
+use crate::state::BufferId;
 use crate::action::{DispatchResult, NavIntent};
 use crate::dispatch::automation::record_automation_point;
 
@@ -17,8 +19,32 @@ pub(super) fn handle_add(
 
 pub(super) fn handle_delete(
     state: &mut AppState,
+    audio: &mut AudioHandle,
     inst_id: crate::state::InstrumentId,
 ) -> DispatchResult {
+    // Collect buffer IDs from the instrument before removing it
+    let mut buffer_ids: Vec<BufferId> = Vec::new();
+    if let Some(inst) = state.instruments.instrument(inst_id) {
+        if let Some(seq) = &inst.drum_sequencer {
+            for pad in &seq.pads {
+                if let Some(id) = pad.buffer_id {
+                    buffer_ids.push(id);
+                }
+            }
+            if let Some(chopper) = &seq.chopper {
+                if let Some(id) = chopper.buffer_id {
+                    buffer_ids.push(id);
+                }
+            }
+        }
+        if let Some(sampler) = &inst.sampler_config {
+            if let Some(id) = sampler.buffer_id {
+                buffer_ids.push(id);
+            }
+        }
+    }
+    audio.free_samples(buffer_ids);
+
     state.remove_instrument(inst_id);
     let mut result = if state.instruments.instruments.is_empty() {
         DispatchResult::with_nav(NavIntent::SwitchTo("add"))

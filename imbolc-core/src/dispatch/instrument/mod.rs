@@ -19,7 +19,7 @@ pub(super) fn dispatch_instrument(
 ) -> DispatchResult {
     match action {
         InstrumentAction::Add(source_type) => crud::handle_add(state, *source_type),
-        InstrumentAction::Delete(inst_id) => crud::handle_delete(state, *inst_id),
+        InstrumentAction::Delete(inst_id) => crud::handle_delete(state, audio, *inst_id),
         InstrumentAction::Edit(id) => crud::handle_edit(state, *id),
         InstrumentAction::Update(update) => crud::handle_update(state, update),
         InstrumentAction::PlayNote(pitch, velocity) => {

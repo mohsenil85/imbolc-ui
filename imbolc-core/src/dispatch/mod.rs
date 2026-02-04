@@ -80,6 +80,8 @@ pub fn dispatch_action(
         Action::None => DispatchResult::none(),
         // Layer management actions — handled in main.rs before dispatch
         Action::ExitPerformanceMode | Action::PushLayer(_) | Action::PopLayer(_) => DispatchResult::none(),
+        // SaveAndQuit is intercepted in main.rs before reaching dispatch
+        Action::SaveAndQuit => DispatchResult::none(),
         Action::Undo => {
             if let Some(snapshot) = state.undo_history.undo(&state.session, &state.instruments) {
                 state.session = snapshot.session;

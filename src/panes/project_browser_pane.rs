@@ -112,6 +112,11 @@ impl Pane for ProjectBrowserPane {
             crate::ui::KeyCode::Char('n') | crate::ui::KeyCode::Char('N') => {
                 Action::Session(SessionAction::NewProject)
             }
+            crate::ui::KeyCode::Char('i') | crate::ui::KeyCode::Char('I') => {
+                Action::Session(SessionAction::OpenFileBrowser(
+                    crate::ui::FileSelectAction::ImportProject,
+                ))
+            }
             crate::ui::KeyCode::Char('d') | crate::ui::KeyCode::Char('D') => {
                 if let Some(entry) = self.entries.get(self.selected) {
                     let path = entry.path.clone();
@@ -207,6 +212,7 @@ impl Pane for ProjectBrowserPane {
             let footer_area = Rect::new(inner.x + 1, footer_y, inner.width.saturating_sub(2), 1);
             buf.draw_line(footer_area, &[
                 ("[N]", hi), ("ew  ", lo),
+                ("[I]", hi), ("mport  ", lo),
                 ("[Enter]", hi), (" Open  ", lo),
                 ("[D]", hi), ("elete  ", lo),
                 ("[Esc]", hi), (" Close", lo),

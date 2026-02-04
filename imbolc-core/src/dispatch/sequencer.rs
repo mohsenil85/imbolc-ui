@@ -179,10 +179,11 @@ pub(super) fn dispatch_sequencer(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
 
-            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
-                let buffer_id = seq.next_buffer_id;
-                seq.next_buffer_id += 1;
+            // Allocate from global counter to avoid ID collisions after instrument deletion
+            let buffer_id = state.instruments.next_sampler_buffer_id;
+            state.instruments.next_sampler_buffer_id += 1;
 
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
                 if audio.is_running() {
                     let _ = audio.load_sample(buffer_id, &path_str);
                 }
@@ -524,10 +525,11 @@ pub(super) fn dispatch_chopper(
             // Compute waveform peaks from WAV file
             let (peaks, duration_secs) = compute_waveform_peaks(&path_str);
 
-            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
-                let buffer_id = seq.next_buffer_id;
-                seq.next_buffer_id += 1;
+            // Allocate from global counter to avoid ID collisions after instrument deletion
+            let buffer_id = state.instruments.next_sampler_buffer_id;
+            state.instruments.next_sampler_buffer_id += 1;
 
+            if let Some(seq) = state.instruments.selected_drum_sequencer_mut() {
                 if audio.is_running() {
                     let _ = audio.load_sample(buffer_id, &path_str);
                 }

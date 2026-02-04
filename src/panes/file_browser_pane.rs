@@ -63,12 +63,14 @@ impl FileBrowserPane {
             FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample | FileSelectAction::LoadPitchedSample(_) | FileSelectAction::LoadImpulseResponse(_, _) => {
                 Some(vec!["wav".to_string(), "aiff".to_string(), "aif".to_string()])
             }
+            FileSelectAction::ImportProject => Some(vec!["sqlite".to_string()]),
         };
         let default_dir = match &self.on_select_action {
             FileSelectAction::ImportVstInstrument | FileSelectAction::ImportVstEffect => {
                 let vst3_dir = PathBuf::from("/Library/Audio/Plug-Ins/VST3");
                 if vst3_dir.exists() { Some(vst3_dir) } else { None }
             }
+            FileSelectAction::ImportProject => dirs::home_dir(),
             _ => None,
         };
         self.current_dir = start_dir.or(default_dir).unwrap_or_else(|| {
@@ -191,6 +193,9 @@ impl Pane for FileBrowserPane {
                             FileSelectAction::LoadImpulseResponse(id, fx_idx) => {
                                 Action::Instrument(InstrumentAction::LoadIRResult(id, fx_idx, entry.path.clone()))
                             }
+                            FileSelectAction::ImportProject => {
+                                Action::Session(SessionAction::LoadFrom(entry.path.clone()))
+                            }
                         }
                     }
                 } else {
@@ -258,6 +263,7 @@ impl Pane for FileBrowserPane {
             FileSelectAction::LoadDrumSample(_) | FileSelectAction::LoadChopperSample => " Load Sample ",
             FileSelectAction::LoadPitchedSample(_) => " Load Sample ",
             FileSelectAction::LoadImpulseResponse(_, _) => " Load Impulse Response ",
+            FileSelectAction::ImportProject => " Import Project ",
         };
         let border_style = Style::new().fg(Color::PURPLE);
         let inner = buf.draw_block(rect, title, border_style, border_style);
@@ -450,6 +456,11 @@ impl Pane for FileBrowserPane {
                                         return Action::Instrument(InstrumentAction::LoadIRResult(
                                             id,
                                             fx_idx,
+                                            self.entries[clicked_idx].path.clone(),
+                                        ));
+                                    }
+                                    FileSelectAction::ImportProject => {
+                                        return Action::Session(SessionAction::LoadFrom(
                                             self.entries[clicked_idx].path.clone(),
                                         ));
                                     }

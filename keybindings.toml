@@ -543,6 +543,10 @@ bindings = [
   { key = "Escape", action = "palette:cancel", description = "Cancel" },
 ]
 
+[layers.quit_prompt]
+transparent = false
+bindings = []
+
 [layers.save_as]
 transparent = false
 bindings = []

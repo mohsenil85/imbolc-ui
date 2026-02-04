@@ -38,7 +38,7 @@ pub struct Frame {
 impl Frame {
     pub fn new() -> Self {
         Self {
-            project_name: "default".to_string(),
+            project_name: "untitled".to_string(),
             master_mute: false,
             master_peak: 0.0,
             peak_display: 0.0,

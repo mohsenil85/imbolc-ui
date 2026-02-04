@@ -315,6 +315,11 @@ impl AudioThread {
                 let result = self.engine.load_sample(buffer_id, &path);
                 let _ = reply.send(result);
             }
+            AudioCmd::FreeSamples { buffer_ids } => {
+                for id in buffer_ids {
+                    let _ = self.engine.free_sample(id);
+                }
+            }
             AudioCmd::StartInstrumentRender { instrument_id, path, reply } => {
                 let result = if let Some(&bus) = self.engine.instrument_final_buses.get(&instrument_id) {
                     self.engine.start_recording(bus, &path).map(|_| {

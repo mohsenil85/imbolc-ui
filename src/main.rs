@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use audio::AudioHandle;
 use audio::commands::AudioCmd;
 use action::{AudioDirty, IoFeedback};
-use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, MidiSettingsPane, MixerPane, PianoRollPane, ProjectBrowserPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
+use panes::{AddEffectPane, AddPane, AutomationPane, CommandPalettePane, ConfirmPane, EqPane, FileBrowserPane, FrameEditPane, HelpPane, HomePane, InstrumentEditPane, InstrumentPane, MidiSettingsPane, MixerPane, PianoRollPane, ProjectBrowserPane, QuitPromptPane, SaveAsPane, SampleChopperPane, SequencerPane, ServerPane, TrackPane, VstParamPane, WaveformPane};
 use state::AppState;
 use ui::{
     Action, AppEvent, Frame, InputSource, KeyCode, Keymap, LayerResult,
@@ -71,6 +71,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     panes.add_pane(Box::new(EqPane::new(pane_keymap(&mut keymaps, "eq"))));
     panes.add_pane(Box::new(VstParamPane::new(pane_keymap(&mut keymaps, "vst_params"))));
     panes.add_pane(Box::new(ConfirmPane::new(pane_keymap(&mut keymaps, "confirm"))));
+    panes.add_pane(Box::new(QuitPromptPane::new(pane_keymap(&mut keymaps, "quit_prompt"))));
     panes.add_pane(Box::new(ProjectBrowserPane::new(pane_keymap(&mut keymaps, "project_browser"))));
     panes.add_pane(Box::new(SaveAsPane::new(pane_keymap(&mut keymaps, "save_as"))));
     panes.add_pane(Box::new(CommandPalettePane::new(pane_keymap(&mut keymaps, "command_palette"))));
@@ -101,15 +102,17 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
     let mut pending_audio_dirty = AudioDirty::default();
+    let mut quit_after_save = false;
 
-    // Auto-load most recent project on startup
-    if let Some(entry) = recent_projects.entries.first() {
-        let load_path = entry.path.clone();
+    // CLI argument: optional project path
+    if let Some(arg) = std::env::args().nth(1) {
+        let load_path = std::path::PathBuf::from(&arg);
         if load_path.exists() {
+            // Load existing project
             if let Ok((session, instruments)) = state::persistence::load_project(&load_path) {
                 let name = load_path.file_stem()
                     .and_then(|s| s.to_str())
-                    .unwrap_or("default")
+                    .unwrap_or("untitled")
                     .to_string();
                 state.session = session;
                 state.instruments = instruments;
@@ -118,7 +121,6 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 app_frame.set_project_name(name);
                 pending_audio_dirty.merge(AudioDirty::all());
 
-                // Re-evaluate which pane to show
                 if state.instruments.instruments.is_empty() {
                     panes.switch_to("add", &state);
                 } else {
@@ -126,6 +128,14 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 }
                 layer_stack.set_pane_layer(panes.active().id());
             }
+        } else {
+            // New project at specified path
+            let name = load_path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("untitled")
+                .to_string();
+            state.project_path = Some(load_path);
+            app_frame.set_project_name(name);
         }
     }
 
@@ -241,6 +251,15 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 }
             }
 
+            // Detect SaveAs cancel during quit flow: if we're quitting and
+            // the user pops the save_as pane, cancel the quit
+            if quit_after_save
+                && matches!(&pane_action, Action::Nav(action::NavAction::PopPane))
+                && panes.active().id() == "save_as"
+            {
+                quit_after_save = false;
+            }
+
             // Process navigation
             panes.process_nav(&pane_action, &state);
 
@@ -306,12 +325,36 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 state.midi_connected_port = None;
             }
 
-            let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
-            if dispatch_result.quit {
-                break;
+            // Intercept SaveAndQuit — handle in main.rs, not dispatch
+            if matches!(&pane_action, Action::SaveAndQuit) {
+                if state.project_path.is_some() {
+                    let r = dispatch::dispatch_action(
+                        &Action::Session(action::SessionAction::Save),
+                        &mut state, &mut audio, &io_tx,
+                    );
+                    pending_audio_dirty.merge(r.audio_dirty);
+                    apply_dispatch_result(r, &mut state, &mut panes, &mut app_frame, &mut audio);
+                    quit_after_save = true;
+                } else {
+                    // No project path — open SaveAs, then quit after save completes
+                    let default_name = "untitled".to_string();
+                    if let Some(sa) = panes.get_pane_mut::<SaveAsPane>("save_as") {
+                        sa.reset(&default_name);
+                    }
+                    // Pop the quit prompt first, then push save_as
+                    panes.pop(&state);
+                    panes.push_to("save_as", &state);
+                    sync_pane_layer(&mut panes, &mut layer_stack);
+                    quit_after_save = true;
+                }
+            } else {
+                let dispatch_result = dispatch::dispatch_action(&pane_action, &mut state, &mut audio, &io_tx);
+                if dispatch_result.quit {
+                    break;
+                }
+                pending_audio_dirty.merge(dispatch_result.audio_dirty);
+                apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame, &mut audio);
             }
-            pending_audio_dirty.merge(dispatch_result.audio_dirty);
-            apply_dispatch_result(dispatch_result, &mut state, &mut panes, &mut app_frame, &mut audio);
         }
 
         if pending_audio_dirty.any() {
@@ -458,6 +501,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     }
                 }
             }
+        }
+
+        // Quit after save completes
+        if quit_after_save && !state.dirty {
+            break;
         }
 
         // Drain audio feedback

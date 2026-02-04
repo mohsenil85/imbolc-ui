@@ -92,6 +92,23 @@ pub fn probe_vst3_params(bundle_path: &Path) -> Result<Vec<Vst3ParamInfo>, Strin
     }
 }
 
+/// RAII guard that releases a Core Foundation `CFBundleRef` on drop.
+/// Used to ensure the CFBundle passed to `bundleEntry` is cleaned up on all paths.
+#[cfg(target_os = "macos")]
+struct CfBundleGuard(*mut c_void);
+
+#[cfg(target_os = "macos")]
+impl Drop for CfBundleGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            extern "C" {
+                fn CFRelease(cf: *const c_void);
+            }
+            unsafe { CFRelease(self.0 as *const _); }
+        }
+    }
+}
+
 fn probe_vst3_params_inner(bundle_path: &Path) -> Result<Vec<Vst3ParamInfo>, String> {
     let binary_path = resolve_vst3_binary(bundle_path)?;
 
@@ -99,14 +116,49 @@ fn probe_vst3_params_inner(bundle_path: &Path) -> Result<Vec<Vst3ParamInfo>, Str
     let lib = unsafe { Library::new(&binary_path) }
         .map_err(|e| format!("Failed to load {}: {}", binary_path.display(), e))?;
 
-    // On macOS, call bundleEntry before GetPluginFactory
+    // On macOS, call bundleEntry with a CFBundleRef before GetPluginFactory.
+    // The VST3 SDK's default bundleEntry implementation calls CFRetain on its
+    // argument, so passing garbage (or nothing) causes a segfault.
     #[cfg(target_os = "macos")]
-    {
-        type BundleEntryFn = unsafe extern "system" fn() -> bool;
-        if let Ok(bundle_entry) = unsafe { lib.get::<BundleEntryFn>(b"bundleEntry") } {
-            unsafe { bundle_entry(); }
+    let _cf_bundle_guard = {
+        extern "C" {
+            fn CFURLCreateFromFileSystemRepresentation(
+                allocator: *const c_void,
+                buffer: *const u8,
+                buf_len: isize,
+                is_directory: u8,
+            ) -> *mut c_void;
+            fn CFBundleCreate(
+                allocator: *const c_void,
+                bundle_url: *const c_void,
+            ) -> *mut c_void;
+            fn CFRelease(cf: *const c_void);
         }
-    }
+
+        let path_bytes = bundle_path.as_os_str().as_encoded_bytes();
+        let url = unsafe {
+            CFURLCreateFromFileSystemRepresentation(
+                std::ptr::null(),
+                path_bytes.as_ptr(),
+                path_bytes.len() as isize,
+                1,
+            )
+        };
+        let cf_bundle = if !url.is_null() {
+            let b = unsafe { CFBundleCreate(std::ptr::null(), url) };
+            unsafe { CFRelease(url as *const _); }
+            b
+        } else {
+            std::ptr::null_mut()
+        };
+
+        type BundleEntryFn = unsafe extern "C" fn(bundle: *mut c_void) -> bool;
+        if let Ok(bundle_entry) = unsafe { lib.get::<BundleEntryFn>(b"bundleEntry") } {
+            unsafe { bundle_entry(cf_bundle); }
+        }
+
+        CfBundleGuard(cf_bundle)
+    };
 
     // Get the plugin factory
     type GetFactoryFn = unsafe extern "system" fn() -> *mut c_void;
