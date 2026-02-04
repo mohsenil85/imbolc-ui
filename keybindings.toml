@@ -46,6 +46,7 @@ bindings = [
   { key = "Ctrl+a", action = "select_all", description = "Select all" },
   { key = "Ctrl+n", action = "add_instrument", description = "Add instrument" },
   { key = ":", action = "command_palette", description = "Command palette" },
+  { key = "Space", action = "play_stop", description = "Play / Stop" },
 ]
 
 [layers.instrument]
@@ -106,7 +107,6 @@ bindings = [
   { key = "Enter", action = "toggle_note", description = "Place/remove note" },
   { key = "+", action = "vel_up", description = "Increase velocity" },
   { key = "-", action = "vel_down", description = "Decrease velocity" },
-  { key = "Space", action = "play_stop", description = "Play / Stop" },
   { key = "l", action = "loop", description = "Toggle loop" },
   { key = "[", action = "loop_start", description = "Set loop start" },
   { key = "]", action = "loop_end", description = "Set loop end" },
@@ -143,7 +143,6 @@ bindings = [
   { key = "h", action = "left", description = "Previous step" },
   { key = "l", action = "right", description = "Next step" },
   { key = "Enter", action = "toggle", description = "Toggle step" },
-  { key = "Space", action = "play_stop", description = "Play/stop" },
   { key = "s", action = "load_sample", description = "Load sample for pad" },
   { key = "c", action = "chopper", description = "Sample chopper" },
   { key = "x", action = "clear_pad", description = "Clear pad steps" },
@@ -339,7 +338,6 @@ bindings = [
   { key = "Z", action = "zoom_out", description = "Zoom out" },
   { key = "Home", action = "home", description = "Jump to start" },
   { key = "End", action = "end", description = "Jump to end" },
-  { key = "Space", action = "play_stop", description = "Play / Stop" },
 ]
 
 [layers.eq]
@@ -374,7 +372,6 @@ bindings = [
   { key = "D", action = "delete_clip", description = "Delete clip and all placements" },
   { key = "y", action = "duplicate", description = "Duplicate placement" },
   { key = "m", action = "toggle_mode", description = "Toggle Song/Pattern mode" },
-  { key = "Space", action = "play_stop", description = "Play / Stop" },
   { key = "Shift+Left", action = "move_left", description = "Move placement left" },
   { key = "Shift+Right", action = "move_right", description = "Move placement right" },
   { key = "z", action = "zoom_in", description = "Zoom in" },

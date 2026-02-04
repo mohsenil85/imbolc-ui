@@ -48,9 +48,9 @@ impl PianoRollState {
             bpm: 120.0,
             time_signature: (4, 4),
             playing: false,
-            looping: false,
+            looping: true,
             loop_start: 0,
-            loop_end: 480 * 4, // 4 beats
+            loop_end: 480 * 16, // 4 bars in 4/4
             playhead: 0,
             ticks_per_beat: 480,
             recording: false,

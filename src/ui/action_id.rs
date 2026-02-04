@@ -74,6 +74,7 @@ pub enum GlobalActionId {
     SelectPrevInstrument,
     SelectNextInstrument,
     SelectTwoDigit,
+    PlayStop,
     SwitchPane(PaneId),
     SelectInstrument(u8), // 1-10
 }
@@ -102,6 +103,7 @@ impl GlobalActionId {
             GlobalActionId::TogglePianoMode => "toggle_piano_mode",
             GlobalActionId::OpenProjectBrowser => "open_project_browser",
             GlobalActionId::Escape => "escape",
+            GlobalActionId::PlayStop => "play_stop",
             GlobalActionId::SelectPrevInstrument => "select_prev_instrument",
             GlobalActionId::SelectNextInstrument => "select_next_instrument",
             GlobalActionId::SelectTwoDigit => "select_two_digit",
@@ -156,6 +158,7 @@ impl GlobalActionId {
             "toggle_piano_mode" => Some(GlobalActionId::TogglePianoMode),
             "open_project_browser" => Some(GlobalActionId::OpenProjectBrowser),
             "escape" => Some(GlobalActionId::Escape),
+            "play_stop" => Some(GlobalActionId::PlayStop),
             "select_prev_instrument" => Some(GlobalActionId::SelectPrevInstrument),
             "select_next_instrument" => Some(GlobalActionId::SelectNextInstrument),
             "select_two_digit" => Some(GlobalActionId::SelectTwoDigit),
@@ -795,6 +798,7 @@ mod tests {
             GlobalActionId::TogglePianoMode,
             GlobalActionId::OpenProjectBrowser,
             GlobalActionId::Escape,
+            GlobalActionId::PlayStop,
             GlobalActionId::SelectPrevInstrument,
             GlobalActionId::SelectNextInstrument,
             GlobalActionId::SelectTwoDigit,

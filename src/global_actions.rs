@@ -459,6 +459,37 @@ pub(crate) fn handle_global_action(
                 panes.push_to("command_palette", &*state);
                 layer_stack.push("command_palette");
             }
+            GlobalActionId::PlayStop => {
+                // Skip during export/render
+                if state.pending_export.is_some() || state.pending_render.is_some() {
+                    return GlobalResult::Handled;
+                }
+                let pr = &mut state.session.piano_roll;
+                pr.playing = !pr.playing;
+                let playing = pr.playing;
+                audio.set_playing(playing);
+                if !playing {
+                    state.audio_playhead = 0;
+                    audio.reset_playhead();
+                    if audio.is_running() {
+                        audio.release_all_voices();
+                    }
+                    audio.clear_active_notes();
+                }
+                state.session.piano_roll.recording = false;
+
+                // Unify: toggle all drum sequencers
+                for inst in &mut state.instruments.instruments {
+                    if let Some(seq) = &mut inst.drum_sequencer {
+                        seq.playing = playing;
+                        if !playing {
+                            seq.current_step = 0;
+                            seq.step_accumulator = 0.0;
+                        }
+                    }
+                }
+                pending_audio_dirty.instruments = true;
+            }
             GlobalActionId::Escape => {
                 // Global escape — falls through to pane when no mode layer handles it
                 return GlobalResult::NotHandled;
