@@ -1,6 +1,5 @@
 # imbolc
 
-![imbolc](imbolc.png)
 
 imbolc is a terminal-based digital audio workstation (DAW) written in Rust. The UI is a TUI (ratatui) and the audio engine runs on SuperCollider (scsynth) via OSC. It is optimized for keyboard-first instrument editing, sequencing, and mixing inside the terminal.
 
