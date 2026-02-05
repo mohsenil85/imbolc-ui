@@ -145,7 +145,7 @@ fn build_bindings(layer_name: &str, raw: &[RawBinding]) -> Vec<KeyBinding> {
             let pattern = match parse_key(&b.key) {
                 Some(p) => p,
                 None => {
-                    eprintln!("Warning: ignoring unknown key '{}' in keybindings", b.key);
+                    log::warn!(target: "ui::keybindings", "ignoring unknown key '{}' in keybindings", b.key);
                     return None;
                 }
             };
@@ -156,7 +156,7 @@ fn build_bindings(layer_name: &str, raw: &[RawBinding]) -> Vec<KeyBinding> {
                     description: intern(b.description.clone()),
                 }),
                 None => {
-                    eprintln!("Warning: ignoring unknown action '{}' in layer '{}'", b.action, layer_name);
+                    log::warn!(target: "ui::keybindings", "ignoring unknown action '{}' in layer '{}'", b.action, layer_name);
                     None
                 }
             }

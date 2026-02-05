@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-imbolc-core = { path = "../imbolc-core" }
+imbolc-core = { path = "../imbolc-core-structured-logging" }
 ratatui = { version = "0.29", features = ["crossterm"] }
+log = "0.4"
+simplelog = "0.12"
 crossterm = "0.28"
 rusqlite = { version = "0.31", features = ["bundled"] }
 rosc = "0.10"
