@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{AppState, CustomSynthDefRegistry, SourceType, VstPluginRegistry};
+use crate::state::{AppState, CustomSynthDefRegistry, SourceType, SourceTypeExt, VstPluginRegistry};
 use crate::ui::action_id::{ActionId, AddActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Action, Color, FileSelectAction, InputEvent, InstrumentAction, Keymap, MouseEvent, MouseEventKind, MouseButton, NavAction, Pane, SessionAction, Style};

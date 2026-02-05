@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::state::{AppState, EffectType, VstPluginRegistry};
+use crate::state::{AppState, EffectType, EffectTypeExt, VstPluginRegistry};
 use crate::ui::action_id::{ActionId, AddActionId};
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{
