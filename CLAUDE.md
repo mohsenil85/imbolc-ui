@@ -16,7 +16,7 @@ src/
   setup.rs         — Auto-startup for SuperCollider
 ```
 
-Core library lives in a sibling repo at `../imbolc-core/` (path dependency). See its own CLAUDE.md for structure.
+Core library lives in sibling crate `../imbolc-core/`. Types are in `../imbolc-types/`. See the workspace root [../CLAUDE.md](../CLAUDE.md) for overview.
 
 ## Key Types
 
@@ -37,7 +37,7 @@ Core library lives in a sibling repo at `../imbolc-core/` (path dependency). See
 
 ## Critical Patterns
 
-See [docs/architecture.md](docs/architecture.md) for detailed architecture, state ownership, borrow patterns, and persistence.
+See [../docs/architecture.md](../docs/architecture.md) for detailed architecture, state ownership, borrow patterns, and persistence.
 
 ### Action Dispatch
 
@@ -120,19 +120,14 @@ Configured as MCP server (`cclsp.json` + `.mcp.json`). Provides rust-analyzer ac
 
 ## Detailed Documentation
 
-- [docs/architecture.md](docs/architecture.md) — state ownership, instrument model, pane rendering, action dispatch, borrow patterns
-- [docs/audio-routing.md](docs/audio-routing.md) — bus model, insert vs send, node ordering
-- [docs/keybindings.md](docs/keybindings.md) — keybinding philosophy and conventions
-- [docs/ai-coding-affordances.md](docs/ai-coding-affordances.md) — patterns that help AI agents work faster
-- [docs/sc-engine-architecture.md](docs/sc-engine-architecture.md) — SuperCollider engine modules
-- [docs/polyphonic-voice-allocation.md](docs/polyphonic-voice-allocation.md) — voice allocation design
-- [docs/custom-synthdef-plan.md](docs/custom-synthdef-plan.md) — custom SynthDef import system
-- [docs/sqlite-persistence.md](docs/sqlite-persistence.md) — persistence schema design
-- [docs/ai-integration.md](docs/ai-integration.md) — planned Haiku integration
+See `../docs/` for all documentation:
+- [../docs/architecture.md](../docs/architecture.md) — state ownership, instrument model, pane rendering, action dispatch
+- [../docs/audio-routing.md](../docs/audio-routing.md) — bus model, insert vs send, node ordering
+- [../docs/keybindings.md](../docs/keybindings.md) — keybinding philosophy and conventions
 
 ## Plans
 
-Save implementation plans in `./plans/` with descriptive filenames (e.g., `plans/midi-clock-sync.md`, `plans/sample-browser-redesign.md`). Use names that clearly describe the feature or change being planned.
+Implementation plans live at workspace root: `../plans/`
 
 ## Comment Box
 
