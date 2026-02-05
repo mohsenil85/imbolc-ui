@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 imbolc-core = { path = "../imbolc-core" }
+imbolc-types = { path = "../imbolc-types" }
 ratatui = { version = "0.29", features = ["crossterm"] }
 crossterm = "0.28"
 rusqlite = { version = "0.31", features = ["bundled"] }

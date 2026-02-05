@@ -75,6 +75,7 @@ pub enum GlobalActionId {
     SelectNextInstrument,
     SelectTwoDigit,
     PlayStop,
+    RefreshScreen,
     SwitchPane(PaneId),
     SelectInstrument(u8), // 1-10
 }
@@ -107,6 +108,7 @@ impl GlobalActionId {
             GlobalActionId::SelectPrevInstrument => "select_prev_instrument",
             GlobalActionId::SelectNextInstrument => "select_next_instrument",
             GlobalActionId::SelectTwoDigit => "select_two_digit",
+            GlobalActionId::RefreshScreen => "refresh_screen",
             GlobalActionId::SwitchPane(pane) => match pane {
                 PaneId::InstrumentEdit => "switch:instrument",
                 PaneId::InstrumentList => "switch:instrument_list",
@@ -162,6 +164,7 @@ impl GlobalActionId {
             "select_prev_instrument" => Some(GlobalActionId::SelectPrevInstrument),
             "select_next_instrument" => Some(GlobalActionId::SelectNextInstrument),
             "select_two_digit" => Some(GlobalActionId::SelectTwoDigit),
+            "refresh_screen" => Some(GlobalActionId::RefreshScreen),
             "switch:instrument" => Some(GlobalActionId::SwitchPane(PaneId::InstrumentEdit)),
             "switch:instrument_list" => Some(GlobalActionId::SwitchPane(PaneId::InstrumentList)),
             "switch:piano_roll_or_sequencer" => {

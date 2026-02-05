@@ -73,6 +73,11 @@ impl RatatuiBackend {
         })?;
         Ok(())
     }
+
+    /// Clear the terminal screen (useful for recovering from display corruption)
+    pub fn clear(&mut self) -> io::Result<()> {
+        self.terminal.clear()
+    }
 }
 
 /// A frame for drawing operations

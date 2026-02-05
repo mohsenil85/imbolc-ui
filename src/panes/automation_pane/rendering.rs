@@ -1,4 +1,4 @@
-use crate::state::automation::CurveType;
+use crate::state::automation::{AutomationTargetExt, CurveType};
 use crate::state::AppState;
 use crate::ui::layout_helpers::center_rect;
 use crate::ui::{Rect, RenderBuf, Color, Style};

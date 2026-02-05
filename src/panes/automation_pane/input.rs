@@ -1,4 +1,4 @@
-use crate::state::automation::{AutomationTarget, CurveType};
+use crate::state::automation::{AutomationTarget, AutomationTargetExt, CurveType};
 use crate::state::AppState;
 use crate::ui::action_id::{ActionId, AutomationActionId};
 use crate::ui::{Action, AutomationAction, InputEvent};

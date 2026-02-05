@@ -30,7 +30,7 @@ pub fn auto_start_sc(
                 Ok(()) => {
                     events.push(StatusEvent {
                         status: audio::ServerStatus::Connected,
-                        message: "Connected + synthdefs loaded".to_string(),
+                        message: "Connected".to_string(),
                         server_running: None,
                     });
                     // Wait for scsynth to finish processing /d_loadDir

@@ -26,6 +26,7 @@ pub(crate) enum InstrumentSelectMode {
 
 pub(crate) enum GlobalResult {
     Quit,
+    RefreshScreen,
     Handled,
     NotHandled,
 }
@@ -500,6 +501,9 @@ pub(crate) fn handle_global_action(
             GlobalActionId::Escape => {
                 // Global escape — falls through to pane when no mode layer handles it
                 return GlobalResult::NotHandled;
+            }
+            GlobalActionId::RefreshScreen => {
+                return GlobalResult::RefreshScreen;
             }
         },
         _ => return GlobalResult::NotHandled,
