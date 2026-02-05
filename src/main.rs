@@ -13,6 +13,7 @@ mod ui;
 mod global_actions;
 mod midi_dispatch;
 
+use std::fs::File;
 use std::time::{Duration, Instant};
 
 use audio::AudioHandle;
@@ -28,7 +29,35 @@ use ui::{
 };
 use global_actions::*;
 
+fn init_logging(verbose: bool) {
+    use simplelog::*;
+
+    let log_level = if verbose { LevelFilter::Debug } else { LevelFilter::Warn };
+
+    let log_path = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("imbolc")
+        .join("imbolc.log");
+
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let log_file = File::create(&log_path).unwrap_or_else(|_| {
+        File::create("/tmp/imbolc.log").expect("Cannot create log file")
+    });
+
+    WriteLogger::init(log_level, Config::default(), log_file)
+        .expect("Failed to initialize logger");
+
+    log::info!("imbolc starting (log level: {:?})", log_level);
+}
+
 fn main() -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
+    init_logging(verbose);
+
     let mut backend = RatatuiBackend::new()?;
     backend.start()?;
 
@@ -106,8 +135,11 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     let mut pending_audio_dirty = AudioDirty::default();
     let mut quit_after_save = false;
 
-    // CLI argument: optional project path
-    if let Some(arg) = std::env::args().nth(1) {
+    // CLI argument: optional project path (skip flags like --verbose)
+    let project_arg = std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-'));
+    if let Some(arg) = project_arg {
         let load_path = std::path::PathBuf::from(&arg);
         if load_path.exists() {
             // Load existing project
