@@ -19,7 +19,7 @@ Each agent works in its own git worktree:
 ## Workflow
 
 ```
-main repo: /Users/log/Projects/ilex/
+main repo: /Users/log/Projects/imbolc/
            ├── src/
            ├── docs/
            └── ...
@@ -73,7 +73,7 @@ After agents complete:
 
 ```bash
 # Switch to main
-cd /Users/log/Projects/ilex
+cd /Users/log/Projects/imbolc
 git checkout main
 
 # Merge each task branch

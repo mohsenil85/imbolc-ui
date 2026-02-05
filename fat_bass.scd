@@ -1,4 +1,4 @@
-// Fat Bass - A thick, detuned bass synth for ilex
+// Fat Bass - A thick, detuned bass synth for imbolc
 // Custom params: detune, sub_level, cutoff, resonance
 
 SynthDef(\fat_bass, {
