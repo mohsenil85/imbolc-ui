@@ -193,14 +193,14 @@ impl PianoRollPane {
             ActionId::PianoRoll(PianoRollActionId::TogglePoly) => Action::PianoRoll(PianoRollAction::TogglePolyMode(self.current_track)),
             ActionId::PianoRoll(PianoRollActionId::RenderToWav) => Action::PianoRoll(PianoRollAction::RenderToWav(self.current_instrument_id(state))),
             ActionId::PianoRoll(PianoRollActionId::BounceToWav) => {
-                if state.pending_export.is_some() {
+                if state.io.pending_export.is_some() {
                     Action::PianoRoll(PianoRollAction::CancelExport)
                 } else {
                     Action::PianoRoll(PianoRollAction::BounceToWav)
                 }
             }
             ActionId::PianoRoll(PianoRollActionId::ExportStems) => {
-                if state.pending_export.is_some() {
+                if state.io.pending_export.is_some() {
                     Action::PianoRoll(PianoRollAction::CancelExport)
                 } else {
                     Action::PianoRoll(PianoRollAction::ExportStems)

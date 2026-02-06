@@ -96,7 +96,7 @@ impl Frame {
         // Header line in the top border (left-aligned)
         let snap_text = if session.snap { "ON" } else { "OFF" };
         let tuning_str = format!("A{:.0}", session.tuning_a4);
-        let dirty_indicator = if state.dirty { "*" } else { "" };
+        let dirty_indicator = if state.project.dirty { "*" } else { "" };
         let header = format!(
             " IMBOLC - {}{}  Key: {}  Scale: {}  BPM: {}  {}/{}  Tuning: {}  [Snap: {}] ",
             self.project_name, dirty_indicator,
@@ -142,7 +142,7 @@ impl Frame {
         }
 
         // A-REC indicator (automation recording)
-        if state.automation_recording {
+        if state.recording.automation_recording {
             let arec_text = " A-REC ";
             let arec_start = cursor.saturating_sub(arec_text.len() as u16);
             let arec_style = Style::new().fg(Color::WHITE).bg(Color::MUTE_COLOR).bold();
@@ -199,14 +199,14 @@ impl Frame {
             let bottom_y = area.y + area.height.saturating_sub(1);
             let right_edge = area.x + area.width.saturating_sub(4); // avoid meter column
 
-            let sc_dot_color = match state.server_status {
+            let sc_dot_color = match state.audio.server_status {
                 ServerStatus::Connected => Color::METER_LOW,
                 ServerStatus::Starting | ServerStatus::Running => Color::SOLO_COLOR,
                 ServerStatus::Stopped => Color::DARK_GRAY,
                 ServerStatus::Error => Color::MUTE_COLOR,
             };
 
-            let midi_connected = state.midi_connected_port.is_some();
+            let midi_connected = state.midi.connected_port.is_some();
             let midi_dot_color = if midi_connected {
                 Color::METER_LOW
             } else {

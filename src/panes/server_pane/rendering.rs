@@ -58,9 +58,9 @@ impl ServerPane {
         y += 1;
 
         // Recording status
-        if state.recording {
-            let mins = state.recording_secs / 60;
-            let secs = state.recording_secs % 60;
+        if state.recording.recording {
+            let mins = state.recording.recording_secs / 60;
+            let secs = state.recording.recording_secs % 60;
             let rec_text = format!("REC {:02}:{:02}", mins, secs);
             buf.draw_line(
                 Rect::new(x, y, w, 1),

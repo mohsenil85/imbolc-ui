@@ -251,7 +251,7 @@ impl AutomationPane {
                 })
                 .unwrap_or("—");
 
-            let rec_indicator = if state.automation_recording { " [REC]" } else { "" };
+            let rec_indicator = if state.recording.automation_recording { " [REC]" } else { "" };
             let status = format!(
                 " Tick:{:<6} Val:{:.2}  Curve:{}{}",
                 self.cursor_tick,
@@ -268,7 +268,7 @@ impl AutomationPane {
                 let x = area.x + i as u16;
                 if x >= area.x + graph_width { break; }
                 // Use red style for [REC]
-                let is_rec_section = state.automation_recording
+                let is_rec_section = state.recording.automation_recording
                     && i >= status.len() - 6;
                 let style = if is_rec_section { rec_style } else { normal_style };
                 buf.set_cell(x, status_y, ch, style);

@@ -60,7 +60,7 @@ impl Pane for MidiSettingsPane {
             ActionId::MidiSettings(MidiSettingsActionId::Down) => {
                 match self.section {
                     Section::Ports => {
-                        let max = state.midi_port_names.len().saturating_sub(1);
+                        let max = state.midi.port_names.len().saturating_sub(1);
                         self.port_cursor = (self.port_cursor + 1).min(max);
                     }
                     Section::CcMappings => {
@@ -72,7 +72,7 @@ impl Pane for MidiSettingsPane {
                 Action::None
             }
             ActionId::MidiSettings(MidiSettingsActionId::Connect) => {
-                if self.section == Section::Ports && !state.midi_port_names.is_empty() {
+                if self.section == Section::Ports && !state.midi.port_names.is_empty() {
                     Action::Midi(MidiAction::ConnectPort(self.port_cursor))
                 } else {
                     Action::None
@@ -136,7 +136,7 @@ impl Pane for MidiSettingsPane {
         let w = inner.width.saturating_sub(2);
 
         // Section: Ports
-        let conn_text = if let Some(ref name) = state.midi_connected_port {
+        let conn_text = if let Some(ref name) = state.midi.connected_port {
             format!("  [Connected: {}]", name)
         } else {
             "  [Not connected]".to_string()
@@ -148,13 +148,13 @@ impl Pane for MidiSettingsPane {
         y += 1;
 
         if self.section == Section::Ports {
-            if state.midi_port_names.is_empty() {
+            if state.midi.port_names.is_empty() {
                 buf.draw_line(Rect::new(x, y, w, 1), &[("  (no MIDI ports found)", dim)]);
                 y += 1;
             } else {
-                for (i, name) in state.midi_port_names.iter().enumerate() {
+                for (i, name) in state.midi.port_names.iter().enumerate() {
                     if y >= inner.y + inner.height { break; }
-                    let is_connected = state.midi_connected_port.as_deref() == Some(name);
+                    let is_connected = state.midi.connected_port.as_deref() == Some(name);
                     let prefix = if is_connected { " * " } else { "   " };
                     let text = format!("{}{}", prefix, name);
                     let style = if i == self.port_cursor { highlight } else { normal };

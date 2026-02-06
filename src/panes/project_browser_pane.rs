@@ -81,7 +81,7 @@ impl Pane for ProjectBrowserPane {
             ActionId::ProjectBrowser(ProjectBrowserActionId::Select) => {
                 if let Some(entry) = self.entries.get(self.selected) {
                     let path = entry.path.clone();
-                    if state.dirty {
+                    if state.project.dirty {
                         // Dirty check handled by caller — for now just load directly
                         // The confirm pane intercept happens in global_actions
                         return Action::Session(SessionAction::LoadFrom(path));

@@ -66,16 +66,16 @@ impl MixerPane {
         let output_y = indicator_y + 1;
 
         // Calculate scroll offsets
-        let instrument_scroll = match state.session.mixer_selection {
+        let instrument_scroll = match state.session.mixer.selection {
             MixerSelection::Instrument(idx) => {
                 Self::calc_scroll_offset(idx, state.instruments.instruments.len(), NUM_VISIBLE_CHANNELS)
             }
             _ => 0,
         };
 
-        let bus_scroll = match state.session.mixer_selection {
+        let bus_scroll = match state.session.mixer.selection {
             MixerSelection::Bus(id) => {
-                Self::calc_scroll_offset((id - 1) as usize, state.session.buses.len(), NUM_VISIBLE_BUSES)
+                Self::calc_scroll_offset((id - 1) as usize, state.session.mixer.buses.len(), NUM_VISIBLE_BUSES)
             }
             _ => 0,
         };
@@ -87,7 +87,7 @@ impl MixerPane {
             let idx = instrument_scroll + i;
             if idx < state.instruments.instruments.len() {
                 let instrument = &state.instruments.instruments[idx];
-                let is_selected = matches!(state.session.mixer_selection, MixerSelection::Instrument(s) if s == idx);
+                let is_selected = matches!(state.session.mixer.selection, MixerSelection::Instrument(s) if s == idx);
 
                 let label = if instrument.layer_group.is_some() {
                     format!("I{}L", instrument.id)
@@ -119,11 +119,11 @@ impl MixerPane {
         // Render buses
         for i in 0..NUM_VISIBLE_BUSES {
             let bus_idx = bus_scroll + i;
-            if bus_idx >= state.session.buses.len() {
+            if bus_idx >= state.session.mixer.buses.len() {
                 break;
             }
-            let bus = &state.session.buses[bus_idx];
-            let is_selected = matches!(state.session.mixer_selection, MixerSelection::Bus(id) if id == bus.id);
+            let bus = &state.session.mixer.buses[bus_idx];
+            let is_selected = matches!(state.session.mixer.selection, MixerSelection::Bus(id) if id == bus.id);
 
             Self::render_channel_buf(
                 buf, x, &format!("BUS{}", bus.id), &bus.name,
@@ -142,17 +142,17 @@ impl MixerPane {
         x += 2;
 
         // Master
-        let is_master_selected = matches!(state.session.mixer_selection, MixerSelection::Master);
+        let is_master_selected = matches!(state.session.mixer.selection, MixerSelection::Master);
         Self::render_channel_buf(
             buf, x, "MASTER", "",
-            state.session.master_level, state.session.master_mute, false, None, is_master_selected,
+            state.session.mixer.master_level, state.session.mixer.master_mute, false, None, is_master_selected,
             label_y, name_y, meter_top_y, db_y, indicator_y, output_y,
         );
 
         // Send info line
         let send_y = output_y + 1;
         if let Some(bus_id) = self.send_target {
-            if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
+            if let MixerSelection::Instrument(idx) = state.session.mixer.selection {
                 if let Some(instrument) = state.instruments.instruments.get(idx) {
                     if let Some(send) = instrument.sends.iter().find(|s| s.bus_id == bus_id) {
                         let status = if send.enabled { "ON" } else { "OFF" };

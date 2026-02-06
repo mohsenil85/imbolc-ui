@@ -170,7 +170,7 @@ impl WaveformPane {
         self.render_border(rect, buf, " Spectrum Analyzer ", Color::METER_LOW);
         self.render_header(rect, buf, state, "Spectrum");
 
-        let bands = &state.visualization.spectrum_bands;
+        let bands = &state.audio.visualization.spectrum_bands;
         let num_bands = bands.len();
         let band_width = grid_width as usize / num_bands;
         let gap = 1_usize; // gap between bands
@@ -228,7 +228,7 @@ impl WaveformPane {
         self.render_border(rect, buf, " Oscilloscope ", Color::MIDI_COLOR);
         self.render_header(rect, buf, state, "Oscilloscope");
 
-        let scope = &state.visualization.scope_buffer;
+        let scope = &state.audio.visualization.scope_buffer;
         let center_y = grid_y + grid_height / 2;
         let half_height = (grid_height / 2) as f32;
 
@@ -289,7 +289,7 @@ impl WaveformPane {
         self.render_border(rect, buf, " Level Meter ", Color::METER_LOW);
         self.render_header(rect, buf, state, "Level Meter");
 
-        let viz = &state.visualization;
+        let viz = &state.audio.visualization;
         let meter_width = grid_width / 2 - 4; // space for each channel
 
         // Left channel
@@ -380,7 +380,7 @@ impl WaveformPane {
         let play_icon = if piano_roll.playing { "||" } else { "> " };
         let header_text = format!(
             " BPM:{:.0}  {}  {}",
-            state.audio_bpm, play_icon, mode_name,
+            state.audio.bpm, play_icon, mode_name,
         );
         buf.draw_line(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1),
             &[(&header_text, Style::new().fg(Color::WHITE))]);

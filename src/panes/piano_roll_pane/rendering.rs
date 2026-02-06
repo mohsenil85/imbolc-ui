@@ -70,7 +70,7 @@ impl PianoRollPane {
         }
 
         // REC indicator
-        if state.automation_recording {
+        if state.recording.automation_recording {
             let rec_str = "REC";
             let rec_style = Style::new().fg(Color::WHITE).bg(Color::RED);
             for (i, ch) in rec_str.chars().enumerate() {
@@ -171,7 +171,7 @@ impl PianoRollPane {
             ts_den,
             play_icon,
             loop_icon,
-            piano_roll.tick_to_beat(state.audio_playhead),
+            piano_roll.tick_to_beat(state.audio.playhead),
         );
         buf.draw_line(Rect::new(rect.x + 1, header_y, rect.width.saturating_sub(2), 1),
             &[(&header_text, Style::new().fg(Color::WHITE))]);
@@ -189,7 +189,7 @@ impl PianoRollPane {
         }
 
         // Rendering indicator
-        if let Some(render) = &state.pending_render {
+        if let Some(render) = &state.io.pending_render {
             if let Some(track_inst_id) = state.session.piano_roll.track_order.get(self.current_track) {
                 if render.instrument_id == *track_inst_id {
                     let label = " RENDERING ";
@@ -201,8 +201,8 @@ impl PianoRollPane {
         }
 
         // Export progress indicator
-        if let Some(export) = &state.pending_export {
-            let progress = state.export_progress;
+        if let Some(export) = &state.io.pending_export {
+            let progress = state.io.export_progress;
             let bar_width: usize = 20;
             let filled = (progress * bar_width as f32) as usize;
             let empty = bar_width.saturating_sub(filled);
@@ -265,8 +265,8 @@ impl PianoRollPane {
 
                 let is_cursor = pitch == self.cursor_pitch && tick == self.cursor_tick;
                 let is_playhead = piano_roll.playing
-                    && tick <= state.audio_playhead
-                    && state.audio_playhead < tick + self.ticks_per_cell();
+                    && tick <= state.audio.playhead
+                    && state.audio.playhead < tick + self.ticks_per_cell();
 
                 let tpb = piano_roll.ticks_per_beat;
                 let tpbar = piano_roll.ticks_per_bar();

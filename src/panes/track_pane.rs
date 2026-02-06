@@ -494,7 +494,7 @@ impl Pane for TrackPane {
         }
 
         // --- Playhead ---
-        let playhead_tick = state.audio_playhead;
+        let playhead_tick = state.audio.playhead;
         if playhead_tick >= arr.view_start_tick {
             let playhead_col = (playhead_tick - arr.view_start_tick) / ticks_per_col;
             if (playhead_col as u16) < timeline_width {

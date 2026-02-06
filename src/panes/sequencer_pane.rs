@@ -221,7 +221,7 @@ impl Pane for SequencerPane {
 
         let pat_str = format!("Pattern {}", pattern_label);
         let len_str = format!("  Length: {}", pattern.length);
-        let bpm_str = format!("  BPM: {:.0}", state.audio_bpm);
+        let bpm_str = format!("  BPM: {:.0}", state.audio.bpm);
         let play_str = format!("  {}", play_label);
         buf.draw_line(Rect::new(cx, cy, rect.width.saturating_sub(4), 1), &[
             (&pat_str, Style::new().fg(Color::WHITE).bold()),

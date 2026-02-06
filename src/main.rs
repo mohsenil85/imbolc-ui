@@ -127,8 +127,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
     if !midi_input.list_ports().is_empty() {
         let _ = midi_input.connect(0);
     }
-    state.midi_port_names = midi_input.list_ports().iter().map(|p| p.name.clone()).collect();
-    state.midi_connected_port = midi_input.connected_port_name().map(|s| s.to_string());
+    state.midi.port_names = midi_input.list_ports().iter().map(|p| p.name.clone()).collect();
+    state.midi.connected_port = midi_input.connected_port_name().map(|s| s.to_string());
     let mut recent_projects = state::recent_projects::RecentProjects::load();
     let mut last_render_time = Instant::now();
     let mut select_mode = InstrumentSelectMode::Normal;
@@ -150,8 +150,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     .to_string();
                 state.session = session;
                 state.instruments = instruments;
-                state.project_path = Some(load_path);
-                state.dirty = false;
+                state.project.path = Some(load_path);
+                state.project.dirty = false;
                 app_frame.set_project_name(name);
                 pending_audio_dirty.merge(AudioDirty::all());
 
@@ -168,7 +168,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("untitled")
                 .to_string();
-            state.project_path = Some(load_path);
+            state.project.path = Some(load_path);
             app_frame.set_project_name(name);
         }
     }
@@ -349,21 +349,21 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 midi_input.refresh_ports();
                 match midi_input.connect(port_idx) {
                     Ok(()) => {
-                        state.midi_connected_port = midi_input.connected_port_name().map(|s| s.to_string());
+                        state.midi.connected_port = midi_input.connected_port_name().map(|s| s.to_string());
                     }
                     Err(_) => {
-                        state.midi_connected_port = None;
+                        state.midi.connected_port = None;
                     }
                 }
-                state.midi_port_names = midi_input.list_ports().iter().map(|p| p.name.clone()).collect();
+                state.midi.port_names = midi_input.list_ports().iter().map(|p| p.name.clone()).collect();
             } else if let Action::Midi(action::MidiAction::DisconnectPort) = &pane_action {
                 midi_input.disconnect();
-                state.midi_connected_port = None;
+                state.midi.connected_port = None;
             }
 
             // Intercept SaveAndQuit — handle in main.rs, not dispatch
             if matches!(&pane_action, Action::SaveAndQuit) {
-                if state.project_path.is_some() {
+                if state.project.path.is_some() {
                     let r = LocalDispatcher::new(&mut state, &mut audio, &io_tx)
                         .dispatch(&Action::Session(action::SessionAction::Save));
                     pending_audio_dirty.merge(r.audio_dirty);
@@ -400,13 +400,13 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         while let Ok(feedback) = io_rx.try_recv() {
             match feedback {
                 IoFeedback::SaveComplete { id, path, result } => {
-                    if id != state.io_generation.save {
+                    if id != state.io.generation.save {
                         continue;
                     }
                     let status = match result {
                         Ok(name) => {
-                            state.project_path = Some(path.clone());
-                            state.dirty = false;
+                            state.project.path = Some(path.clone());
+                            state.project.dirty = false;
                             recent_projects.add(&path, &name);
                             recent_projects.save();
                             app_frame.set_project_name(name);
@@ -419,7 +419,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                     }
                 }
                 IoFeedback::LoadComplete { id, path, result } => {
-                    if id != state.io_generation.load {
+                    if id != state.io.generation.load {
                         continue;
                     }
                      match result {
@@ -427,8 +427,8 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                              state.undo_history.clear();
                              state.session = new_session;
                              state.instruments = new_instruments;
-                             state.project_path = Some(path.clone());
-                             state.dirty = false;
+                             state.project.path = Some(path.clone());
+                             state.project.dirty = false;
                              recent_projects.add(&path, &name);
                              recent_projects.save();
                              app_frame.set_project_name(name);
@@ -472,7 +472,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                      }
                 }
                 IoFeedback::ImportSynthDefComplete { id, result } => {
-                    if id != state.io_generation.import_synthdef {
+                    if id != state.io.generation.import_synthdef {
                         continue;
                     }
                      match result {
@@ -523,7 +523,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                      }
                 }
                 IoFeedback::ImportSynthDefLoaded { id, result } => {
-                    if id != state.io_generation.import_synthdef {
+                    if id != state.io.generation.import_synthdef {
                         continue;
                     }
                     let status = match result {
@@ -538,7 +538,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
         }
 
         // Quit after save completes
-        if quit_after_save && !state.dirty {
+        if quit_after_save && !state.project.dirty {
             break;
         }
 
@@ -570,7 +570,7 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
                 } else {
                     0.0
                 };
-                let mute = state.session.master_mute;
+                let mute = state.session.mixer.master_mute;
                 app_frame.set_master_peak(peak, mute);
             }
 
@@ -582,22 +582,22 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             }
 
             // Update recording state
-            state.recording = audio.is_recording();
-            state.recording_secs = audio.recording_elapsed()
+            state.recording.recording = audio.is_recording();
+            state.recording.recording_secs = audio.recording_elapsed()
                 .map(|d| d.as_secs()).unwrap_or(0);
-            app_frame.recording = state.recording;
-            app_frame.recording_secs = state.recording_secs;
+            app_frame.recording = state.recording.recording;
+            app_frame.recording_secs = state.recording.recording_secs;
 
             // Update visualization data from audio analysis synths
-            state.visualization.spectrum_bands = audio.spectrum_bands();
+            state.audio.visualization.spectrum_bands = audio.spectrum_bands();
             let (peak_l, peak_r, rms_l, rms_r) = audio.lufs_data();
-            state.visualization.peak_l = peak_l;
-            state.visualization.peak_r = peak_r;
-            state.visualization.rms_l = rms_l;
-            state.visualization.rms_r = rms_r;
+            state.audio.visualization.peak_l = peak_l;
+            state.audio.visualization.peak_r = peak_r;
+            state.audio.visualization.rms_l = rms_l;
+            state.audio.visualization.rms_r = rms_r;
             let scope = audio.scope_buffer();
-            state.visualization.scope_buffer.clear();
-            state.visualization.scope_buffer.extend(scope);
+            state.audio.visualization.scope_buffer.clear();
+            state.audio.visualization.scope_buffer.extend(scope);
 
             // Update waveform cache for waveform pane
             if panes.active().id() == "waveform" {
@@ -618,9 +618,9 @@ fn run(backend: &mut RatatuiBackend) -> std::io::Result<()> {
             // Copy audio-owned state into AppState for pane rendering.
             {
                 let ars = audio.read_state();
-                state.audio_playhead = ars.playhead;
-                state.audio_bpm = ars.bpm;
-                state.server_status = ars.server_status;
+                state.audio.playhead = ars.playhead;
+                state.audio.bpm = ars.bpm;
+                state.audio.server_status = ars.server_status;
             }
 
             // Render

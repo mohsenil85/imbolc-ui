@@ -77,7 +77,7 @@ pub(crate) fn sync_piano_roll_to_selection(
             // Sync mixer selection via dispatch
             let active = panes.active().id();
             if active == "mixer" {
-                if let MixerSelection::Instrument(_) = state.session.mixer_selection {
+                if let MixerSelection::Instrument(_) = state.session.mixer.selection {
                     dispatch::dispatch_action(
                         &Action::Mixer(MixerAction::SelectAt(MixerSelection::Instrument(selected_idx))),
                         state, audio, io_tx,
@@ -191,7 +191,7 @@ pub(crate) fn handle_global_action(
     match action {
         ActionId::Global(g) => match g {
             GlobalActionId::Quit => {
-                if state.dirty {
+                if state.project.dirty {
                     panes.push_to("quit_prompt", &*state);
                     sync_pane_layer(panes, layer_stack);
                     return GlobalResult::Handled;
@@ -213,7 +213,7 @@ pub(crate) fn handle_global_action(
                 sync_instrument_edit(state, panes);
             }
             GlobalActionId::Save => {
-                if state.project_path.is_none() {
+                if state.project.path.is_none() {
                     // Unnamed project — open SaveAs
                     let default_name = "untitled".to_string();
                     if let Some(sa) = panes.get_pane_mut::<SaveAsPane>("save_as") {
@@ -228,7 +228,7 @@ pub(crate) fn handle_global_action(
                 }
             }
             GlobalActionId::Load => {
-                if state.dirty {
+                if state.project.dirty {
                     if let Some(confirm) = panes.get_pane_mut::<ConfirmPane>("confirm") {
                         confirm.set_confirm("Discard unsaved changes and reload?", PendingAction::LoadDefault);
                     }
@@ -241,7 +241,7 @@ pub(crate) fn handle_global_action(
                 }
             }
             GlobalActionId::SaveAs => {
-                let default_name = state.project_path.as_ref()
+                let default_name = state.project.path.as_ref()
                     .and_then(|p| p.file_stem())
                     .and_then(|s| s.to_str())
                     .unwrap_or("untitled")
@@ -469,7 +469,7 @@ pub(crate) fn handle_global_action(
             }
             GlobalActionId::PlayStop => {
                 // Skip during export/render
-                if state.pending_export.is_some() || state.pending_render.is_some() {
+                if state.io.pending_export.is_some() || state.io.pending_render.is_some() {
                     return GlobalResult::Handled;
                 }
                 let pr = &mut state.session.piano_roll;
@@ -477,7 +477,7 @@ pub(crate) fn handle_global_action(
                 let playing = pr.playing;
                 audio.set_playing(playing);
                 if !playing {
-                    state.audio_playhead = 0;
+                    state.audio.playhead = 0;
                     audio.reset_playhead();
                     if audio.is_running() {
                         audio.release_all_voices();

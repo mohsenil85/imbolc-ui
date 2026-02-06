@@ -76,7 +76,7 @@ impl MixerPane {
             }
             ActionId::Mixer(MixerActionId::ClearSend) | ActionId::Mixer(MixerActionId::Escape) => { self.send_target = None; Action::None }
             ActionId::Mixer(MixerActionId::EnterDetail) => {
-                if let MixerSelection::Instrument(idx) = state.session.mixer_selection {
+                if let MixerSelection::Instrument(idx) = state.session.mixer.selection {
                     if idx < state.instruments.instruments.len() {
                         self.detail_mode = Some(idx);
                         self.detail_section = MixerSection::Effects;
@@ -107,15 +107,15 @@ impl MixerPane {
         }
 
         // Calculate scroll offsets (same as render)
-        let instrument_scroll = match state.session.mixer_selection {
+        let instrument_scroll = match state.session.mixer.selection {
             MixerSelection::Instrument(idx) => {
                 Self::calc_scroll_offset(idx, state.instruments.instruments.len(), NUM_VISIBLE_CHANNELS)
             }
             _ => 0,
         };
-        let bus_scroll = match state.session.mixer_selection {
+        let bus_scroll = match state.session.mixer.selection {
             MixerSelection::Bus(id) => {
-                Self::calc_scroll_offset((id - 1) as usize, state.session.buses.len(), NUM_VISIBLE_BUSES)
+                Self::calc_scroll_offset((id - 1) as usize, state.session.mixer.buses.len(), NUM_VISIBLE_BUSES)
             }
             _ => 0,
         };
@@ -139,8 +139,8 @@ impl MixerPane {
                 if col >= bus_start_x && col < bus_end_x {
                     let channel = ((col - bus_start_x) / CHANNEL_WIDTH) as usize;
                     let bus_idx = bus_scroll + channel;
-                    if bus_idx < state.session.buses.len() {
-                        let bus_id = state.session.buses[bus_idx].id;
+                    if bus_idx < state.session.mixer.buses.len() {
+                        let bus_id = state.session.mixer.buses[bus_idx].id;
                         self.send_target = None;
                         return Action::Mixer(MixerAction::SelectAt(MixerSelection::Bus(bus_id)));
                     }
